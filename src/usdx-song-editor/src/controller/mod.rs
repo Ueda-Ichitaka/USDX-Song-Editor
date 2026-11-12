@@ -7,6 +7,8 @@
 
 pub mod editor;
 pub mod fingerprint;
+pub mod save;
 
 pub use editor::EditorController;
 pub use fingerprint::FileFingerprint;
+pub use save::{SaveError, SaveService};

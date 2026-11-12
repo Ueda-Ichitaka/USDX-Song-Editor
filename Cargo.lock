@@ -947,6 +947,7 @@ dependencies = [
  "cxx-qt-lib",
  "cxx-qt-lib-extras",
  "tempfile",
+ "thiserror 2.0.21",
  "usdx-edit",
  "usdx-format",
 ]

@@ -104,6 +104,16 @@ impl EditorController {
         self.loaded.is_some()
     }
 
+    /// loaded returns the loaded song.
+    pub fn loaded(&self) -> Option<&LoadedSong> {
+        self.loaded.as_ref()
+    }
+
+    /// loaded_mut returns the loaded song for editing and saving.
+    pub fn loaded_mut(&mut self) -> Option<&mut LoadedSong> {
+        self.loaded.as_mut()
+    }
+
     /// path returns the path of the loaded song.
     pub fn path(&self) -> Option<&Path> {
         self.loaded.as_ref().map(|loaded| loaded.path.as_path())

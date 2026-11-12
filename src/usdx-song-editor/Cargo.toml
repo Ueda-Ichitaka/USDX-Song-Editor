@@ -15,6 +15,7 @@ cxx = "1.0.205"
 cxx-qt = "0.10.0"
 cxx-qt-lib = { version = "0.10.0", features = ["qt_full"] }
 cxx-qt-lib-extras = "0.10.0"
+thiserror = "2.0.21"
 usdx-edit = { path = "../usdx-edit" }
 usdx-format = { path = "../usdx-format" }
 

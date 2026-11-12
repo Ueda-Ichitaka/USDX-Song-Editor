@@ -1,7 +1,8 @@
 <!--
 About me: the progress checklist for Plan/IMPLEMENTATION_PLAN.md. Agents mark a task here
 when it meets the definition of done (plan section 0.3) and note facts a later task must
-know. One row per task, in plan order.
+know, including the UI acceptance result (screens checked in both themes, deviations with
+reasons, Plan/UI_SPEC.md section 8.2). One row per task, in plan order.
 -->
 
 # Progress
@@ -32,13 +33,14 @@ Status values: `todo`, `in progress`, `done`, `blocked (gate G-xx)`.
 | P3-02 | Save service | todo | |
 | P3-03 | Settings | todo | |
 | P3-04 | SongDocument and LinesModel bridges | todo | |
-| P3-05 | QML shell | todo | |
+| P3-05 | QML shell | todo | gate G-08 check first |
+| P3-06 | Screenshot harness | todo | |
 | P4-01 | Test media helper | todo | |
 | P4-02 | Player | todo | |
 | P4-03 | Analysis and cache | todo | |
 | P4-04 | Player bridge and playhead | todo | |
 | P5-01 | SheetViewport | todo | |
-| P5-02 | WaveformItem | todo | |
+| P5-02 | SheetBackground | todo | |
 | P5-03 | NotesModel and PhraseEndsModel | todo | |
 | P5-04 | Note delegates: select, drag, resize, rubber band | todo | |
 | P5-05 | Phrase end handle, insert, split, merge, delete, type keys, inspector | todo | |

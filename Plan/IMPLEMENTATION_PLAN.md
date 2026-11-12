@@ -2,8 +2,9 @@
 About me: the implementation plan for the USDX Song Editor. It is the single source of
 truth that humans and coding agents follow to build the application task by task: the
 decisions taken, the working rules, the repository layout, the data model, the algorithms,
-and every task with its tests and its definition of done. The visual companion with UI
-mocks is Plan/usdx-song-editor-plan.html; progress is tracked in Plan/PROGRESS.md.
+and every task with its tests and its definition of done. The binding UI specification is
+Plan/UI_SPEC.md with reference images in Plan/mockups/; the interactive mock page is
+Plan/usdx-song-editor-plan.html; progress is tracked in Plan/PROGRESS.md.
 -->
 
 # USDX Song Editor - Implementation Plan
@@ -18,8 +19,18 @@ lines whose timing is wrong (including "racing" sections where the USDX Song Fac
 anchor), and save the song losslessly. On top of that it exports `anchors.txt` files in the
 Factory's format as reference data for developing the Factory.
 
-The UI mocks and the usage workflows are in `Plan/usdx-song-editor-plan.html` (open it in a
-browser). This document is the build plan. Where the two differ, this document wins.
+Companion documents:
+
+- `Plan/UI_SPEC.md`: the binding UI specification (every screen, state, dialog, size,
+  colour and text), with reference images in `Plan/mockups/<screen>-light.png` and
+  `-dark.png`. All UI work follows it.
+- `Plan/usdx-song-editor-plan.html`: the interactive mock page and the usage workflows (open
+  it in a browser; `#m-editor`, `#m-start` etc. select a screen).
+  `Plan/render_mockups.sh` renders it into `Plan/mockups/`.
+- `Plan/PROGRESS.md`: task status.
+
+Precedence: for behaviour, data and algorithms this document wins; for anything visible,
+`Plan/UI_SPEC.md` wins; the HTML page is illustration.
 
 ---
 
@@ -85,8 +96,11 @@ browser). This document is the build plan. Where the two differ, this document w
 5. GREEN: implement the smallest change that passes.
 6. REFACTOR: remove duplication, improve names, keep headers and comments true. Run
    `scripts/dev.sh check` (fmt, clippy with `-D warnings`, all tests).
-7. Update `Plan/PROGRESS.md`: mark the task, note anything a later task must know.
-8. Report to the user what was done, which tests were added, and anything left open. Do not
+7. UI tasks only: run the acceptance procedure of `Plan/UI_SPEC.md` section 8.2 (render the
+   task's screens in light and dark with `scripts/ui-shots.sh`, compare them with
+   `Plan/mockups/`, record the result and every deviation with its reason).
+8. Update `Plan/PROGRESS.md`: mark the task, note anything a later task must know.
+9. Report to the user what was done, which tests were added, and anything left open. Do not
    commit.
 
 ### 0.3 Definition of done (every task)
@@ -98,6 +112,8 @@ browser). This document is the build plan. Where the two differ, this document w
   return errors. `expect()` is allowed only for true invariants, with a message saying why.
 - No `unsafe` outside the generated cxx-qt bridges and the `paint` override required by
   `QQuickPaintedItem`.
+- UI tasks: the screens match `Plan/UI_SPEC.md` and `Plan/mockups/` in both themes
+  (UI_SPEC 8.2); no literal colours or pixel sizes outside `Palette.qml` and `Metrics.qml`.
 - `Plan/PROGRESS.md` updated.
 
 ---
@@ -121,6 +137,7 @@ All decided by the user on 12 November 2026.
 | D-11 | Upgrade and `#VERSION` | Upgrade sets `#VERSION:1.1.0` only when the file is unversioned or `1.0.0`. A file that already says `1.1.0` or a higher `1.x.y` (UltraSinger writes `1.2.0`) keeps its version |
 | D-12 | anchors.txt content | Every line whose start time changed in this editing session (compared with the file as loaded), plus the pinned anchors and the end pin |
 | D-13 | Code location | Cargo workspace; the crates live under the existing `src/` folder |
+| D-14 | UI specification | `Plan/UI_SPEC.md` with the images in `Plan/mockups/` is binding for everything visible, so that any agent produces the same UI; every UI task is accepted by screenshot comparison in both themes |
 
 Ruled out: symphonia (version 0.6.1 has no Opus decoder; most of the library is `.opus`),
 qmetaobject-rs (last release 2023), Qt Multimedia (less control over position, rate and
@@ -235,6 +252,7 @@ USDX-Song-Editior/
   CMakeLists.txt                 installs binary, .desktop, metainfo, icon (ECM)
   scripts/
     dev.sh                       guarded build/test entry point (section 2.5)
+    ui-shots.sh                  renders the app's demo states to PNG (UI_SPEC 8.1)
     tests/dev_guard_test.sh      tests for the guard functions
   src/
     usdx-format/                 lib: lossless file model, parse, serialize, timing, validation
@@ -262,8 +280,11 @@ USDX-Song-Editior/
     user-manual.md               written in phase 8
   Plan/
     IMPLEMENTATION_PLAN.md       this file
+    UI_SPEC.md                   binding UI specification
     PROGRESS.md                  task checklist
-    usdx-song-editor-plan.html   mocks and workflows
+    usdx-song-editor-plan.html   interactive mocks and workflows
+    render_mockups.sh            renders the mock page into mockups/
+    mockups/                     reference images, <screen>-light.png and <screen>-dark.png
 ```
 
 Workspace `Cargo.toml`: `edition = "2024"`, `rust-version = "1.100"`,
@@ -766,7 +787,9 @@ Follow KDE's guide, verified against cxx-qt 0.10 in task P0-03:
 resource path the build generates and use it), `app.exec()`.
 
 Command line: `usdx-song-editor [SONG.txt]`, `--version`, `--self-test` (load the QML, create
-the window offscreen, exit 0 if the root object exists, non-zero otherwise).
+the window offscreen, exit 0 if the root object exists, non-zero otherwise). Debug builds also
+accept `--screenshot <out.png> --demo-state <name> [--song <file>] [--size WxH]`, the
+screenshot harness of `Plan/UI_SPEC.md` section 8.1 (task P3-06).
 
 QML module URI: `io.github.ueda_ichitaka.UsdxSongEditor` (verify that cxx-qt accepts the
 underscore and capitals in the URI; if not, gate G-04).
@@ -819,11 +842,14 @@ after. Roles `noteId`, `start`, `length`, `pitch`, `type`, `text`, `lineOffset` 
 `seekMs(ms)`, `playRange(startMs, endMs)`, `setRate(r)`, `setTrack(t)`, `tick()` (called
 every frame by `FrameAnimation`; updates `positionMs` and handles bus events).
 
-**`WaveformItem`** (`QQuickPaintedItem`): properties `startMs`, `endMs`, `pxPerBeat`,
-`startBeat`, `pitchTop`, `pxPerSemitone`, `bpm`, `gapMs`, `showGrid`, `showActivity`,
-`overview` (whole-song mode for the repair strip), `peaksReady`. Paints pitch rows, C rows
-stronger, second lines with labels on the ruler, the waveform of the chosen track, the vocal
-activity lane, and in overview mode the line blocks coloured by health. Starts analysis on a
+**`SheetBackground`** (`QQuickPaintedItem`): properties `startMs`, `endMs`, `pxPerBeat`,
+`startBeat`, `pitchTop`, `pxPerSemitone`, `bpm`, `gapMs`, `showLyricsLane`, `showActivity`,
+`overview` (whole-song mode for the repair strip), `peaksReady`, `analysisProgress`, and the
+theme colours it needs (passed from QML as `color` properties so it follows the theme). Paints
+everything in the note sheet that is not interactive, exactly as `Plan/UI_SPEC.md` section 3
+specifies: ruler, pitch rows and labels, grid lines, the lyrics lane, the waveform lane
+(including its "Reading the waveform…", "No audio" and "No vocals track" states) and the
+activity lane; in overview mode the whole-song strip of UI_SPEC 4.6. Starts analysis on a
 worker thread when the audio path changes.
 
 **`Repair`** (QObject): mode (`anchor`, `block`, `tap`), anchors as a JSON list or a small
@@ -848,33 +874,40 @@ first axis moved; Alt turns off snapping a dragged note's edge to a neighbour's 
 
 ### 8.5 QML files (`qml/`)
 
-| File | Content |
-|---|---|
-| `Main.qml` | `Kirigami.ApplicationWindow`, `globalDrawer` (Open, Recent, Save, Save As, Song properties, Settings, About), `pageStack.initialPage: EditorPage`, close guard with a `Kirigami.PromptDialog` when dirty, drop area for `.txt` files |
-| `EditorPage.qml` | `Kirigami.Page` with actions (undo, redo, play, play line, loop, track, rate, repair, properties); `RowLayout` of `LinesPane` and the sheet column; status bar |
-| `LinesPane.qml` | `Kirigami.SearchField` and a `ListView` over `LinesModel`, delegate with number, time, type chip, text, health dot, anchor badge |
-| `NoteSheet.qml` | `Flickable`; inside: `WaveformItem` (background), `Repeater` of `NoteDelegate`, `Repeater` of `PhraseEndHandle`, `Playhead`, rubber band; wheel and middle-drag handling |
-| `NoteDelegate.qml` | `Rectangle` coloured by type, syllable label, `DragHandler`, two edge `DragHandler`s, `TapHandler` (select, double tap edits text), ghost outline when `ghostStart >= 0` |
-| `PhraseEndHandle.qml` | dashed line with a drag cap, limited to `min`..`max` |
-| `Playhead.qml` | red line; ruler click seeks |
-| `Inspector.qml` | type segmented buttons, start, length, pitch with note name, text field |
-| `LineTextDialog.qml` | `Kirigami.Dialog`, text field, syllable chips from `previewLineText`, count policy |
-| `RepairPage.qml` | mode switch, overview strip (`WaveformItem` overview mode), lines pane with health, sheet with ghosts, side panel |
-| `AnchorPanel.qml`, `BlockPanel.qml` | side panels for the two modes |
-| `TapAlongPage.qml` | big syllable display, tap key handling (`Keys.onPressed`/`onReleased`, ignore auto-repeat), lane of taps versus notes |
-| `ExportAnchorsDialog.qml` | preview of the file text, warnings from the checks, file chooser |
-| `PropertiesPage.qml` | `Kirigami.FormLayout` (or Kirigami Addons `FormCard`, gate G-05) for the edited tags, validation list as `InlineMessage`s, pending upgrade changes |
-| `UpgradeDialog.qml` | list of changes and the diff |
-| `SettingsPage.qml` | thresholds, latency, default track, autoplay |
+**The look and behaviour of every screen, state and dialog is specified in
+`Plan/UI_SPEC.md`, which is binding (decision D-14), with reference images in
+`Plan/mockups/`.** This table only maps the files to the UI_SPEC sections they implement.
 
-Every visible string uses `qsTr()` (D-10). Colours come from `Kirigami.Theme`; note type
-colours are named constants in one `NoteColors.qml` singleton (normal blue, golden amber,
-freestyle grey, rap teal, rap golden violet, as in the mocks).
+| File | Content | UI_SPEC |
+|---|---|---|
+| `Main.qml` | `Kirigami.ApplicationWindow`, `pageStack` (initial `EditorPage`), window title, close guard, drop area, global shortcuts | 2.6, 4.1 |
+| `MainMenu.qml` | `Kirigami.GlobalDrawer { isMenu: true }` with the menu items | 4.2 |
+| `Metrics.qml` | singleton: every app metric from UI_SPEC (sizes in px or Kirigami units) | 2.1 |
+| `Palette.qml` | singleton: note type colours, anchor colour, derived grid colours | 2.3 |
+| `EditorPage.qml` | toolbar, `SplitView` of `LinesPane` and the editor column, status bar; the start screen (`Kirigami.PlaceholderMessage` and recent list) while no song is open | 4.1, 4.3 |
+| `LinesPane.qml` | `Kirigami.SearchField`, `ListView` with the row delegate | 4.3 |
+| `LineHeader.qml` | line header bar | 4.3 |
+| `NoteSheet.qml` | `Flickable` with `SheetBackground`, note delegates, phrase end handles, rubber band, playhead; wheel, zoom and pan | 3 |
+| `NoteDelegate.qml` | note rectangle, selection border, edge handles, `DragHandler`s, `TapHandler`, ghost outline | 3.5 |
+| `PhraseEndHandle.qml`, `Playhead.qml` | | 3.5 |
+| `Inspector.qml`, `StatusBar.qml` | | 4.3 |
+| `AudioBanner.qml`, `ReadOnlyBanner.qml`, `SaveErrorBanner.qml` | the `InlineMessage`s at the top of the editor column | 4.4, 4.5, 6 |
+| `RepairPage.qml`, `OverviewStrip.qml`, `AnchorPanel.qml`, `BlockBar.qml` | repair screens | 4.6, 4.7 |
+| `TapAlongPage.qml` | tap-along screen and key handling (`Keys.onPressed`/`onReleased`, ignore auto-repeat) | 4.8 |
+| `PropertiesPage.qml` | song properties and checks | 4.9 |
+| `SettingsPage.qml` | settings | 4.10 |
+| `SaveChangesDialog.qml`, `ChangedOnDiskDialog.qml`, `OpenErrorDialog.qml` | prompt dialogs | 5.1, 5.2, 6 |
+| `LineTextDialog.qml`, `ExportAnchorsDialog.qml`, `UpgradeDialog.qml`, `CalibrationDialog.qml` | dialogs | 5.4 - 5.7 |
+
+Every visible string uses `qsTr()` (D-10) with the exact English text from UI_SPEC.
 
 ### 8.6 Shortcuts
 
-Implemented as `Kirigami.Action`s with `shortcut`, so they appear in tooltips and menus. The
-full table is in the HTML plan (section "Keys and mouse"); the authoritative list:
+Implemented as `Kirigami.Action`s with `shortcut`, so they appear in tooltips and menus.
+This is the authoritative list (the HTML plan's "Keys and mouse" table shows the same plus
+the mouse gestures; UI_SPEC 4.2 lists the menu shortcuts Ctrl+, for Settings and Ctrl+Q for
+Quit). Esc closes a dialog, leaves a pushed page, stops playback, or clears the selection, in
+that order of precedence.
 
 | Key | Action |
 |---|---|
@@ -1118,10 +1151,24 @@ a warning; recent files capped at 10 and deduplicated.
 the bridge gets a smoke test through `--self-test` loading a fixture path given on the command
 line (`--self-test path/to/song.txt` must report the line count on stdout).
 
-**P3-05 QML shell**: `Main.qml`, `EditorPage.qml`, `LinesPane.qml`, global drawer, open
-dialog (`QtQuick.Dialogs` `FileDialog`, verify the import in Qt 6.12), recent files, close
-guard, drag and drop. Manual checklist: open by dialog, by argument, by drop; unsaved prompt on
-close; title shows "Title - Artist" and a dirty marker.
+**P3-05 QML shell** (UI_SPEC 2, 4.1, 4.2, 4.3 without the sheet, 4.5, 5.1 - 5.3, 6):
+`Main.qml`, `Metrics.qml`, `Palette.qml`, `MainMenu.qml`, `EditorPage.qml` with toolbar,
+start screen, `SplitView`, `LinesPane.qml`, `LineHeader.qml`, `StatusBar.qml`, the open
+`FileDialog`, recent songs, window title rules, close guard and `SaveChangesDialog`,
+`ChangedOnDiskDialog`, `OpenErrorDialog`, `ReadOnlyBanner`, `SaveErrorBanner`, passive
+notifications, drag and drop. First verify that the `isMenu` GlobalDrawer opens from our own
+toolbar button (gate G-08 if not). Controller tests for title text, enablement (UI_SPEC 7) and
+the dialog flows (save then continue; failed save stops). Acceptance: UI_SPEC 8.2 for
+`start-screen`, `main-menu`, `read-only`, `unsaved-changes`, `changed-on-disk`,
+`errors-and-notifications`.
+
+**P3-06 Screenshot harness** (UI_SPEC 8.1). Needs P3-05. `--screenshot`, `--demo-state`,
+`--song`, `--size` in debug builds; the theme switch through a temporary `XDG_CONFIG_HOME`
+with `kdeglobals` copied from the Breeze colour schemes; `scripts/ui-shots.sh` (memory guard,
+both themes, output in `target/ui-shots/`). Tests first: an integration test renders the
+`start-screen` state in both themes and asserts that the PNG exists, has the requested size,
+and that the pixel at (5, 5) has the window background of the theme (`#eff0f1` light,
+`#202326` dark). Demo states of later screens are added by the task that builds the screen.
 
 ### Phase 4 - Audio
 
@@ -1139,18 +1186,22 @@ speed (measured over 1 s, tolerance 15 %), missing file gives an error.
 ignored.
 
 **P4-04 Player bridge and playhead**: `Player` QObject, `FrameAnimation` calls `tick()`;
-track and rate controls in the toolbar; line playback with padding; loop. Manual checklist:
-playhead stays in sync over a whole song at 1x and 0.5x; Vocals and Instrumental switch
-without a jump.
+track and speed combo boxes in the toolbar (UI_SPEC 4.3); line playback with padding; loop;
+`AudioBanner` and the audio states (UI_SPEC 4.4). Manual checklist: playhead stays in sync
+over a whole song at 1x and 0.5x; Vocals and Instrumental switch without a jump. Acceptance:
+UI_SPEC 8.2 for the three `audio-states` demo states.
 
 ### Phase 5 - Note sheet and mouse editing
 
 **P5-01 SheetViewport** (8.2). Tests first: beat/pixel and pitch/pixel round trips, zoom
 around the cursor keeps the beat under the cursor, drag delta rounding, visible range.
 
-**P5-02 WaveformItem** (8.3). Tests: the painting code computes draw lists in a plain function
-(`fn layout(viewport, peaks, ...) -> Vec<DrawOp>`), which is unit-tested; `paint` only replays
-the list. Manual check of the look in light and dark Breeze.
+**P5-02 SheetBackground** (8.3, UI_SPEC 3). Tests: the painting code computes draw lists in a
+plain function (`fn layout(viewport, peaks, lines, colours, ...) -> Vec<DrawOp>`), which is
+unit-tested against the numbers of UI_SPEC 3: ruler 22 px, lyrics lane 34 px with the
+two-row placement rule (test the "or"/"just" case from the reference song: beats 189 and 192
+must land in different rows), 8 px gap, waveform 54 px, activity 6 px, gutter 46 px, pitch
+range and row height rules, label rules, tick interval choice. `paint` only replays the list.
 
 **P5-03 NotesModel and PhraseEndsModel**. Tests first: the visible set for a line includes its
 neighbours; model change sets after move, insert, delete, line change.
@@ -1163,6 +1214,7 @@ tests per action; manual checklist per shortcut of 8.6.
 
 **P5-06 Keyboard navigation and autoplay**. Controller tests for Left/Right semantics (left of
 the first note selects the line), Up/Down, autoplay triggering `playRange` with padding.
+Acceptance for phase 5 as a whole: UI_SPEC 8.2 for `editor`.
 
 ### Phase 6 - Text
 
@@ -1170,8 +1222,8 @@ the first note selects the line), Up/Down, autoplay triggering `playRange` with 
 punctuation), round trip with `line_text_for_editing`, split and merge plans keep the total
 beats, `Ask` policy returns the proposal.
 
-**P6-02 Inline syllable edit and LineTextDialog**. Manual checklist; the chip JSON from
-`previewLineText` is unit-tested in the controller.
+**P6-02 Inline syllable edit and LineTextDialog** (UI_SPEC 3.6, 5.4). The chip JSON from
+`previewLineText` is unit-tested in the controller. Acceptance: UI_SPEC 8.2 for `line-text`.
 
 ### Phase 7 - Timing repair
 
@@ -1197,10 +1249,12 @@ occurrence, all fine), insta snapshot of a full file; opt-in Factory compatibili
 patch; cancel restores; tap timestamps minus latency; undo last tap; auto-repeat key events
 ignored.
 
-**P7-08 Repair UI**: `RepairPage`, overview strip, anchor panel, block panel, ghost notes,
-`TapAlongPage`, latency calibration (writes a click-track WAV with 8 clicks at 1 s spacing
-into the cache directory with a small WAV writer, no new dependency), `ExportAnchorsDialog`.
-Manual checklist following the "Repair a racing section" workflow in the HTML plan.
+**P7-08 Repair UI** (UI_SPEC 4.6 - 4.8, 5.5, 5.7): `RepairPage`, `OverviewStrip`,
+`AnchorPanel`, `BlockBar`, ghost notes, `TapAlongPage`, `CalibrationDialog` (writes a
+click-track WAV with 8 clicks at 1 s spacing into the cache directory with a small WAV writer,
+no new dependency), `ExportAnchorsDialog`. Manual checklist following the "Repair a racing
+section" workflow in the HTML plan. Acceptance: UI_SPEC 8.2 for `repair-anchor`,
+`repair-block`, `tap-along`, `latency-calibration`, `export-anchors`.
 
 **P7-09 Line health in the lines pane and editor status**. Manual check.
 
@@ -1215,9 +1269,10 @@ defaults, and record the numbers in PROGRESS.md. Gate G-06.
 `#RELATIVE:no`, `1.0.0`, `1.2.0` (version stays), missing `#AUDIO`; insta snapshots of the
 output bytes and the change lists.
 
-**P8-02 PropertiesPage, validation list, UpgradeDialog**. Manual checklist.
+**P8-02 PropertiesPage, validation list, UpgradeDialog** (UI_SPEC 4.9, 5.6). Gate G-05 first.
+Acceptance: UI_SPEC 8.2 for `song-properties` and `upgrade`.
 
-**P8-03 Settings page**. Manual checklist.
+**P8-03 Settings page** (UI_SPEC 4.10). Acceptance: UI_SPEC 8.2 for `settings`.
 
 **P8-04 Packaging**: `packaging/PKGBUILD` (builds with cargo in release mode through CMake,
 installs to `/usr`), metainfo validated with `appstreamcli validate` if installed. Test: a
@@ -1251,7 +1306,8 @@ Stop and ask when a task reaches one of these. Do not choose an answer.
 | G-04 | P0-03 | If the QML module URI `io.github.ueda_ichitaka.UsdxSongEditor` is not accepted: which URI instead? |
 | G-05 | P8-02 | Properties page: plain `Kirigami.FormLayout` or Kirigami Addons `FormCard`? |
 | G-06 | P7-10 | Which songs to use for threshold tuning, and are the tuned values acceptable? |
-| G-07 | any | Any behaviour this plan does not define |
+| G-07 | any | Any behaviour this plan or `Plan/UI_SPEC.md` does not define |
+| G-08 | P3-05 | If a `GlobalDrawer` with `isMenu: true` cannot be opened from our own toolbar button: which component to use for the main menu instead? |
 
 ---
 

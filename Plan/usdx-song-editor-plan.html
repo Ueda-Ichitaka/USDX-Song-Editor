@@ -302,7 +302,7 @@ td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); font-si
 </header>
 
 <nav class="toc" aria-label="Contents">
-  <a href="#scope">Scope</a><a href="#mocks">UI mocks</a><a href="#usage">How it is used</a><a href="#keys">Keys and mouse</a><a href="#arch">Architecture</a><a href="#format">Format rules</a><a href="#repair">Repair algorithms</a><a href="#phases">Phases</a><a href="#deps">Dependencies</a><a href="#risks">Risks</a><a href="#open">Open decisions</a>
+  <a href="#scope">Scope</a><a href="#mocks">UI mocks</a><a href="#usage">How it is used</a><a href="#keys">Keys and mouse</a><a href="#arch">Architecture</a><a href="#format">Format rules</a><a href="#repair">Repair algorithms</a><a href="#phases">Phases</a><a href="#deps">Dependencies</a><a href="#risks">Risks</a><a href="#open">Decisions</a>
 </nav>
 
 <section id="scope" class="col">
@@ -595,7 +595,7 @@ td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); font-si
             </div>
             <div class="sectionlabel">Upgrade to 1.1.0 would</div>
             <ul style="font-size:12.5px;padding-left:16px;gap:3px">
-              <li>set <code>#VERSION:1.1.0</code></li>
+              <li>keep <code>#VERSION:1.2.0</code> (only unversioned and 1.0.0 files get 1.1.0)</li>
               <li>keep <code>#MP3</code> and <code>#AUDIO</code> both (v1 still requires #MP3)</li>
               <li>remove <code>#RELATIVE:No</code> where present</li>
               <li>convert to UTF-8 without BOM, LF line endings, end with <code>E</code></li>
@@ -815,8 +815,8 @@ length' = max(1, round(length * factor))    // "Scale"; "Keep" leaves lengths al
     <div class="phase"><div class="pn">1</div><div class="body">
       <h3>usdx-format: parse, model, serialize</h3>
       <p>Line classifier, header parsing with case-insensitive keys, note/break/voice rows, the time math, encoding, BOM and line endings, relative mode. A serializer that writes untouched rows back byte for byte.</p>
-      <p class="tests"><b>Tests first</b> Each ABNF rule from the spec as a unit test. The round trip <code>serialize(parse(x)) == x</code> on fixtures (CRLF, BOM, CP1252, RELATIVE, duet, text after E, unknown note type) and as a proptest on generated songs. Time conversion against hand-computed values. The <code>USDX_CORPUS</code> round trip over all 53 sample songs.</p>
-      <p class="done-when">Done when every sample file round-trips byte-identical.</p>
+      <p class="tests"><b>Tests first</b> Each ABNF rule from the spec as a unit test. The round trip <code>serialize(parse(x)) == x</code> on fixtures (CRLF, BOM, CP1252, RELATIVE, duet, text after E, unknown note type) and as a proptest on generated songs. Time conversion against hand-computed values. The <code>USDX_CORPUS</code> round trip over the 136 Factory output songs in <code>new/</code>, <code>repaired/recreated/</code> and <code>repaired/sync/</code>.</p>
+      <p class="done-when">Done when every test song round-trips byte-identical.</p>
     </div></div>
     <div class="phase"><div class="pn">2</div><div class="body">
       <h3>usdx-edit: commands and undo</h3>
@@ -894,20 +894,20 @@ length' = max(1, round(length * factor))    // "Scale"; "Keep" leaves lengths al
 </section>
 
 <section id="open" class="col">
-  <h2>Open decisions</h2>
-  <p>These need your answer before the phase that needs them. I made no choice on any of them.</p>
+  <h2>Decisions</h2>
+  <p>Decided on 12 November 2026. The full build plan for agents, with every task and its tests, is <code>Plan/IMPLEMENTATION_PLAN.md</code>. Where this page and that file differ, the file wins.</p>
   <div class="tablewrap">
     <table>
-      <thead><tr><th>Question</th><th>Options</th><th>Needed by</th></tr></thead>
+      <thead><tr><th>Question</th><th>Decision</th><th>Used in</th></tr></thead>
       <tbody>
-        <tr><td>What the anchors export contains</td><td>Only the anchors you pinned, or the start of every line you corrected in this session (more reference data for the Factory)</td><td>Phase 7</td></tr>
-        <tr><td>Duet editing</td><td>Phase 9 as planned, or a voice switcher in the first release</td><td>Phase 5</td></tr>
-        <tr><td>What "Upgrade" does with <code>#VERSION:1.2.0</code></td><td>Leave 1.2.0, or set 1.1.0 (the latest published version)</td><td>Phase 8</td></tr>
-        <tr><td>Backup naming</td><td><code>song.txt.bak</code> next to the song, or a timestamped copy in a backup folder</td><td>Phase 3</td></tr>
-        <tr><td>Note sheet rendering</td><td>QML delegates for notes plus a Rust-painted background (plan), or everything painted in Rust</td><td>Phase 5</td></tr>
-        <tr><td>App ID and name</td><td>for example <code>io.github.ueda_ichitaka.UsdxSongEditor</code>. The repository folder is spelled "Editior"</td><td>Phase 0</td></tr>
-        <tr><td>UI language</td><td>English only, or English with German through ki18n</td><td>Phase 3</td></tr>
-        <tr><td>Video preview, vocal pitch overlay, marks import</td><td>Which of these, if any, go into phase 9</td><td>Later</td></tr>
+        <tr><td>What the anchors export contains</td><td>The start of every line whose timing changed in this session, plus pinned anchors and the end pin</td><td>Phase 7</td></tr>
+        <tr><td>Duet editing</td><td>Phase 9. The first release loads, shows and saves duets losslessly and edits voice P1</td><td>Phase 9</td></tr>
+        <tr><td>What "Upgrade" does with <code>#VERSION:1.2.0</code></td><td>Leave 1.2.0. Only unversioned and 1.0.0 files get 1.1.0</td><td>Phase 8</td></tr>
+        <tr><td>Backup naming</td><td><code>song.txt.bak</code> next to the song, written on the first save of each session</td><td>Phase 3</td></tr>
+        <tr><td>Note sheet rendering</td><td>QML delegates for notes plus a Rust-painted background</td><td>Phase 5</td></tr>
+        <tr><td>App ID and name</td><td><code>io.github.ueda_ichitaka.UsdxSongEditor</code>, display name "USDX Song Editor", binary <code>usdx-song-editor</code></td><td>Phase 0</td></tr>
+        <tr><td>UI language</td><td>English only, every string through <code>qsTr()</code> so German can follow</td><td>Phase 3</td></tr>
+        <tr><td>Video preview, vocal pitch overlay, marks import</td><td>Phase 9, each one only after your go-ahead</td><td>Phase 9</td></tr>
       </tbody>
     </table>
   </div>

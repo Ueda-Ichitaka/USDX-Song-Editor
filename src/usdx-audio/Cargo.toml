@@ -1,0 +1,10 @@
+# About me: manifest of the usdx-audio library crate. It holds the GStreamer playback
+# engine (playbin3 player with rate and range control) and the waveform/vocal-activity
+# analysis with its cache, independent of Qt.
+
+[package]
+name = "usdx-audio"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true

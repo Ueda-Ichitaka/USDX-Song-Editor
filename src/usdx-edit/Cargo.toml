@@ -1,0 +1,10 @@
+# About me: manifest of the usdx-edit library crate. It holds the edit operations
+# (patches, undo history, note and line text operations, retiming, health analysis,
+# anchors export, format upgrade) on top of usdx-format's document model.
+
+[package]
+name = "usdx-edit"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true

@@ -1,0 +1,4 @@
+# About me: rustfmt configuration for the whole workspace. It pins the Rust edition so
+# rustfmt formats the sources with the same syntax rules the compiler uses.
+
+edition = "2024"

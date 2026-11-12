@@ -1,0 +1,17 @@
+# About me: the Cargo workspace root of the USDX Song Editor. It defines the build
+# edition and the library crates under src/ that the editor is built from, so that
+# all crates share one build and dependency graph. The app crate usdx-song-editor
+# joins in task P0-03.
+
+[workspace]
+resolver = "3"
+members = [
+    "src/usdx-format",
+    "src/usdx-edit",
+    "src/usdx-audio",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"

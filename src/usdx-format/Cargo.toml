@@ -1,0 +1,10 @@
+# About me: manifest of the usdx-format library crate. It holds the lossless UltraStar
+# song file model (byte layer, rows, song view, timing, serializer, validation), so the
+# editor and the edit operations work on files that save back unchanged.
+
+[package]
+name = "usdx-format"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true

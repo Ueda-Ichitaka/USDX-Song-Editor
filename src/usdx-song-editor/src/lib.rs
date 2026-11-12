@@ -12,6 +12,7 @@
 //! (plan section 8.1).
 
 pub mod bridge;
+pub mod controller;
 
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QUrl};
 use cxx_qt_lib_extras::QApplication;

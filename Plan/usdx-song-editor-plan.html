@@ -1,0 +1,1207 @@
+<!doctype html>
+<!--
+  About me: the implementation plan for the USDX Song Editor - a standalone Rust + Kirigami
+  desktop app for editing UltraStar Deluxe songs. Holds the scope, interactive UI mocks,
+  usage workflows, key bindings, architecture, format rules, timing repair algorithms,
+  TDD phases, dependencies, risks and open decisions. Open it in a browser; the fonts load
+  from Google Fonts and fall back to system fonts offline.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>USDX Song Editor Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Noto+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~72ch) for the plan, mocks break out to a wide stage that scrolls sideways on phones.
+   The mock windows wear KDE Breeze colors; the page around them is a cool ink-on-paper plan with a stage-magenta accent. */
+:root {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --ink: #1b212b;
+  --muted: #586273;
+  --rule: #d9dde5;
+  --accent: #a3245e;
+  --accent-soft: #f7e4ed;
+  --code-bg: #eceef3;
+
+  --kw-window: #eff0f1;
+  --kw-view: #fcfcfc;
+  --kw-alt: #f3f4f5;
+  --kw-text: #232627;
+  --kw-sub: #6e7a87;
+  --kw-hl: #3daee9;
+  --kw-hl-soft: #d6edf9;
+  --kw-border: #c3c7cb;
+  --kw-head: #e3e5e7;
+  --kw-grid: #e6e8eb;
+  --kw-grid-c: #cfd4da;
+
+  --n-normal: #3daee9;
+  --n-golden: #f0b429;
+  --n-free: #b8bec7;
+  --n-rap: #2fb6a6;
+  --n-rapg: #9b7fe6;
+  --n-text: #10151c;
+  --ok: #27ae60;
+  --warn: #e27100;
+  --bad: #da4453;
+  --bad-soft: #fbe3e6;
+  --warn-soft: #fdf0dd;
+  --ok-soft: #dff3e7;
+
+  --f-display: "Archivo", "Noto Sans", system-ui, sans-serif;
+  --f-body: "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151a; --surface: #1a1e25; --ink: #e5e8ee; --muted: #9ba5b4; --rule: #2d333d;
+    --accent: #f27fb3; --accent-soft: #3a1f2d; --code-bg: #232831;
+    --kw-window: #202326; --kw-view: #141618; --kw-alt: #1b1e21; --kw-text: #fcfcfc; --kw-sub: #a1a9b1;
+    --kw-hl: #3daee9; --kw-hl-soft: #1c3a4d; --kw-border: #3e444a; --kw-head: #2a2e32; --kw-grid: #23272b; --kw-grid-c: #343a40;
+    --n-normal: #3daee9; --n-golden: #f0b429; --n-free: #7d848e; --n-rap: #2fb6a6; --n-rapg: #9b7fe6; --n-text: #0b0e12;
+    --ok: #3ccf7a; --warn: #f39a2e; --bad: #f0606f; --bad-soft: #3c1d22; --warn-soft: #3a2b16; --ok-soft: #173426;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151a; --surface: #1a1e25; --ink: #e5e8ee; --muted: #9ba5b4; --rule: #2d333d;
+  --accent: #f27fb3; --accent-soft: #3a1f2d; --code-bg: #232831;
+  --kw-window: #202326; --kw-view: #141618; --kw-alt: #1b1e21; --kw-text: #fcfcfc; --kw-sub: #a1a9b1;
+  --kw-hl: #3daee9; --kw-hl-soft: #1c3a4d; --kw-border: #3e444a; --kw-head: #2a2e32; --kw-grid: #23272b; --kw-grid-c: #343a40;
+  --n-normal: #3daee9; --n-golden: #f0b429; --n-free: #7d848e; --n-rap: #2fb6a6; --n-rapg: #9b7fe6; --n-text: #0b0e12;
+  --ok: #3ccf7a; --warn: #f39a2e; --bad: #f0606f; --bad-soft: #3c1d22; --warn-soft: #3a2b16; --ok-soft: #173426;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body);
+  font-size: 15.5px; line-height: 1.6;
+}
+.page {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+  display: flex; flex-direction: column; gap: 56px;
+}
+.col { max-width: 74ch; min-width: 0; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2.1rem, 5vw, 3.3rem); font-weight: 800; font-stretch: 85%; letter-spacing: -0.01em; }
+h2 { font-size: 1.7rem; font-weight: 750; font-stretch: 90%; }
+h3 { font-size: 1.15rem; font-weight: 700; }
+p { margin: 0; }
+a { color: var(--accent); }
+code, kbd, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+kbd { background: var(--surface); border: 1px solid var(--rule); border-bottom-width: 2px; padding: 0 5px; border-radius: 4px; white-space: nowrap; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; margin: 0; }
+pre code { background: none; padding: 0; }
+section { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.12rem; color: var(--muted); max-width: 68ch; }
+ul, ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+
+.hero { display: flex; flex-direction: column; gap: 16px; }
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 8px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.decision .k { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.decision .v { font-weight: 600; }
+.decision .why { font-size: 0.86rem; color: var(--muted); }
+
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding-block: 10px; }
+nav.toc a { color: var(--ink); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); text-decoration: underline; }
+
+.tablewrap { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); font-size: 0.82rem; white-space: nowrap; }
+
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; }
+.note-key { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; font-size: 0.86rem; white-space: nowrap; }
+.sw { width: 18px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* ---------- Mock stage ---------- */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { font: inherit; font-size: 0.9rem; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stage { overflow-x: auto; min-width: 0; padding-bottom: 8px; }
+.mock-caption { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 24px; font-size: 0.9rem; }
+.mock-caption div { display: flex; gap: 8px; min-width: 0; }
+.mock-caption b.tag { flex: none; font-family: var(--f-mono); font-size: 0.75rem; background: var(--accent); color: var(--bg); border-radius: 4px; padding: 1px 6px; height: fit-content; margin-top: 3px; }
+
+.win {
+  width: 1100px; background: var(--kw-window); color: var(--kw-text);
+  border: 1px solid var(--kw-border); border-radius: 8px; overflow: hidden;
+  font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; line-height: 1.35;
+  box-shadow: 0 10px 30px rgba(10, 20, 40, 0.12);
+}
+.win.narrow { width: 760px; }
+.tbar { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--kw-head); border-bottom: 1px solid var(--kw-border); }
+.tbar .ttl { flex: 1; text-align: center; font-weight: 600; font-size: 12.5px; }
+.tbar .dots { display: flex; gap: 6px; }
+.tbar .dots i { width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--kw-border); display: block; background: var(--kw-window); }
+.tbar .appicon { width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(135deg, var(--n-normal), var(--n-rapg)); }
+.tools { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--kw-border); flex-wrap: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 4px; border: 1px solid transparent; color: var(--kw-text); white-space: nowrap; }
+.btn.framed { border-color: var(--kw-border); background: var(--kw-view); }
+.btn.on { background: var(--kw-hl-soft); border-color: var(--kw-hl); }
+.btn.primary { background: var(--kw-hl); border-color: var(--kw-hl); color: #fff; }
+.btn svg { width: 15px; height: 15px; flex: none; }
+.sep { width: 1px; align-self: stretch; background: var(--kw-border); margin: 2px 6px; }
+.grow { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--kw-border); border-radius: 4px; overflow: hidden; }
+.seg span { padding: 3px 9px; border-right: 1px solid var(--kw-border); background: var(--kw-view); white-space: nowrap; display: inline-flex; gap: 5px; align-items: center; }
+.seg span:last-child { border-right: 0; }
+.seg span.on { background: var(--kw-hl); color: #fff; }
+.field { border: 1px solid var(--kw-border); background: var(--kw-view); border-radius: 4px; padding: 3px 7px; font-variant-numeric: tabular-nums; min-width: 56px; display: inline-block; }
+.lbl { color: var(--kw-sub); font-size: 12px; }
+.status { display: flex; gap: 16px; padding: 5px 10px; border-top: 1px solid var(--kw-border); color: var(--kw-sub); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.status b { color: var(--kw-text); font-weight: 600; }
+.pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.dirty { background: var(--kw-hl-soft); color: var(--kw-hl); }
+
+.wbody { display: grid; grid-template-columns: 300px 1fr; min-height: 520px; }
+.lines { background: var(--kw-view); border-right: 1px solid var(--kw-border); display: flex; flex-direction: column; }
+.lines .search { padding: 7px; border-bottom: 1px solid var(--kw-border); display: flex; gap: 6px; }
+.lines .search .field { flex: 1; color: var(--kw-sub); }
+.lrow { display: grid; grid-template-columns: 22px 44px 1fr 16px; gap: 6px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--kw-grid); }
+.lrow:nth-child(even) { background: var(--kw-alt); }
+.lrow .n { color: var(--kw-sub); text-align: right; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.lrow .t { color: var(--kw-sub); font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.lrow .x { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow.sel { background: var(--kw-hl) !important; color: #fff; }
+.lrow.sel .n, .lrow.sel .t { color: #e8f6fd; }
+.lrow.racing { box-shadow: inset 3px 0 0 var(--bad); }
+.hdot { width: 9px; height: 9px; border-radius: 50%; justify-self: center; }
+.tchip { font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 3px; color: var(--n-text); margin-right: 4px; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+.linehead { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--kw-border); background: var(--kw-window); flex-wrap: nowrap; }
+.linehead .title { font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+.sheetwrap { background: var(--kw-view); border-bottom: 1px solid var(--kw-border); }
+.sheetwrap svg { display: block; width: 100%; height: auto; }
+.inspector { display: flex; align-items: center; gap: 12px; padding: 8px 10px; flex-wrap: wrap; border-top: 1px solid var(--kw-border); }
+.inspector .grp { display: flex; align-items: center; gap: 6px; }
+
+/* svg classes */
+.g-row { fill: var(--kw-view); }
+.g-row-alt { fill: var(--kw-alt); }
+.g-line { stroke: var(--kw-grid); stroke-width: 1; }
+.g-line-c { stroke: var(--kw-grid-c); stroke-width: 1; }
+.g-txt { fill: var(--kw-sub); font: 10.5px "Noto Sans", sans-serif; }
+.g-txt-strong { fill: var(--kw-text); font: 600 11px "Noto Sans", sans-serif; }
+.g-ruler { fill: var(--kw-window); }
+.n-normal { fill: var(--n-normal); }
+.n-golden { fill: var(--n-golden); }
+.n-free { fill: var(--n-free); }
+.n-rap { fill: var(--n-rap); }
+.n-rapg { fill: var(--n-rapg); }
+.n-lbl { fill: var(--kw-text); font: 600 11.5px "Noto Sans", sans-serif; }
+.n-ghost { fill: none; stroke: var(--kw-sub); stroke-dasharray: 3 3; stroke-width: 1.2; }
+.n-dim { opacity: 0.35; }
+.n-sel { stroke: var(--kw-text); stroke-width: 2; }
+.n-bad { fill: var(--bad); }
+.handle { fill: var(--kw-text); }
+.ph-line { stroke: var(--bad); stroke-width: 1.6; }
+.ph-head { fill: var(--bad); }
+.brk { stroke: var(--kw-sub); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.brk-cap { fill: var(--kw-sub); }
+.wave { fill: var(--kw-hl); opacity: 0.55; }
+.wave-bg { fill: var(--kw-window); }
+.act-on { fill: var(--ok); opacity: 0.55; }
+.anchor-flag { fill: var(--accent); }
+.anchor-line { stroke: var(--accent); stroke-width: 1.6; }
+.anchor-txt { fill: #fff; font: 700 10.5px "Noto Sans", sans-serif; }
+.sel-band { fill: var(--kw-hl); opacity: 0.12; }
+.sel-edge { stroke: var(--kw-hl); stroke-width: 2; }
+.h-ok { fill: var(--ok); } .h-warn { fill: var(--warn); } .h-bad { fill: var(--bad); }
+.region-bad { fill: var(--bad); opacity: 0.10; }
+
+.side { border-left: 1px solid var(--kw-border); background: var(--kw-view); padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.inline-msg { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 7px 10px; display: flex; gap: 8px; align-items: flex-start; }
+.inline-msg.info { border-color: var(--kw-hl); background: var(--kw-hl-soft); }
+.inline-msg.err { border-color: var(--bad); background: var(--bad-soft); }
+.alist { display: flex; flex-direction: column; gap: 6px; }
+.arow { border: 1px solid var(--kw-border); border-radius: 4px; padding: 6px 8px; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-variant-numeric: tabular-nums; }
+.arow .badge { grid-row: span 2; align-self: center; background: var(--accent); color: #fff; font-weight: 700; border-radius: 3px; padding: 1px 6px; font-size: 11px; }
+.formgrid { display: grid; grid-template-columns: 170px 1fr; gap: 9px 14px; align-items: center; }
+.formgrid .r { text-align: right; color: var(--kw-sub); }
+.formgrid .field { width: 100%; }
+.sectionlabel { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--kw-sub); padding-top: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { border: 1px solid var(--kw-border); background: var(--kw-view); border-radius: 4px; padding: 3px 6px; font-variant-numeric: tabular-nums; display: inline-flex; flex-direction: column; align-items: center; gap: 1px; min-width: 38px; }
+.chip small { color: var(--kw-sub); font-size: 10px; }
+.chip.changed { border-color: var(--kw-hl); background: var(--kw-hl-soft); }
+.chip.added { border-color: var(--ok); background: var(--ok-soft); }
+.bigtap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 18px; background: var(--kw-view); }
+.bigtap .cur { font-size: 30px; font-weight: 600; letter-spacing: 0.01em; }
+.bigtap .cur .done { color: var(--kw-sub); }
+.bigtap .cur .next { background: var(--kw-hl); color: #fff; border-radius: 4px; padding: 0 6px; }
+.bigtap .upcoming { color: var(--kw-sub); font-size: 16px; }
+.tapkey { width: 140px; height: 64px; border-radius: 10px; border: 2px solid var(--kw-border); border-bottom-width: 5px; display: grid; place-items: center; font-weight: 700; font-size: 18px; background: var(--kw-window); }
+
+/* ---------- Architecture blocks ---------- */
+.arch { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.crate { border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.crate .nm { font-family: var(--f-mono); font-weight: 600; color: var(--accent); font-size: 0.92rem; }
+.crate .deps { font-size: 0.8rem; color: var(--muted); font-family: var(--f-mono); }
+.crate ul { font-size: 0.88rem; }
+.flow { font-family: var(--f-mono); font-size: 0.8rem; color: var(--muted); }
+
+.phases { display: flex; flex-direction: column; gap: 14px; }
+.phase { display: grid; grid-template-columns: 74px 1fr; gap: 14px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.phase .pn { font-family: var(--f-display); font-weight: 800; font-stretch: 80%; font-size: 1.6rem; color: var(--accent); line-height: 1; }
+.phase .body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.phase .tests { font-size: 0.88rem; }
+.phase .tests b { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.phase .done-when { font-size: 0.88rem; color: var(--muted); }
+
+.steps { counter-reset: s; list-style: none; padding: 0; gap: 10px; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+.steps li::before { content: counter(s); font-family: var(--f-mono); font-size: 0.78rem; font-weight: 600; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin-top: 2px; }
+.workflows { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px 32px; }
+.workflow { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+@media (max-width: 640px) {
+  .phase { grid-template-columns: 1fr; gap: 4px; }
+  body { font-size: 15px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tab { transition: background 0.15s, color 0.15s; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<header class="hero">
+  <div class="eyebrow">Implementation plan · 12 November 2026 · repository USDX-Song-Editior</div>
+  <h1>USDX Song Editor</h1>
+  <p class="lede">A Kirigami desktop app, written in Rust, for fixing UltraStar Deluxe songs that the USDX Song Factory got almost right: step through the lyric lines, drag notes with the mouse, change pitch, length, type and text, listen at the exact spot, and put racing lines back on time. It reads and writes the format exactly as the spec defines it and changes nothing you did not edit. It is a standalone application: every repair changes the notes in the song file itself, with no Factory, container or network needed. Exporting anchors for the Factory is an extra on top.</p>
+  <div class="decisions" aria-label="Decisions taken">
+    <div class="decision"><span class="k">Binding</span><span class="v">cxx-qt 0.10</span><span class="why">KDE's own "Kirigami with Rust" route. CMake drives Cargo.</span></div>
+    <div class="decision"><span class="k">Audio</span><span class="v">GStreamer (gstreamer-rs 0.25)</span><span class="why">Plays opus and mp3, seeks accurately, slows to 0.5x without changing the pitch. The waveform comes from the same decoder.</span></div>
+    <div class="decision"><span class="k">Timing repair</span><span class="v">All four tools</span><span class="why">Anchor + stretch, tap-along and block move/scale rewrite the notes in the editor. The anchors.txt export is an extra for developing the Factory.</span></div>
+    <div class="decision"><span class="k">Saving</span><span class="v">Lossless, plus an upgrade action</span><span class="why">Byte-identical except for what you edited. A backup is written first. Upgrading to format 1.1.0 is a separate action you trigger.</span></div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#scope">Scope</a><a href="#mocks">UI mocks</a><a href="#usage">How it is used</a><a href="#keys">Keys and mouse</a><a href="#arch">Architecture</a><a href="#format">Format rules</a><a href="#repair">Repair algorithms</a><a href="#phases">Phases</a><a href="#deps">Dependencies</a><a href="#risks">Risks</a><a href="#open">Open decisions</a>
+</nav>
+
+<section id="scope" class="col">
+  <h2>Scope</h2>
+  <div class="stack">
+    <h3>In the first release</h3>
+    <ul>
+      <li>Open a song <code>.txt</code> with a file dialog, from the command line, or by drag and drop. Recent files appear in the global drawer.</li>
+      <li>A list of lyric lines with start time, type and a timing health dot. A note sheet (piano roll) shows the selected line with its neighbours.</li>
+      <li>Mouse editing: move notes in time and pitch, resize them, select with a rubber band, insert, delete, split, merge, and drag phrase breaks.</li>
+      <li>Note types per line or per note (normal, golden, freestyle, rap, rap golden), with the same keys as the Factory's <code>note_type_editor.py</code>.</li>
+      <li>Text editing per note and per line, with a syllable view that shows how the text maps onto notes.</li>
+      <li>Playback of the full mix, the <code>#VOCALS</code> track or the <code>#INSTRUMENTAL</code> track. Play from the playhead, play the line, play the selection, loop, and play at 0.5x, 0.75x or 1x.</li>
+      <li>Timing repair inside the editor: racing-line detection, anchor + stretch, block move/scale and tap-along. Each one rewrites the start beats and lengths of the notes in the song, and Save writes them to the file.</li>
+      <li>On top of that, an anchors.txt export in the Factory's format, so the corrections made by hand can be fed back to the Factory to develop and test its aligner.</li>
+      <li>Undo and redo for every edit. Saving is lossless, atomic, and writes a backup first.</li>
+      <li>A song properties page for the header tags, a validation list, and the "Upgrade to format 1.1.0" action.</li>
+    </ul>
+    <h3>Not in the first release (see open decisions)</h3>
+    <ul>
+      <li>Editing duets (P1/P2). They load, display and save without loss, but only one voice is editable at a time, and that voice selector comes in a later phase.</li>
+      <li>Video preview with <code>#VIDEOGAP</code>, detected vocal pitch drawn over the notes, and a library browser. Yass has all three, but the job here is fixing one song.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="mocks">
+  <div class="col stack">
+    <h2>UI mocks</h2>
+    <p>The mocks use real lines from <em>aequitaS - Realize The Real Lies</em> in your sample library (<code>#BPM:369.14</code>, <code>#GAP:14937</code>, one beat = 40.6 ms). The notes, times and pitches in the editor mock are the song's own. The racing section in the repair mocks is a simulated fault applied to verse 2 for the demonstration. Breeze colors follow your light or dark theme, as Kirigami does.</p>
+    <p><span class="note-key"><span class="sw" style="background:var(--n-normal)"></span>normal <code>:</code></span><span class="note-key"><span class="sw" style="background:var(--n-golden)"></span>golden <code>*</code></span><span class="note-key"><span class="sw" style="background:var(--n-free)"></span>freestyle <code>F</code></span><span class="note-key"><span class="sw" style="background:var(--n-rap)"></span>rap <code>R</code></span><span class="note-key"><span class="sw" style="background:var(--n-rapg)"></span>rap golden <code>G</code></span></p>
+  </div>
+  <div class="tabs" role="tablist" aria-label="Mock screens">
+    <button class="tab" role="tab" id="tab-editor" aria-selected="true" aria-controls="m-editor">Editor</button>
+    <button class="tab" role="tab" id="tab-repair" aria-selected="false" aria-controls="m-repair">Repair: anchor + stretch</button>
+    <button class="tab" role="tab" id="tab-block" aria-selected="false" aria-controls="m-block">Repair: block move/scale</button>
+    <button class="tab" role="tab" id="tab-tap" aria-selected="false" aria-controls="m-tap">Repair: tap-along</button>
+    <button class="tab" role="tab" id="tab-text" aria-selected="false" aria-controls="m-text">Line text</button>
+    <button class="tab" role="tab" id="tab-props" aria-selected="false" aria-controls="m-props">Song properties and save</button>
+  </div>
+
+  <!-- ===== Editor ===== -->
+  <div id="m-editor" role="tabpanel" aria-labelledby="tab-editor" class="stack">
+    <div class="stage">
+      <div class="win">
+        <div class="tbar"><span class="appicon"></span><span class="ttl">Realize The Real Lies - aequitaS · USDX Song Editor</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="tools">
+          <span class="btn" data-ico="menu"></span>
+          <span class="btn" data-ico="open">Open</span>
+          <span class="btn" data-ico="save">Save</span>
+          <span class="sep"></span>
+          <span class="btn" data-ico="undo">Undo</span>
+          <span class="btn" data-ico="redo">Redo</span>
+          <span class="sep"></span>
+          <span class="btn framed" data-ico="play">Play</span>
+          <span class="btn" data-ico="line">Play line</span>
+          <span class="btn" data-ico="loop">Loop</span>
+          <span class="seg"><span>Mix</span><span class="on">Vocals</span><span>Instr.</span></span>
+          <span class="seg"><span>0.5x</span><span>0.75x</span><span class="on">1x</span></span>
+          <span class="grow"></span>
+          <span class="btn" data-ico="wrench">Repair timing</span>
+          <span class="btn" data-ico="tags">Song properties</span>
+        </div>
+        <div class="wbody">
+          <div class="lines" id="ed-lines"></div>
+          <div class="main">
+            <div class="linehead">
+              <span class="title">Line 3 of 47</span>
+              <span class="lbl mono">0:21.48 - 0:26.27 · 4.8 s · 12 notes · 2.5 syl/s</span>
+              <span class="pill ok">timing ok</span>
+              <span class="grow"></span>
+              <span class="lbl">Line type</span>
+              <span class="seg"><span class="on">Normal</span><span>Golden</span><span>Free</span><span>Rap</span><span>Rap gold</span></span>
+              <span class="btn framed" data-ico="edit">Edit text</span>
+            </div>
+            <div class="sheetwrap"><svg id="ed-sheet" viewBox="0 0 800 380" role="img" aria-label="Note sheet for line 3"></svg></div>
+            <div class="inspector">
+              <span class="grp"><span class="lbl">Note 3 · </span><b>"free "</b></span>
+              <span class="grp"><span class="lbl">Type</span><span class="seg"><span class="on">:</span><span>*</span><span>F</span><span>R</span><span>G</span></span></span>
+              <span class="grp"><span class="lbl">Start</span><span class="field">172</span><span class="lbl mono">0:21.93</span></span>
+              <span class="grp"><span class="lbl">Length</span><span class="field">13</span></span>
+              <span class="grp"><span class="lbl">Pitch</span><span class="field">7</span><span class="lbl">G4</span></span>
+              <span class="grp"><span class="lbl">Text</span><span class="field" style="min-width:90px">free&#9251;</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="status"><span>BPM <b>369.14</b></span><span>GAP <b>14937 ms</b></span><span>Playhead <b>0:22.31</b> · beat <b>181</b></span><span>Format <b>1.2.0</b></span><span class="grow"></span><span class="pill dirty">2 unsaved changes</span></div>
+      </div>
+    </div>
+    <div class="mock-caption">
+      <div><b class="tag">A</b><span>Line list. The dot is timing health: green is plausible, amber is suspicious, red is racing. Up/Down or a click selects a line, and the sheet scrolls to it.</span></div>
+      <div><b class="tag">B</b><span>Note sheet. Time runs left to right with seconds on the ruler, pitch runs bottom to top with note names. Neighbouring lines are drawn faded, so a note can be dragged across a line boundary.</span></div>
+      <div><b class="tag">C</b><span>The phrase break (<code>- 280</code>) is the dashed line. Drag it to move the line ending.</span></div>
+      <div><b class="tag">D</b><span>The selected note has an outline and a resize handle on each edge. The inspector below edits the same values with the keyboard.</span></div>
+      <div><b class="tag">E</b><span>The waveform lane shows the chosen track (Vocals here). The green lane under it marks where vocals are audible. Notes over silence stand out.</span></div>
+      <div><b class="tag">F</b><span>The red playhead follows playback every frame. Click the ruler to seek, or press <kbd>P</kbd> to play the line with 0.3 s of padding.</span></div>
+    </div>
+  </div>
+
+  <!-- ===== Repair: anchor + stretch ===== -->
+  <div id="m-repair" role="tabpanel" aria-labelledby="tab-repair" class="stack" hidden>
+    <div class="stage">
+      <div class="win">
+        <div class="tbar"><span class="appicon"></span><span class="ttl">Repair timing - Realize The Real Lies · USDX Song Editor</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="tools">
+          <span class="btn" data-ico="back">Editor</span>
+          <span class="sep"></span>
+          <span class="seg"><span class="on">Anchor + stretch</span><span>Block move/scale</span><span>Tap-along</span></span>
+          <span class="sep"></span>
+          <span class="btn framed" data-ico="play">Play</span>
+          <span class="btn" data-ico="pin">Pin line start here</span>
+          <span class="seg"><span>Mix</span><span class="on">Vocals</span></span>
+          <span class="grow"></span>
+          <span class="btn" data-ico="export">Export anchors.txt</span>
+        </div>
+        <div style="padding:8px 10px;border-bottom:1px solid var(--kw-border);background:var(--kw-view)">
+          <div class="lbl" style="margin-bottom:4px">Whole song: one block per line, the vocal activity of the #VOCALS track below</div>
+          <svg id="rp-overview" viewBox="0 0 1080 64" role="img" aria-label="Song overview with racing region"></svg>
+        </div>
+        <div style="display:grid;grid-template-columns:260px 1fr 280px;min-height:430px">
+          <div class="lines" id="rp-lines"></div>
+          <div class="main">
+            <div class="linehead">
+              <span class="title">Lines 15 - 22</span>
+              <span class="pill bad">racing · 11.9 syl/s</span>
+              <span class="lbl">vocals heard during 17 % of the note time</span>
+              <span class="grow"></span>
+              <span class="btn on" data-ico="eye">Preview</span>
+            </div>
+            <div class="sheetwrap"><svg id="rp-sheet" viewBox="0 0 540 330" role="img" aria-label="Compressed notes with stretched preview"></svg></div>
+            <div class="inspector"><span class="lbl">Solid red: the notes as they are now. Dashed: where they land after Apply. Flags: anchors.</span></div>
+          </div>
+          <div class="side">
+            <div class="inline-msg"><span>Lines 15-22 run 3.9 times faster than the lines around them. Pin the true start of the first line and of the first line after the section, then Apply.</span></div>
+            <div class="sectionlabel">Anchors</div>
+            <div class="alist">
+              <div class="arow"><span class="badge">A1</span><span><b>Line 15</b> Weakness kept in silence</span><span class="lbl mono">1:06.18 → 1:06.18 (unchanged)</span></div>
+              <div class="arow"><span class="badge">A2</span><span><b>Line 23</b> Open up your eyes</span><span class="lbl mono">1:31.37 → 1:31.37 (unchanged)</span></div>
+              <div class="arow" style="border-style:dashed"><span class="badge" style="background:var(--kw-sub)">+</span><span>Play, then press <kbd>A</kbd> at a line start</span><span class="lbl">or drag a line onto the waveform</span></div>
+            </div>
+            <div class="sectionlabel">Between anchors</div>
+            <div class="formgrid" style="grid-template-columns:110px 1fr">
+              <span class="r">Note lengths</span><span class="seg"><span class="on">Scale</span><span>Keep</span></span>
+              <span class="r">Stretch factor</span><span class="mono">3.90x (lines 15-22)</span>
+              <span class="r">Collisions</span><span class="pill ok">none after rounding</span>
+            </div>
+            <div class="grow"></div>
+            <div style="display:flex;gap:6px;justify-content:flex-end"><span class="btn framed">Cancel</span><span class="btn primary">Apply stretch</span></div>
+          </div>
+        </div>
+        <div class="status"><span>Section <b>1:06.18 - 1:12.00</b> becomes <b>1:06.18 - 1:28.89</b></span><span>Apply is one undo step</span><span class="grow"></span><span class="pill dirty">preview</span></div>
+      </div>
+    </div>
+    <div class="mock-caption">
+      <div><b class="tag">A</b><span>The overview strip shows the whole song. Line blocks are colored by health and the vocal activity lane sits under them. A racing section shows as a dense red cluster sitting over a stretch with little vocal activity.</span></div>
+      <div><b class="tag">B</b><span>Set an anchor by playing and pressing <kbd>A</kbd> at the moment the selected line starts, by typing a time, or by dragging the line's first note to where the waveform shows the singing.</span></div>
+      <div><b class="tag">C</b><span>Preview draws the result as dashed ghost notes before anything changes. Apply is a single undo step.</span></div>
+      <div><b class="tag">D</b><span>Apply and Save are all the song needs. Export anchors.txt is optional: it writes the pins as <code>m:ss.s | lyric line</code> in the Factory's format, as reference data for developing the Factory.</span></div>
+    </div>
+  </div>
+
+  <!-- ===== Repair: block move/scale ===== -->
+  <div id="m-block" role="tabpanel" aria-labelledby="tab-block" class="stack" hidden>
+    <div class="stage">
+      <div class="win">
+        <div class="tbar"><span class="appicon"></span><span class="ttl">Repair timing - Realize The Real Lies · USDX Song Editor</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="tools">
+          <span class="btn" data-ico="back">Editor</span>
+          <span class="sep"></span>
+          <span class="seg"><span>Anchor + stretch</span><span class="on">Block move/scale</span><span>Tap-along</span></span>
+          <span class="sep"></span>
+          <span class="btn framed" data-ico="play">Play selection</span>
+          <span class="grow"></span>
+          <span class="lbl">Snap</span><span class="seg"><span class="on">Beat</span><span>Off</span></span>
+        </div>
+        <div class="sheetwrap"><svg id="bl-sheet" viewBox="0 0 1080 300" role="img" aria-label="Selected block of lines with move and scale handles"></svg></div>
+        <div class="inspector">
+          <span class="grp"><span class="lbl">Selection</span><b>Lines 15 - 22 · 57 notes</b></span>
+          <span class="grp"><span class="lbl">Start</span><span class="field">1:06.18</span></span>
+          <span class="grp"><span class="lbl">End</span><span class="field">1:12.00</span><span class="lbl">→</span><span class="field" style="border-color:var(--kw-hl)">1:28.89</span></span>
+          <span class="grp"><span class="lbl">Scale</span><span class="field">3.90x</span></span>
+          <span class="grp"><span class="lbl">Following lines</span><span class="seg"><span class="on">Stay</span><span>Move along</span></span></span>
+          <span class="grow"></span>
+          <span class="btn primary">Apply</span>
+        </div>
+        <div class="status"><span>Drag the block body to move it, drag an edge to scale it from the opposite edge. Hold <b>Shift</b> to turn snapping off.</span></div>
+      </div>
+    </div>
+    <div class="mock-caption">
+      <div><b class="tag">A</b><span>Select lines in the list (Shift+click a range) or drag a box on the sheet. The selected block gets a tinted band with two edge handles.</span></div>
+      <div><b class="tag">B</b><span>Dragging the right edge stretches the block from its left edge. Here the end moves from 1:12.00 to where the singing really ends, 1:28.89.</span></div>
+      <div><b class="tag">C</b><span>"Following lines: Move along" shifts everything after the block by the same amount, like Yass's shift-remainder action. "Stay" leaves it in place.</span></div>
+    </div>
+  </div>
+
+  <!-- ===== Repair: tap-along ===== -->
+  <div id="m-tap" role="tabpanel" aria-labelledby="tab-tap" class="stack" hidden>
+    <div class="stage">
+      <div class="win narrow">
+        <div class="tbar"><span class="appicon"></span><span class="ttl">Tap-along - lines 15-22 · USDX Song Editor</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="tools">
+          <span class="btn" data-ico="back">Repair</span>
+          <span class="sep"></span>
+          <span class="lbl">Tap</span><span class="seg"><span>Line starts</span><span class="on">Syllables</span></span>
+          <span class="lbl" style="margin-left:6px">Speed</span><span class="seg"><span class="on">0.5x</span><span>0.75x</span><span>1x</span></span>
+          <span class="grow"></span>
+          <span class="lbl">Latency</span><span class="field">35 ms</span><span class="btn">Calibrate</span>
+        </div>
+        <div class="bigtap">
+          <div class="lbl">Line 16 of 15-22 · pre-roll 2 s before line 15 · recording</div>
+          <div class="cur"><span class="done">no doubt</span><span class="done">ful </span><span class="next">voi</span>ces raised</div>
+          <div class="upcoming">next: Throughout this endless crisis</div>
+          <div class="tapkey">Space</div>
+          <div class="lbl">Press Space at the start of each highlighted syllable. Hold it for the note length if you like. Backspace takes the last tap back.</div>
+        </div>
+        <div style="padding:10px;border-top:1px solid var(--kw-border)">
+          <svg id="tp-lane" viewBox="0 0 740 70" role="img" aria-label="Taps compared with current notes"></svg>
+        </div>
+        <div class="status"><span>Taps <b>12 / 57</b></span><span>Playback <b>0.5x</b>, pitch kept</span><span class="grow"></span><span class="btn framed">Stop</span><span class="btn primary">Use taps</span></div>
+      </div>
+    </div>
+    <div class="mock-caption">
+      <div><b class="tag">A</b><span>Line mode: one tap per line start. Every tap acts as an anchor and the notes inside the line are stretched (the same algorithm as anchor + stretch).</span></div>
+      <div><b class="tag">B</b><span>Syllable mode: one tap per note start. With the key held, the release sets the note length. Without holding, lengths are scaled to fit before the next tap.</span></div>
+      <div><b class="tag">C</b><span>The lane compares the taps (ticks) with the current notes (red), so the result is visible before you press "Use taps".</span></div>
+    </div>
+  </div>
+
+  <!-- ===== Line text ===== -->
+  <div id="m-text" role="tabpanel" aria-labelledby="tab-text" class="stack" hidden>
+    <div class="stage">
+      <div class="win narrow">
+        <div class="tbar"><span class="appicon"></span><span class="ttl">Edit line 3 · USDX Song Editor</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px;background:var(--kw-view)">
+          <div class="lbl">Line text. A space separates words, <b>|</b> splits a word into syllables, <b>~</b> continues the previous syllable on a new note.</div>
+          <div class="field" style="padding:8px 10px;font-size:15px;width:100%">Are you free or just a slave of the~ au|tho|ri|ties?</div>
+          <div class="sectionlabel">Syllables on notes</div>
+          <div class="chips" id="tx-chips"></div>
+          <div class="inline-msg info"><span>13 syllables for 12 notes. "tho|ri|ties?" now has three syllables on two notes. The editor will split <b>"thorities?"</b> (25 beats) into two notes of 12 and 13 beats at the same pitch.</span></div>
+          <div class="formgrid" style="grid-template-columns:150px 1fr">
+            <span class="r">When counts differ</span><span class="seg"><span class="on">Split / merge longest notes</span><span>Ask me per note</span></span>
+          </div>
+          <div style="display:flex;gap:6px;justify-content:flex-end"><span class="btn framed">Cancel</span><span class="btn primary">Apply</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="mock-caption">
+      <div><b class="tag">A</b><span>The whole line is edited as one text field, written the way people write syllabified lyrics. Spaces between words come from the note texts, so <code>"free "</code> keeps its trailing space.</span></div>
+      <div><b class="tag">B</b><span>Chips show each syllable on its note, with the beat underneath. Blue is a changed text, green is a new note.</span></div>
+      <div><b class="tag">C</b><span>A single note is edited directly by double-clicking it on the sheet, or with <kbd>Enter</kbd>.</span></div>
+    </div>
+  </div>
+
+  <!-- ===== Song properties ===== -->
+  <div id="m-props" role="tabpanel" aria-labelledby="tab-props" class="stack" hidden>
+    <div class="stage">
+      <div class="win">
+        <div class="tbar"><span class="appicon"></span><span class="ttl">Song properties - Realize The Real Lies · USDX Song Editor</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="tools"><span class="btn" data-ico="back">Editor</span><span class="grow"></span><span class="btn" data-ico="up">Upgrade to format 1.1.0…</span><span class="btn framed" data-ico="save">Save</span></div>
+        <div style="display:grid;grid-template-columns:1fr 380px;min-height:470px">
+          <div style="padding:16px 20px;background:var(--kw-view);display:flex;flex-direction:column;gap:8px">
+            <div class="formgrid">
+              <span class="sectionlabel" style="grid-column:1/-1">Song</span>
+              <span class="r">#ARTIST</span><span class="field">aequitaS</span>
+              <span class="r">#TITLE</span><span class="field">Realize The Real Lies</span>
+              <span class="r">#LANGUAGE</span><span class="field">English</span>
+              <span class="r">#GENRE</span><span class="field" style="color:var(--kw-sub)">empty</span>
+              <span class="sectionlabel" style="grid-column:1/-1">Timing</span>
+              <span class="r">#BPM</span><span><span class="field">369.14</span> <span class="lbl">one beat = 40.63 ms</span></span>
+              <span class="r">#GAP</span><span><span class="field">14937</span> <span class="lbl">ms</span> <span class="btn">Set to playhead</span></span>
+              <span class="r">#START / #END</span><span><span class="field" style="color:var(--kw-sub)">-</span> <span class="field" style="color:var(--kw-sub)">-</span></span>
+              <span class="sectionlabel" style="grid-column:1/-1">Media</span>
+              <span class="r">#MP3</span><span class="field">aequitaS - Realize The Real Lies.opus</span>
+              <span class="r">#AUDIO</span><span class="field">aequitaS - Realize The Real Lies.opus</span>
+              <span class="r">#VOCALS</span><span class="field">aequitaS - Realize The Real Lies [Vocals].opus</span>
+              <span class="r">#INSTRUMENTAL</span><span class="field">aequitaS - Realize The Real Lies [Instrumental].opus</span>
+              <span class="r">Other tags</span><span class="lbl">#COVER, #COVERURL, #VIDEO, #VIDEOURL, #TAGS, #CREATOR, #COMMENT · kept as they are</span>
+            </div>
+          </div>
+          <div class="side">
+            <div class="sectionlabel">Checks</div>
+            <div class="inline-msg info"><span><b>#VERSION:1.2.0</b> is not a published format version (UltraSinger writes it). Read as major version 1.</span></div>
+            <div class="inline-msg"><span>Line 27: the notes at beats 1612 and 1614 overlap by 1 beat.</span></div>
+            <div class="inline-msg"><span>Lines 15-22: racing timing (11.9 syllables/s).</span></div>
+            <div class="sectionlabel">On save</div>
+            <div class="formgrid" style="grid-template-columns:120px 1fr">
+              <span class="r">Backup</span><span class="lbl mono">…Real Lies.txt.bak (once per session)</span>
+              <span class="r">Encoding</span><span class="lbl">UTF-8, no BOM, LF (as read)</span>
+              <span class="r">Changed rows</span><span class="lbl">63 of 612 file lines</span>
+            </div>
+            <div class="sectionlabel">Upgrade to 1.1.0 would</div>
+            <ul style="font-size:12.5px;padding-left:16px;gap:3px">
+              <li>set <code>#VERSION:1.1.0</code></li>
+              <li>keep <code>#MP3</code> and <code>#AUDIO</code> both (v1 still requires #MP3)</li>
+              <li>remove <code>#RELATIVE:No</code> where present</li>
+              <li>convert to UTF-8 without BOM, LF line endings, end with <code>E</code></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mock-caption">
+      <div><b class="tag">A</b><span>A Kirigami FormLayout for the tags people actually edit. Every other header line is kept untouched and in its original order.</span></div>
+      <div><b class="tag">B</b><span>The checks reuse the categories from the karaoke-dashboard's integrity check, so both tools report the same problems.</span></div>
+      <div><b class="tag">C</b><span>"Upgrade" is never automatic. It opens a dialog that lists each change with a diff before anything is written.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <div class="col stack">
+    <h2>How the UI is used</h2>
+    <p>Four everyday jobs, start to finish.</p>
+  </div>
+  <div class="workflows">
+    <div class="workflow">
+      <h3>Fix one line that is a little off</h3>
+      <ol class="steps">
+        <li>Open the song (<kbd>Ctrl+O</kbd>). The line list fills, and lines with suspicious timing get an amber or red dot.</li>
+        <li>Select the line and press <kbd>P</kbd>. The line plays with 0.3 s before and after it. Switch to Vocals (<kbd>V</kbd>) to hear only the singer.</li>
+        <li>Compare the notes with the waveform. Drag-select the whole line (or press <kbd>Ctrl+A</kbd> in the line), then drag it or press <kbd>Ctrl+Right</kbd> to move it one beat at a time.</li>
+        <li>Press <kbd>P</kbd> again to check. Every move is one undo step.</li>
+        <li>Save with <kbd>Ctrl+S</kbd>. The first save of the session writes <code>.txt.bak</code>.</li>
+      </ol>
+    </div>
+    <div class="workflow">
+      <h3>Repair a racing section</h3>
+      <ol class="steps">
+        <li>Open Repair timing (<kbd>Ctrl+R</kbd>). The overview strip shows red, densely packed lines over a stretch with no vocal activity.</li>
+        <li>Select the first racing line. Play from a little before it (<kbd>Space</kbd>) and press <kbd>A</kbd> when the singer starts it. That sets anchor A1.</li>
+        <li>Do the same for the first correct line after the section (A2). Add more anchors inside long sections when the singing has pauses.</li>
+        <li>Check the dashed preview, play it at 0.75x, adjust an anchor by dragging its flag, then Apply.</li>
+        <li>If a few syllables are still off inside a line, use tap-along in syllable mode at 0.5x for that line only.</li>
+        <li>Save (<kbd>Ctrl+S</kbd>). The song is fixed. If you want to give the Factory this case as reference data, Export anchors.txt as well.</li>
+      </ol>
+    </div>
+    <div class="workflow">
+      <h3>Set note types</h3>
+      <ol class="steps">
+        <li>Step through lines with <kbd>Down</kbd>. Autoplay (<kbd>Shift+A</kbd>) plays each line as you reach it, as the Factory tool does.</li>
+        <li>Press <kbd>F</kbd> on a spoken intro to make the whole line freestyle, or <kbd>G</kbd> to make it golden.</li>
+        <li>For one note, select it with <kbd>Left</kbd>/<kbd>Right</kbd> or a click, then press the type key. The line's chip then reads "mixed".</li>
+        <li>On a rap note the pitch field is greyed out, because the spec says pitch on rap and freestyle notes is ignored.</li>
+      </ol>
+    </div>
+    <div class="workflow">
+      <h3>Correct lyrics and pitches</h3>
+      <ol class="steps">
+        <li>Double-click a note to fix its syllable in place, or press <kbd>Ctrl+E</kbd> to edit the whole line text.</li>
+        <li>Drag a note up or down to change its pitch (with <kbd>Shift</kbd> held, only the pitch changes). <kbd>Ctrl+Up</kbd>/<kbd>Ctrl+Down</kbd> move it a half step, and with <kbd>Shift</kbd> added a whole octave.</li>
+        <li>Split a long note at the playhead with <kbd>S</kbd>, or merge it into the next note with <kbd>M</kbd>.</li>
+        <li>Drag the dashed phrase break to move where the line ends on screen.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="keys">
+  <div class="col stack">
+    <h2>Keys and mouse</h2>
+    <p>Type keys match the Factory's note type editor. One difference: <kbd>Space</kbd> is play/pause here, as in every media editor, so freestyle on/off moves to <kbd>F</kbd>, which toggles. All shortcuts are Kirigami actions, so they show in menus and tooltips.</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Input</th><th>Does</th><th>Input</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><kbd>Space</kbd></td><td>Play / pause from the playhead</td><td>Click note</td><td>Select (<kbd>Ctrl</kbd> adds, <kbd>Shift</kbd> extends in time)</td></tr>
+        <tr><td><kbd>P</kbd> / <kbd>Shift+P</kbd></td><td>Play line / play selection (0.3 s padding)</td><td>Drag note body</td><td>Move in time and pitch. <kbd>Shift</kbd> locks to the first axis moved, <kbd>Alt</kbd> turns off snapping to neighbours</td></tr>
+        <tr><td><kbd>L</kbd></td><td>Loop the line on/off</td><td>Drag note edge</td><td>Resize start or end (at least 1 beat)</td></tr>
+        <tr><td><kbd>V</kbd></td><td>Cycle Mix, Vocals, Instrumental</td><td>Drag on empty sheet</td><td>Rubber-band selection</td></tr>
+        <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Slower / faster (0.5x, 0.75x, 1x)</td><td>Double-click empty</td><td>Insert a note (4 beats, pitch under the cursor)</td></tr>
+        <tr><td><kbd>Up</kbd> / <kbd>Down</kbd></td><td>Previous / next line</td><td>Double-click note</td><td>Edit its syllable in place</td></tr>
+        <tr><td><kbd>Left</kbd> / <kbd>Right</kbd></td><td>Previous / next note (left of the first selects the whole line)</td><td>Click ruler</td><td>Move the playhead (seek)</td></tr>
+        <tr><td><kbd>N</kbd> <kbd>G</kbd> <kbd>F</kbd> <kbd>R</kbd> <kbd>Shift+R</kbd></td><td>Normal, golden, freestyle (toggle), rap, rap golden</td><td>Drag phrase break</td><td>Move the line end between two notes</td></tr>
+        <tr><td><kbd>Ctrl+Left</kbd> / <kbd>Ctrl+Right</kbd></td><td>Move selection 1 beat. <kbd>Ctrl+Shift</kbd> moves the selection and everything after it</td><td>Wheel</td><td>Scroll time. <kbd>Ctrl</kbd> zooms, <kbd>Shift</kbd> scrolls pitch</td></tr>
+        <tr><td><kbd>Ctrl+Up</kbd> / <kbd>Ctrl+Down</kbd></td><td>Pitch ±1. <kbd>Ctrl+Shift</kbd> moves an octave</td><td>Middle-drag</td><td>Pan</td></tr>
+        <tr><td><kbd>Alt+Left</kbd> / <kbd>Alt+Right</kbd></td><td>Length -1 / +1 beat</td><td><kbd>A</kbd> (repair)</td><td>Pin the selected line's start to the playhead</td></tr>
+        <tr><td><kbd>S</kbd> / <kbd>M</kbd> / <kbd>Del</kbd> / <kbd>Ins</kbd></td><td>Split at playhead / merge with next / delete / insert after</td><td><kbd>B</kbd></td><td>Phrase break before the selected note on/off</td></tr>
+        <tr><td><kbd>Enter</kbd> / <kbd>Ctrl+E</kbd></td><td>Edit syllable / edit line text</td><td><kbd>Ctrl+R</kbd> / <kbd>T</kbd></td><td>Repair timing / tap-along</td></tr>
+        <tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd></td><td>Undo / redo</td><td><kbd>Ctrl+S</kbd> / <kbd>Ctrl+O</kbd></td><td>Save / open</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="arch">
+  <div class="col stack">
+    <h2>Architecture</h2>
+    <p>A Cargo workspace. Everything that can be tested without a window lives in plain Rust crates with no Qt dependency, so the TDD loop stays fast (<code>cargo test</code> in seconds). The app crate only translates between QML and that core.</p>
+  </div>
+  <div class="arch">
+    <div class="crate">
+      <span class="nm">usdx-format</span>
+      <ul>
+        <li>Lossless document: every source line kept as raw bytes plus its parsed meaning</li>
+        <li>Header, voices, phrases, notes. Beat to time conversion</li>
+        <li>Encoding detection, BOM, line endings, <code>#RELATIVE</code></li>
+        <li>Spec validation (v1, unversioned)</li>
+        <li>Serializer: untouched rows written back verbatim</li>
+      </ul>
+      <span class="deps">encoding_rs, chardetng, thiserror</span>
+    </div>
+    <div class="crate">
+      <span class="nm">usdx-edit</span>
+      <ul>
+        <li>Command pattern: every edit is a command with apply/revert</li>
+        <li>Undo/redo stack, merging of drag steps into one command</li>
+        <li>Note ops: move, resize, pitch, type, text, split, merge, insert, delete, phrase break</li>
+        <li>Retiming: anchor stretch, block move/scale, tap mapping, collision resolution</li>
+        <li>Racing detection, anchors.txt export</li>
+      </ul>
+      <span class="deps">usdx-format</span>
+    </div>
+    <div class="crate">
+      <span class="nm">usdx-audio</span>
+      <ul>
+        <li>Player on GStreamer <code>playbin3</code>: open, play, pause, seek, rate with pitch kept</li>
+        <li>Track switch: mix, vocals, instrumental</li>
+        <li>Waveform peaks and vocal activity in a worker thread (<code>uridecodebin ! audioconvert ! appsink</code>), streamed into fixed-size buckets so memory stays bounded</li>
+      </ul>
+      <span class="deps">gstreamer, gstreamer-app</span>
+    </div>
+    <div class="crate">
+      <span class="nm">usdx-song-editor (app)</span>
+      <ul>
+        <li>cxx-qt QObjects: <code>SongDocument</code>, <code>LinesModel</code> (QAbstractListModel), <code>NotesModel</code>, <code>Player</code>, <code>RepairSession</code></li>
+        <li><code>WaveformItem</code> as a QQuickPaintedItem painted in Rust</li>
+        <li>QML: Kirigami pages and the note sheet</li>
+        <li>CMake + ECM for the install, .desktop file and icon</li>
+      </ul>
+      <span class="deps">cxx-qt, cxx-qt-lib, cxx-qt-lib-extras</span>
+    </div>
+  </div>
+  <div class="col stack">
+    <p class="flow">QML action → SongDocument.invokable(...) → usdx-edit Command::apply → usdx-format Document changes → signals dataChanged / rowsMoved → QML delegates update</p>
+    <p class="flow">FrameAnimation (Qt 6.4+) each frame → Player.position() → playhead x</p>
+    <h3>The note sheet in QML</h3>
+    <p>The sheet is a <code>Flickable</code> holding a <code>Repeater</code> over <code>NotesModel</code> for the visible beat range. Each note is a <code>Rectangle</code> with a <code>DragHandler</code> and two edge handles. A line has 1 to 30 notes, and the window shows about three lines, so the item count stays small. The grid, ruler and waveform are one Rust-painted item behind the notes, which keeps the many thin lines out of the scene graph. During a drag the model only updates a preview. The command is committed on release, which gives one undo step per drag.</p>
+  </div>
+</section>
+
+<section id="format" class="col">
+  <h2>Format rules the code follows</h2>
+  <p>From the spec repository (<code>UltraStar-Deluxe/format</code>: v1, unversioned, v2 draft) and from what the sample library really contains.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Topic</th><th>Rule</th><th>Editor behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Time</td><td>Beat 0 is at <code>#GAP</code> ms. <code>#BPM</code> is quadrupled</td><td><code>ms = GAP + beat × 60000 / (BPM × 4)</code>. BPM and GAP accept a decimal comma</td></tr>
+        <tr><td>Versions</td><td>Readers may process any file with the same major version</td><td>Accept 1.x.y, including UltraSinger's <code>1.2.0</code> (shown as info), and unversioned files. Refuse 2.x (draft)</td></tr>
+        <tr><td>Start beats</td><td><code>start-beat = 1*DIGIT</code>, never negative</td><td>A retime that pushes a note before beat 0 lowers <code>#GAP</code> and shifts all beats instead</td></tr>
+        <tr><td>Note types</td><td><code>: * F R G</code>. Unknown types may be treated as F</td><td>Unknown types are kept byte-exact and drawn as freestyle with a warning</td></tr>
+        <tr><td>Rap / freestyle</td><td>Pitch is ignored</td><td>Pitch is kept in the file (lossless) but greyed out in the UI</td></tr>
+        <tr><td>Note text</td><td>Spaces at the start or end are allowed and mean the same thing</td><td>Text is stored exactly. The line view joins the syllables. Moving a space never counts as a change</td></tr>
+        <tr><td>Overlap</td><td>Notes SHOULD NOT overlap. A phrase break SHOULD NOT fall inside a note</td><td>Retiming resolves both. Manual edits that create them are allowed but flagged</td></tr>
+        <tr><td>Phrase break</td><td><code>- beat</code>. Never two in a row</td><td>Kept verbatim when untouched. A moved break is written as <code>- N</code></td></tr>
+        <tr><td>Duets</td><td><code>P1</code>-<code>P9</code>, <code>#P1</code>... headers</td><td>Parsed and saved losslessly. Editing one voice at a time comes in a later phase</td></tr>
+        <tr><td>Relative mode</td><td><code>#RELATIVE:yes</code> changes the meaning of phrase breaks</td><td>Converted to absolute beats internally. Saving such a file writes it back in relative form, or converts it with the upgrade action</td></tr>
+        <tr><td>Encoding</td><td>UTF-8 only, no BOM. Unversioned files may use <code>#ENCODING</code> or CP1252</td><td>Detected on load and preserved on save. The upgrade action converts to UTF-8</td></tr>
+        <tr><td>End</td><td>Everything after <code>E</code> is ignored</td><td>Trailing content is kept verbatim</td></tr>
+        <tr><td>Files</td><td>References are relative. Linux is case-sensitive</td><td>Media are resolved relative to the .txt, with a case-insensitive fallback and a warning</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="repair" class="col">
+  <h2>Timing repair algorithms</h2>
+  <div class="stack">
+    <h3>Racing detection</h3>
+    <p>For every line the editor computes three signals and shows the worst one as the health dot:</p>
+    <ul>
+      <li><b>Syllable rate</b>: notes per second of line duration. The default amber threshold is 7/s and red is 10/s, as starting values to tune.</li>
+      <li><b>Rate against neighbours</b>: the line's rate divided by the median of the 6 lines around it. A factor of 2.5 or more is amber.</li>
+      <li><b>Vocal coverage</b>: the share of note time during which the <code>#VOCALS</code> track's RMS envelope is above its noise floor. Below 40 % is amber, below 20 % is red. Without a vocals track this signal is off.</li>
+    </ul>
+    <p>Neighbouring red lines are merged into a section. These thresholds are first guesses. They get tuned in phase 7 against songs from the dashboard's "out of sync" reports.</p>
+
+    <h3>Anchor + stretch</h3>
+    <p>Anchors are (line, true start in ms). Between two neighbouring anchors <i>a</i> and <i>b</i>, every time <i>t</i> in the section maps linearly:</p>
+<pre><code>t' = a.new + (t - a.old) * (b.new - a.new) / (b.old - a.old)
+beat' = round((t' - GAP) * BPM * 4 / 60000)
+length' = max(1, round(length * factor))    // "Scale"; "Keep" leaves lengths alone</code></pre>
+    <p>Before the first anchor the notes shift by the first anchor's offset, or stay put. After the last anchor they shift by the last offset, or stretch to an optional end pin. A collision pass then walks each voice in order: a note that now starts before the end of the previous one first shortens the previous note (down to 1 beat), then moves forward by one beat. Phrase breaks are placed again at the same relative position in the gap between their two lines. If a beat would become negative, <code>#GAP</code> is lowered first. Tested invariants: start beats never decrease, no overlaps, no break inside a note, all values are whole numbers of 0 or more, and every anchor line starts within half a beat of its pin.</p>
+
+    <h3>Block move/scale</h3>
+    <p>Block move/scale is a single anchor pair placed at the block's own first and last note: moving shifts both pins, and an edge handle moves one pin. It runs through the same mapping and collision pass. "Move along" adds the end offset to everything after the block.</p>
+
+    <h3>Tap-along</h3>
+    <p>Playback runs at the chosen rate with a pre-roll. Each key press is stored as <code>pipeline_position - latency</code>, already in audio time, so the playback rate does not need correcting. Line mode turns every tap into an anchor. Syllable mode sets each note start directly and takes the length from the key hold, or from <code>min(old length × local factor, next tap - 1 beat)</code>. Latency calibration plays 8 clicks, takes the median of the tap offsets, and stores it in the settings.</p>
+
+    <h3>anchors.txt export</h3>
+    <p>The export is not how the editor applies its changes. Anchor + stretch, block move/scale and tap-along already rewrite the notes, and Save writes them to the song file. The export is a separate output for developing the Factory: the times a person confirmed by ear, for a song the aligner got wrong, are test cases for the aligner and inputs for its lyrics-mode repair.</p>
+    <p>This writes the format the Factory reads (<code>docs/repairs.md</code>): a comment header, one <code>m:ss.s | lyric line</code> per anchor in increasing time, and <code>end m:ss.s</code> when an end pin exists. Line text is the joined syllables without <code>~</code>. The Factory matches anchors from the end of the lyrics, so for a repeated chorus the export warns when an anchored line's text also appears later in the song.</p>
+  </div>
+</section>
+
+<section id="phases">
+  <div class="col stack">
+    <h2>Implementation phases</h2>
+    <p>Every phase runs red, green, refactor: tests first, then the smallest code that passes, then cleanup. The test corpus is handwritten fixtures in the repository, plus an opt-in corpus test that reads every song under <code>USDX_CORPUS=/path/to/library</code> without copying your songs into the repository.</p>
+  </div>
+  <div class="phases">
+    <div class="phase"><div class="pn">0</div><div class="body">
+      <h3>Toolchain and skeleton</h3>
+      <p>Rust 1.100.0 (through rustup), cmake, extra-cmake-modules and breeze are already installed. Set up a Cargo workspace with four crates. Copy the KDE "Kirigami with Rust" layout, updated to cxx-qt 0.10. The window is an empty Kirigami ApplicationWindow. Add a <code>build.sh</code> that checks free memory first (at least 4 GB) and caps <code>CARGO_BUILD_JOBS</code>.</p>
+      <p class="tests"><b>Tests first</b> A smoke test that the binary starts with <code>QT_QPA_PLATFORM=offscreen</code> and exits 0 after <code>--self-test</code>. <code>cargo test</code> runs green on empty crates.</p>
+      <p class="done-when">Done when the app opens on KDE Plasma (Wayland) with the Breeze style.</p>
+    </div></div>
+    <div class="phase"><div class="pn">1</div><div class="body">
+      <h3>usdx-format: parse, model, serialize</h3>
+      <p>Line classifier, header parsing with case-insensitive keys, note/break/voice rows, the time math, encoding, BOM and line endings, relative mode. A serializer that writes untouched rows back byte for byte.</p>
+      <p class="tests"><b>Tests first</b> Each ABNF rule from the spec as a unit test. The round trip <code>serialize(parse(x)) == x</code> on fixtures (CRLF, BOM, CP1252, RELATIVE, duet, text after E, unknown note type) and as a proptest on generated songs. Time conversion against hand-computed values. The <code>USDX_CORPUS</code> round trip over all 53 sample songs.</p>
+      <p class="done-when">Done when every sample file round-trips byte-identical.</p>
+    </div></div>
+    <div class="phase"><div class="pn">2</div><div class="body">
+      <h3>usdx-edit: commands and undo</h3>
+      <p>Commands for every note and line operation, an undo stack, and a minimal re-serialization of the rows that changed.</p>
+      <p class="tests"><b>Tests first</b> For each command, apply then revert restores the identical document (proptest). The diff after an edit touches only the rows affected. Splitting keeps the total length. Merging joins the texts. A type change rewrites one character.</p>
+    </div></div>
+    <div class="phase"><div class="pn">3</div><div class="body">
+      <h3>App shell: open, list, save</h3>
+      <p>The SongDocument and LinesModel bridges. The line list page, the global drawer with Open, Recent, Save and Save As. Save is atomic (temp file, fsync, rename) and writes <code>.bak</code> once per session. If the file changed on disk since loading, a prompt appears. A quit with unsaved changes asks first.</p>
+      <p class="tests"><b>Tests first</b> Rust tests for the save pipeline in a temporary directory (backup written once, atomic rename, change on disk detected). Qt Quick Test for the line list delegate.</p>
+    </div></div>
+    <div class="phase"><div class="pn">4</div><div class="body">
+      <h3>Audio: player and waveform</h3>
+      <p>The playbin3 player with a scaletempo rate change and track switching. The playhead polled through FrameAnimation. Waveform peaks and the vocal activity envelope from a worker thread, cached per file and modification time.</p>
+      <p class="tests"><b>Tests first</b> Integration tests on audio generated by the tests themselves (an <code>audiotestsrc</code> tone encoded to opus and mp3): seeking lands within 10 ms, the position advances at 0.5x, the peak count matches the duration, and a gap of silence shows as inactive.</p>
+    </div></div>
+    <div class="phase"><div class="pn">5</div><div class="body">
+      <h3>Note sheet and mouse editing</h3>
+      <p>The NotesModel for the visible range, note delegates with drag and resize, rubber-band selection, the phrase break handle, the inspector, note types, and all shortcuts from the table.</p>
+      <p class="tests"><b>Tests first</b> The pixel-to-beat and pitch mapping is pure Rust and unit-tested. Qt Quick Test drives a drag and a resize, then checks the command issued and that a single undo step was recorded.</p>
+    </div></div>
+    <div class="phase"><div class="pn">6</div><div class="body">
+      <h3>Text editing</h3>
+      <p>In-place syllable editing. The line text dialog with its syllable parser (<code>space</code>, <code>|</code>, <code>~</code>) and the split/merge plan when the syllable count changes.</p>
+      <p class="tests"><b>Tests first</b> Parser cases: leading and trailing spaces, <code>~</code> notes, punctuation, an unchanged count maps one to one. The split plan picks the longest note and keeps the total beats.</p>
+    </div></div>
+    <div class="phase"><div class="pn">7</div><div class="body">
+      <h3>Timing repair</h3>
+      <p>Racing detection, the overview strip, anchor + stretch with preview, block move/scale, tap-along with latency calibration, and anchors.txt export.</p>
+      <p class="tests"><b>Tests first</b> Synthetic faults as in the Factory's lesson 5: take a correct song, compress a section programmatically, repair it with the anchors from the original, and compare against the original within 1 beat. Invariant proptests for the collision pass. The anchors.txt output is compared with an example accepted by the Factory's parser.</p>
+    </div></div>
+    <div class="phase"><div class="pn">8</div><div class="body">
+      <h3>Properties, upgrade, packaging</h3>
+      <p>The song properties page, validation (rules aligned with the dashboard's <code>format_check.py</code>), the upgrade dialog with a diff, settings in <code>$XDG_CONFIG_HOME</code>, a PKGBUILD, the .desktop file and icon, and the README.</p>
+      <p class="tests"><b>Tests first</b> Upgrade fixtures: an unversioned CP1252 file, a RELATIVE file and a 1.2.0 file, each compared with its expected 1.1.0 output.</p>
+    </div></div>
+    <div class="phase"><div class="pn">9</div><div class="body">
+      <h3>Later, if you want them</h3>
+      <p>Editing duets with a voice switcher, video preview, the detected vocal pitch over the notes, and importing the Factory's note-type marks <code>.tsv</code> files.</p>
+    </div></div>
+  </div>
+</section>
+
+<section id="deps" class="col">
+  <h2>Dependencies</h2>
+  <p>Versions looked up on crates.io and pacman on 12 November 2026. They get checked again on the day each one is added.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Dependency</th><th>Version</th><th>For</th></tr></thead>
+      <tbody>
+        <tr><td>cxx-qt, cxx-qt-lib, cxx-qt-build, cxx-qt-lib-extras</td><td class="num">0.10.0</td><td>Rust QObjects, models, QQuickPaintedItem (verified in the 0.10.0 example <code>custom_parent_class.rs</code>)</td></tr>
+        <tr><td>cxx</td><td class="num">1.0.205</td><td>FFI under cxx-qt</td></tr>
+        <tr><td>gstreamer, gstreamer-app</td><td class="num">0.25.4 / 0.25.2</td><td>Playback, appsink for samples</td></tr>
+        <tr><td>encoding_rs / chardetng</td><td class="num">0.8.44 / 1.0.0</td><td>CP1252/CP1250 and detecting them</td></tr>
+        <tr><td>thiserror</td><td class="num">2.0.21</td><td>Error types</td></tr>
+        <tr><td>proptest / insta (dev)</td><td class="num">1.12.0 / 1.49.0</td><td>Property tests, snapshot tests of the serializer output</td></tr>
+        <tr><td>Qt 6 / Kirigami / Kirigami Addons</td><td class="num">6.12.0 / 6.31.0 / 1.16.1</td><td>Installed: qt6-declarative, kirigami, kirigami-addons, qqc2-desktop-style</td></tr>
+        <tr><td>GStreamer plugins</td><td class="num">1.28.9</td><td>Installed and checked: opusdec, mpg123audiodec, scaletempo, appsink, playbin3</td></tr>
+        <tr><td>Rust toolchain</td><td class="num">1.100.0</td><td>Installed through rustup in <code>~/.cargo/bin</code>. breeze 6.8.2 is installed as well</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Ruled out: symphonia 0.6.1, because it has no Opus decoder and most of your library is <code>.opus</code>. qmetaobject-rs, because its last release was in 2023.</p>
+</section>
+
+<section id="risks" class="col">
+  <h2>Risks</h2>
+  <ul>
+    <li><b>cxx-qt 0.10 is newer than KDE's tutorial (0.8.1).</b> Phase 0 builds the skeleton on 0.10 first and only then writes app code. The fallback is 0.8.1 with the tutorial as it stands.</li>
+    <li><b>Seek accuracy on opus.</b> Accurate seeks in GStreamer depend on the demuxer. Phase 4 measures this with test files before the sheet depends on it.</li>
+    <li><b>Lossless and edited at the same time.</b> Edited rows are written in canonical form, and everything else is kept raw. The round-trip corpus test guards against regressions.</li>
+    <li><b>Detection thresholds.</b> These are guesses until tuned on real broken songs. They are settings, not constants.</li>
+    <li><b>Wayland key handling during tap-along.</b> Key timestamps come from Qt events and not from the system clock. Calibration absorbs the constant part of the delay.</li>
+  </ul>
+</section>
+
+<section id="open" class="col">
+  <h2>Open decisions</h2>
+  <p>These need your answer before the phase that needs them. I made no choice on any of them.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Question</th><th>Options</th><th>Needed by</th></tr></thead>
+      <tbody>
+        <tr><td>What the anchors export contains</td><td>Only the anchors you pinned, or the start of every line you corrected in this session (more reference data for the Factory)</td><td>Phase 7</td></tr>
+        <tr><td>Duet editing</td><td>Phase 9 as planned, or a voice switcher in the first release</td><td>Phase 5</td></tr>
+        <tr><td>What "Upgrade" does with <code>#VERSION:1.2.0</code></td><td>Leave 1.2.0, or set 1.1.0 (the latest published version)</td><td>Phase 8</td></tr>
+        <tr><td>Backup naming</td><td><code>song.txt.bak</code> next to the song, or a timestamped copy in a backup folder</td><td>Phase 3</td></tr>
+        <tr><td>Note sheet rendering</td><td>QML delegates for notes plus a Rust-painted background (plan), or everything painted in Rust</td><td>Phase 5</td></tr>
+        <tr><td>App ID and name</td><td>for example <code>io.github.ueda_ichitaka.UsdxSongEditor</code>. The repository folder is spelled "Editior"</td><td>Phase 0</td></tr>
+        <tr><td>UI language</td><td>English only, or English with German through ki18n</td><td>Phase 3</td></tr>
+        <tr><td>Video preview, vocal pitch overlay, marks import</td><td>Which of these, if any, go into phase 9</td><td>Later</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:0.88rem;color:var(--muted)">Sources: <a href="https://github.com/UltraStar-Deluxe/format">UltraStar-Deluxe/format</a> (v1, unversioned, v2 draft), <a href="https://usdx.eu/format/">usdx.eu/format</a>, <a href="https://github.com/SarutaSan72/Yass">Yass</a> (YassActions.java for the feature set), <a href="https://develop.kde.org/docs/getting-started/kirigami/setup-rust/">KDE: Kirigami with Rust</a>, <a href="https://github.com/KDAB/cxx-qt">KDAB/cxx-qt</a> (CHANGELOG, examples), crates.io, and the local USDX-Song-Factory (docs/note-types.md, docs/repairs.md, knowledge/05-LESSONS.md) and karaoke-dashboard (app/format_check.py, songs-sample).</p>
+</section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BPM = 369.14, GAP = 14937;
+  var MSPB = 60000 / (BPM * 4);
+  function sec(beat) { return (GAP + beat * MSPB) / 1000; }
+  function clock(s) { var m = Math.floor(s / 60); var r = s - m * 60; return m + ":" + (r < 10 ? "0" : "") + r.toFixed(2); }
+  function clock1(s) { var m = Math.floor(s / 60); var r = s - m * 60; return m + ":" + (r < 10 ? "0" : "") + r.toFixed(1); }
+  function el(name, attrs, parent, text) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  var NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  function pname(p) { var o = Math.floor(p / 12); var i = ((p % 12) + 12) % 12; return NAMES[i] + (4 + o); }
+  var TCLS = { ":": "n-normal", "*": "n-golden", "F": "n-free", "R": "n-rap", "G": "n-rapg" };
+
+  // icons
+  var ICONS = {
+    menu: "M3 5h14M3 10h14M3 15h14", open: "M3 6h5l2 2h7v8H3z", save: "M4 3h10l3 3v11H4zM7 3v5h6V3M7 12h6",
+    undo: "M8 5L4 9l4 4M4 9h8a4 4 0 010 8H9", redo: "M12 5l4 4-4 4M16 9H8a4 4 0 000 8h3", play: "M6 4l10 6-10 6z",
+    line: "M3 6h9M3 10h9M3 14h5M14 9l4 3-4 3z", loop: "M4 10a6 6 0 0110-4l2 2M16 10a6 6 0 01-10 4l-2-2M16 4v4h-4M4 16v-4h4",
+    wrench: "M13 3a4 4 0 00-4 5L3 14l3 3 6-6a4 4 0 005-4l-2 2-2-1-1-2z", tags: "M3 3h7l7 7-7 7-7-7zM7 7h.01",
+    edit: "M4 16l1-4 8-8 3 3-8 8zM12 5l3 3", back: "M12 4l-6 6 6 6", pin: "M10 2v7M6 9h8l-1 4H7zM10 13v5",
+    export: "M10 3v10M6 7l4-4 4 4M4 13v4h12v-4", eye: "M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5zM10 8a2 2 0 100 4 2 2 0 000-4", up: "M10 16V4M5 9l5-5 5 5"
+  };
+  document.querySelectorAll("[data-ico]").forEach(function (b) {
+    var s = el("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", "stroke-width": "1.6", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" });
+    el("path", { d: ICONS[b.getAttribute("data-ico")] || "" }, s);
+    b.insertBefore(s, b.firstChild);
+  });
+
+  // Song data (real, from the sample)
+  var LINES = [
+    [0, "Look into the mirror", 7], [69, "and tell me what you see", 7], [161, "Are you free or just a slave of the authorities?", 12],
+    [316, "Don't you ever question", 6], [384, "the will", 2], [403, "that you fulfill?", 5], [473, "Don't you ever", 4],
+    [511, "ask what's real?", 3], [623, "Open up your eyes", 6], [664, "Break", 2], [716, "out and live Come and taste the real life", 13],
+    [820, "Open up your mind Reach for the truth Open up your eyes", 18]
+  ];
+  var PREV = [[69,2,2,"and "],[74,9,5,"tell "],[85,5,4,"me "],[94,2,2,"what"],[97,6,5,"~ "],[104,6,4,"you "],[113,15,4,"see "]];
+  var CUR = [[":",161,2,7,"Are "],[":",165,4,9,"you "],[":",172,13,7,"free "],[":",189,2,7,"or "],[":",192,10,7,"just "],[":",206,1,5,"a "],["*",209,16,7,"slave "],[":",228,2,5,"of "],[":",232,5,7,"the"],[":",237,6,4,"~ "],[":",246,8,5,"au"],[":",254,25,7,"thorities? "]];
+  var NEXT = [[316,9,7,"Don't "],[326,4,9,"you "],[335,2,9,"ever"],[337,2,2,"~"],[340,6,7,"~ "],[348,18,4,"question "]];
+
+  // line list for editor
+  (function () {
+    var box = document.getElementById("ed-lines");
+    var s = document.createElement("div"); s.className = "search";
+    s.innerHTML = '<span class="field">Search lyrics…</span>';
+    box.appendChild(s);
+    var health = ["h-ok","h-ok","h-ok","h-ok","h-warn","h-ok","h-ok","h-ok","h-ok","h-ok","h-ok","h-ok"];
+    var colors = { "h-ok": "var(--ok)", "h-warn": "var(--warn)", "h-bad": "var(--bad)" };
+    LINES.forEach(function (l, i) {
+      var r = document.createElement("div"); r.className = "lrow" + (i === 2 ? " sel" : "");
+      var chip = i === 9 ? '<span class="tchip" style="background:var(--n-free)">F</span>' : (i === 2 ? '<span class="tchip" style="background:var(--n-golden)">mixed</span>' : "");
+      r.innerHTML = '<span class="n">' + (i + 1) + '</span><span class="t">' + clock1(sec(l[0])) + '</span><span class="x">' + chip + l[1] + '</span><span class="hdot" style="background:' + colors[health[i]] + '" title="timing health"></span>';
+      box.appendChild(r);
+    });
+  })();
+
+  // generic sheet renderer
+  function sheet(svg, o) {
+    var W = o.w, H = o.h, L = 46, top = 22, waveH = o.waveH || 0, actH = o.actH || 0;
+    var sheetH = H - top - waveH - actH - (waveH ? 8 : 0);
+    var pMin = o.pMin, pMax = o.pMax, rows = pMax - pMin + 1, rh = sheetH / rows;
+    var b0 = o.b0, b1 = o.b1, bx = (W - L) / (b1 - b0);
+    function X(b) { return L + (b - b0) * bx; }
+    function Y(p) { return top + (pMax - p) * rh; }
+    for (var p = pMin; p <= pMax; p++) {
+      el("rect", { x: L, y: Y(p), width: W - L, height: rh, "class": (((p % 12) + 12) % 12 === 0 || [1,3,6,8,10].indexOf(((p % 12) + 12) % 12) >= 0) ? "g-row-alt" : "g-row" }, svg);
+      el("line", { x1: L, x2: W, y1: Y(p) + rh, y2: Y(p) + rh, "class": (((p % 12) + 12) % 12 === 0) ? "g-line-c" : "g-line" }, svg);
+      if (((p % 12) + 12) % 12 === 0 || p % 2 === 0) el("text", { x: L - 6, y: Y(p) + rh / 2 + 3.5, "text-anchor": "end", "class": ((p % 12 + 12) % 12 === 0) ? "g-txt-strong" : "g-txt" }, svg, pname(p));
+    }
+    el("rect", { x: 0, y: 0, width: W, height: top, "class": "g-ruler" }, svg);
+    // ruler: seconds
+    var s0 = Math.ceil(o.t0 != null ? o.t0 : sec(b0)), s1 = o.t1 != null ? o.t1 : sec(b1);
+    var stepS = o.stepS || 1;
+    for (var s = Math.ceil(s0 / stepS) * stepS; s <= s1; s += stepS) {
+      var b = (s * 1000 - GAP) / MSPB; var x = X(b);
+      if (x < L || x > W) continue;
+      el("line", { x1: x, x2: x, y1: top - 6, y2: H - waveH - actH - (waveH ? 8 : 0), "class": "g-line" }, svg);
+      el("text", { x: x + 3, y: 14, "class": "g-txt" }, svg, clock1(s));
+    }
+    return { X: X, Y: Y, rh: rh, L: L, top: top, sheetBottom: top + sheetH, W: W, bx: bx };
+  }
+  function note(svg, g, n, cls, label, extra) {
+    var x = g.X(n.start), w = Math.max(2, n.len * g.bx - 1.5), y = g.Y(n.pitch) + 2, h = g.rh - 4;
+    var r = el("rect", { x: x, y: y, width: w, height: h, rx: 3, "class": cls + (extra ? " " + extra : "") }, svg);
+    if (label) el("text", { x: x + 2, y: y + h + 13, "class": "n-lbl" }, svg, label);
+    return r;
+  }
+  function wave(svg, g, y, h, b0, b1, seed, activeFn) {
+    el("rect", { x: g.L, y: y, width: g.W - g.L, height: h, "class": "wave-bg" }, svg);
+    var d = "M" + g.L + " " + (y + h / 2);
+    var pts = [], step = 2;
+    for (var x = g.L; x <= g.W; x += step) {
+      var b = b0 + (x - g.L) / g.bx;
+      var act = activeFn(b) ? 1 : 0.12;
+      var v = act * (0.35 + 0.65 * Math.abs(Math.sin(b * 0.37 + seed) * Math.cos(b * 0.11 + seed * 2) + 0.3 * Math.sin(b * 1.7)));
+      pts.push([x, Math.min(1, v) * h * 0.46]);
+    }
+    pts.forEach(function (p) { d += " L" + p[0] + " " + (y + h / 2 - p[1]); });
+    for (var i = pts.length - 1; i >= 0; i--) d += " L" + pts[i][0] + " " + (y + h / 2 + pts[i][1]);
+    el("path", { d: d + "Z", "class": "wave" }, svg);
+  }
+
+  // ===== Editor sheet =====
+  (function () {
+    var svg = document.getElementById("ed-sheet");
+    var g = sheet(svg, { w: 800, h: 380, b0: 100, b1: 340, pMin: -1, pMax: 12, waveH: 54, actH: 8 });
+    PREV.forEach(function (n) { note(svg, g, { start: n[0], len: n[1], pitch: n[2] }, "n-normal n-dim", null); });
+    NEXT.forEach(function (n) { note(svg, g, { start: n[0], len: n[1], pitch: n[2] }, "n-normal n-dim", null); });
+    CUR.forEach(function (n, i) {
+      var r = note(svg, g, { start: n[1], len: n[2], pitch: n[3] }, TCLS[n[0]], n[4].replace("~", "~").trim(), i === 2 ? "n-sel" : "");
+      if (i === 2) {
+        var x = g.X(n[1]), w = n[2] * g.bx - 1.5, y = g.Y(n[3]) + 2, h = g.rh - 4;
+        el("rect", { x: x - 2, y: y + h / 2 - 6, width: 4, height: 12, rx: 1, "class": "handle" }, svg);
+        el("rect", { x: x + w - 2, y: y + h / 2 - 6, width: 4, height: 12, rx: 1, "class": "handle" }, svg);
+      }
+    });
+    // phrase breaks
+    [128, 280].forEach(function (b) {
+      var x = g.X(b);
+      el("line", { x1: x, x2: x, y1: g.top, y2: g.sheetBottom, "class": "brk" }, svg);
+      el("rect", { x: x - 4, y: g.top + 2, width: 8, height: 8, rx: 2, "class": "brk-cap" }, svg);
+    });
+    // wave + activity
+    var spans = PREV.concat(CUR.map(function (n) { return [n[1], n[2]]; })).concat(NEXT);
+    function active(b) { return spans.some(function (s) { return b >= s[0] - 1 && b <= s[0] + s[1] + 1; }); }
+    var wy = g.sheetBottom + 8;
+    wave(svg, g, wy, 54, 100, 340, 1.3, active);
+    for (var b = 100; b < 340; b += 1) if (active(b)) el("rect", { x: g.X(b), y: wy + 54, width: g.bx + 0.6, height: 6, "class": "act-on" }, svg);
+    el("text", { x: 4, y: wy + 30, "class": "g-txt" }, svg, "Vocals");
+    // playhead
+    var ph = g.X(181);
+    el("line", { x1: ph, x2: ph, y1: 0, y2: 380, "class": "ph-line" }, svg);
+    el("path", { d: "M" + (ph - 6) + " 0 L" + (ph + 6) + " 0 L" + ph + " 8 Z", "class": "ph-head" }, svg);
+  })();
+
+  // ===== Repair data: lines 15..23 with compression =====
+  var V2 = [[66.18,2.19,8,"Weakness kept in silence"],[68.90,2.15,7,"no doubtful voices raised"],[72.07,2.48,7,"Throughout this endless crisis"],[75.28,2.48,6,"which no one dares to face"],[78.73,2.19,5,"The choking hand of violence"],[81.33,2.60,8,"feeds us rotten thoughts of hate"],[84.87,2.60,8,"Don't wait now break the silence"],[88.12,0.77,2,"don't wait"]];
+  var S0 = 66.18, SEnd = 88.89, CEnd = 72.0, F = (CEnd - S0) / (SEnd - S0);
+  function comp(t) { return S0 + (t - S0) * F; }
+
+  (function () {
+    var box = document.getElementById("rp-lines");
+    var s = document.createElement("div"); s.className = "search"; s.innerHTML = '<span class="field">Search lyrics…</span>'; box.appendChild(s);
+    var rows = [[13,54.72,"Break","ok"],[14,56.83,"out and live Come and taste…","ok"]];
+    V2.forEach(function (l, i) { rows.push([15 + i, comp(l[0]), l[3], "bad"]); });
+    rows.push([23, 91.37, "Open up your eyes", "ok"], [24, 93.12, "Break", "ok"]);
+    var colors = { ok: "var(--ok)", bad: "var(--bad)" };
+    rows.forEach(function (r) {
+      var d = document.createElement("div");
+      d.className = "lrow" + (r[3] === "bad" ? " racing" : "") + (r[0] === 15 ? " sel" : "");
+      var pin = (r[0] === 15 || r[0] === 23) ? '<span class="tchip" style="background:var(--accent);color:#fff">' + (r[0] === 15 ? "A1" : "A2") + '</span>' : "";
+      d.innerHTML = '<span class="n">' + r[0] + '</span><span class="t">' + clock1(r[1]) + '</span><span class="x">' + pin + r[2] + '</span><span class="hdot" style="background:' + colors[r[3]] + '"></span>';
+      box.appendChild(d);
+    });
+  })();
+
+  // overview
+  (function () {
+    var svg = document.getElementById("rp-overview");
+    var W = 1080, dur = 220; function X(t) { return 4 + t / dur * (W - 8); }
+    el("rect", { x: X(S0) - 2, y: 0, width: X(SEnd) - X(S0) + 4, height: 64, rx: 3, "class": "region-bad" }, svg);
+    var all = [[14.94,2.28],[17.74,2.4],[21.48,4.79],[27.78,2.03],[30.54,0.49],[31.31,1.46],[34.16,1.26],[35.7,1.06],[40.25,1.34],[41.92,1.83],[44.03,3.54],[48.22,6.22],[54.72,1.83],[56.83,3.94]];
+    var after = [[91.37,1.42],[93.12,1.83],[95.23,7.27],[103.4,3.29],[107.14,0.61],[108.03,4.51],[112.83,1.3],[123.8,0.65],[125.3,0.45],[126.48,0.24],[130.18,0.65],[131.72,1.34],[136.19,1.34],[137.82,1.54],[140.42,3.09],[168.17,2.52],[171.1,0.24],[171.71,3.29],[176.2,2.4],[180.1,2.9],[184.0,2.2],[188.3,3.1],[192.5,2.6],[197.0,4.2]];
+    all.concat(after).forEach(function (l) { el("rect", { x: X(l[0]), y: 8, width: Math.max(2, X(l[0] + l[1]) - X(l[0])), height: 20, rx: 2, "class": "h-ok" }, svg); });
+    V2.forEach(function (l) { var a = comp(l[0]); el("rect", { x: X(a), y: 8, width: Math.max(2, X(comp(l[0] + l[1])) - X(a)), height: 20, rx: 1, "class": "h-bad" }, svg); });
+    all.concat(V2.map(function (l) { return [l[0], l[1]]; })).concat(after).forEach(function (l) { el("rect", { x: X(l[0]), y: 34, width: Math.max(2, X(l[0] + l[1]) - X(l[0])), height: 8, "class": "act-on" }, svg); });
+    [S0, 91.37].forEach(function (t, i) {
+      var x = X(t);
+      el("line", { x1: x, x2: x, y1: 4, y2: 46, "class": "anchor-line" }, svg);
+      el("rect", { x: x, y: 0, width: 20, height: 12, rx: 2, "class": "anchor-flag" }, svg);
+      el("text", { x: x + 3, y: 9.5, "class": "anchor-txt" }, svg, "A" + (i + 1));
+    });
+    for (var t = 0; t <= 210; t += 30) el("text", { x: X(t) + 2, y: 60, "class": "g-txt" }, svg, clock1(t).replace(".0", ""));
+  })();
+
+  // repair zoom sheet
+  function buildSectionNotes(seed) {
+    var out = [], rnd = seed;
+    function r() { rnd = (rnd * 9301 + 49297) % 233280; return rnd / 233280; }
+    V2.forEach(function (l) {
+      var n = l[2], t = l[0], step = l[1] / n;
+      for (var i = 0; i < n; i++) {
+        out.push({ t: t + i * step, d: step * (0.6 + r() * 0.3), p: 3 + Math.round(r() * 7) });
+      }
+    });
+    return out;
+  }
+  (function () {
+    var svg = document.getElementById("rp-sheet");
+    var t0 = 64.5, t1 = 92.5;
+    var b0 = (t0 * 1000 - GAP) / MSPB, b1 = (t1 * 1000 - GAP) / MSPB;
+    var g = sheet(svg, { w: 540, h: 330, b0: b0, b1: b1, pMin: 0, pMax: 12, waveH: 44, actH: 7, t0: t0, t1: t1, stepS: 4 });
+    function B(t) { return (t * 1000 - GAP) / MSPB; }
+    var ns = buildSectionNotes(7);
+    ns.forEach(function (n) { note(svg, g, { start: B(n.t), len: n.d * 1000 / MSPB, pitch: n.p }, "n-ghost", null); });
+    ns.forEach(function (n) { note(svg, g, { start: B(comp(n.t)), len: n.d * F * 1000 / MSPB, pitch: n.p }, "n-bad", null); });
+    // next correct line
+    [[91.37,0.3,5],[91.75,0.3,7],[92.1,0.35,7]].forEach(function (n) { note(svg, g, { start: B(n[0]), len: n[1] * 1000 / MSPB, pitch: n[2] }, "n-normal", null); });
+    var wy = g.sheetBottom + 8;
+    function active(b) { var t = sec(b); return V2.some(function (l) { return t >= l[0] && t <= l[0] + l[1]; }) || (t >= 91.37); }
+    wave(svg, g, wy, 44, b0, b1, 2.1, active);
+    for (var b = b0; b < b1; b += 2) if (active(b)) el("rect", { x: g.X(b), y: wy + 44, width: 2 * g.bx + 0.5, height: 6, "class": "act-on" }, svg);
+    [S0, 91.37].forEach(function (t, i) {
+      var x = g.X(B(t));
+      el("line", { x1: x, x2: x, y1: 0, y2: 330, "class": "anchor-line" }, svg);
+      el("rect", { x: x, y: 2, width: 22, height: 14, rx: 2, "class": "anchor-flag" }, svg);
+      el("text", { x: x + 3, y: 12.5, "class": "anchor-txt" }, svg, "A" + (i + 1));
+    });
+  })();
+
+  // block move/scale
+  (function () {
+    var svg = document.getElementById("bl-sheet");
+    var t0 = 52, t1 = 96;
+    var b0 = (t0 * 1000 - GAP) / MSPB, b1 = (t1 * 1000 - GAP) / MSPB;
+    var g = sheet(svg, { w: 1080, h: 300, b0: b0, b1: b1, pMin: 0, pMax: 12, t0: t0, t1: t1, stepS: 2 });
+    function B(t) { return (t * 1000 - GAP) / MSPB; }
+    var xa = g.X(B(S0)), xb = g.X(B(CEnd)), xc = g.X(B(SEnd));
+    el("rect", { x: xa, y: g.top, width: xb - xa, height: g.sheetBottom - g.top, "class": "sel-band" }, svg);
+    el("line", { x1: xa, x2: xa, y1: g.top, y2: g.sheetBottom, "class": "sel-edge" }, svg);
+    el("line", { x1: xb, x2: xb, y1: g.top, y2: g.sheetBottom, "class": "sel-edge" }, svg);
+    el("rect", { x: xb - 4, y: (g.top + g.sheetBottom) / 2 - 16, width: 8, height: 32, rx: 2, "class": "handle" }, svg);
+    el("rect", { x: xa - 4, y: (g.top + g.sheetBottom) / 2 - 16, width: 8, height: 32, rx: 2, "class": "handle" }, svg);
+    el("line", { x1: xc, x2: xc, y1: g.top, y2: g.sheetBottom, "class": "brk" }, svg);
+    el("path", { d: "M" + (xb + 8) + " " + (g.top + 14) + " L" + (xc - 8) + " " + (g.top + 14), stroke: "var(--kw-hl)", "stroke-width": 2, fill: "none", "marker-end": "" }, svg);
+    el("path", { d: "M" + (xc - 14) + " " + (g.top + 9) + " L" + (xc - 6) + " " + (g.top + 14) + " L" + (xc - 14) + " " + (g.top + 19) + "Z", "class": "handle" }, svg);
+    el("text", { x: (xb + xc) / 2 - 60, y: g.top + 30, "class": "g-txt-strong" }, svg, "drag edge: 1:12.00 → 1:28.89");
+    var ns = buildSectionNotes(7);
+    ns.forEach(function (n) { note(svg, g, { start: B(n.t), len: n.d * 1000 / MSPB, pitch: n.p }, "n-ghost", null); });
+    ns.forEach(function (n) { note(svg, g, { start: B(comp(n.t)), len: n.d * F * 1000 / MSPB, pitch: n.p }, "n-normal", null); });
+    // neighbours
+    [[54.72,1.83,8],[56.83,0.4,5],[57.3,0.4,7],[57.8,0.5,7],[58.4,0.5,9],[59.0,0.6,7],[59.7,0.8,5],[91.37,0.3,5],[91.75,0.3,7],[92.1,0.35,7],[93.12,1.83,8]].forEach(function (n) {
+      note(svg, g, { start: B(n[0]), len: n[1] * 1000 / MSPB, pitch: n[2] }, "n-normal n-dim", null);
+    });
+  })();
+
+  // tap lane
+  (function () {
+    var svg = document.getElementById("tp-lane");
+    var W = 740, t0 = 66, t1 = 75; function X(t) { return 70 + (t - t0) / (t1 - t0) * (W - 74); }
+    el("text", { x: 0, y: 20, "class": "g-txt" }, svg, "now");
+    el("text", { x: 0, y: 52, "class": "g-txt" }, svg, "taps");
+    var ns = buildSectionNotes(7);
+    ns.forEach(function (n) { var a = comp(n.t); if (a < t1) el("rect", { x: X(a), y: 10, width: Math.max(2, (n.d * F) / (t1 - t0) * (W - 74)), height: 14, rx: 2, "class": "n-bad" }, svg); });
+    ns.slice(0, 12).forEach(function (n) { var x = X(n.t + 0.03); el("line", { x1: x, x2: x, y1: 38, y2: 62, stroke: "var(--kw-text)", "stroke-width": 2 }, svg); });
+    for (var t = 66; t <= 74; t += 2) el("text", { x: X(t) + 2, y: 69, "class": "g-txt" }, svg, clock1(t));
+  })();
+
+  // text chips
+  (function () {
+    var box = document.getElementById("tx-chips");
+    var items = [["Are",161],["you",165],["free",172],["or",189],["just",192],["a",206],["slave",209],["of",228],["the",232],["~",237],["au",246],["tho",254,"changed"],["ri|ties?",266,"added"]];
+    items.forEach(function (it) {
+      var c = document.createElement("span"); c.className = "chip" + (it[2] ? " " + it[2] : "");
+      c.innerHTML = "<span>" + it[0] + "</span><small>" + it[1] + "</small>";
+      box.appendChild(c);
+    });
+  })();
+
+  // tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  function show(id) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("aria-controls") === id;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+    try { localStorage.setItem("usdx-plan-tab", id); } catch (e) {}
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { show(t.getAttribute("aria-controls")); });
+    t.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        var n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+        n.focus(); show(n.getAttribute("aria-controls"));
+      }
+    });
+  });
+  try { var saved = localStorage.getItem("usdx-plan-tab"); if (saved && document.getElementById(saved)) show(saved); } catch (e) {}
+})();
+</script>
+</body>
+</html>

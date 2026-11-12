@@ -13,3 +13,7 @@ license.workspace = true
 encoding_rs = "0.8.44"
 chardetng = "1.0.0"
 thiserror = "2.0.21"
+
+[dev-dependencies]
+insta = "1.49.0"
+proptest = "1.12.0"

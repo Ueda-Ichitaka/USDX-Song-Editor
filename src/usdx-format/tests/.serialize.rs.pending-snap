@@ -1,0 +1,76 @@
+{"run_id":"1794521669-178682925","line":83,"new":{"module_name":"serialize","snapshot_name":"a_dirty_note_is_formatted_canonically","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":83,"expression":"ser(&d)"},"snapshot":": 10 3 12 hi\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 10 3 12 hi"}}
+{"run_id":"1794521669-178682925","line":182,"new":{"module_name":"serialize","snapshot_name":"a_tie_of_terminators_resolves_to_lf","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":182,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\r: 2 1 1 c"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 2 1 1 c\n: 1 1 1 b"}}
+{"run_id":"1794521669-178682925","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521669-178682925","line":100,"new":{"module_name":"serialize","snapshot_name":"a_leading_space_in_a_dirty_note_text_doubles_the_space","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":100,"expression":"ser(&d)"},"snapshot":": 0 1 1  wor\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1  wor"}}
+{"run_id":"1794521671-27350687","line":212,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":117,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":212,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":139,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":128,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":196,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":151,"new":null,"old":null}
+{"run_id":"1794521671-858347116","line":182,"new":{"module_name":"serialize","snapshot_name":"a_tie_of_terminators_resolves_to_lf","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":182,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\r: 2 1 1 c"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 2 1 1 c\n: 1 1 1 b"}}
+{"run_id":"1794521671-858347116","line":83,"new":{"module_name":"serialize","snapshot_name":"a_dirty_note_is_formatted_canonically","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":83,"expression":"ser(&d)"},"snapshot":": 10 3 12 hi\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 10 3 12 hi"}}
+{"run_id":"1794521671-858347116","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521671-858347116","line":100,"new":{"module_name":"serialize","snapshot_name":"a_leading_space_in_a_dirty_note_text_doubles_the_space","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":100,"expression":"ser(&d)"},"snapshot":": 0 1 1  wor\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1  wor"}}
+{"run_id":"1794521672-913134952","line":117,"new":null,"old":null}
+{"run_id":"1794521672-913134952","line":151,"new":null,"old":null}
+{"run_id":"1794521672-913134952","line":128,"new":null,"old":null}
+{"run_id":"1794521672-913134952","line":139,"new":null,"old":null}
+{"run_id":"1794521672-913134952","line":212,"new":null,"old":null}
+{"run_id":"1794521672-913134952","line":196,"new":null,"old":null}
+{"run_id":"1794521672-913134952","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521672-913134952","line":100,"new":{"module_name":"serialize","snapshot_name":"a_leading_space_in_a_dirty_note_text_doubles_the_space","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":100,"expression":"ser(&d)"},"snapshot":": 0 1 1  wor\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1  wor"}}
+{"run_id":"1794521672-913134952","line":182,"new":{"module_name":"serialize","snapshot_name":"a_tie_of_terminators_resolves_to_lf","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":182,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\r: 2 1 1 c"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 2 1 1 c\n: 1 1 1 b"}}
+{"run_id":"1794521672-913134952","line":83,"new":{"module_name":"serialize","snapshot_name":"a_dirty_note_is_formatted_canonically","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":83,"expression":"ser(&d)"},"snapshot":": 10 3 12 hi\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 10 3 12 hi"}}
+{"run_id":"1794521686-461938512","line":139,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":128,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":117,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":83,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":151,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":212,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":100,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":196,"new":null,"old":null}
+{"run_id":"1794521686-461938512","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521686-461938512","line":182,"new":{"module_name":"serialize","snapshot_name":"a_tie_of_terminators_resolves_to_lf","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":182,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\r: 2 1 1 c"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 2 1 1 c\n: 1 1 1 b"}}
+{"run_id":"1794521687-408704006","line":117,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":100,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":151,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":128,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":139,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":196,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":212,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":83,"new":null,"old":null}
+{"run_id":"1794521687-408704006","line":182,"new":{"module_name":"serialize","snapshot_name":"a_tie_of_terminators_resolves_to_lf","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":182,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\r: 2 1 1 c"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 2 1 1 c\n: 1 1 1 b"}}
+{"run_id":"1794521687-408704006","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521692-632381795","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521703-747705661","line":83,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":139,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":117,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":128,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":100,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":196,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":212,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":151,"new":null,"old":null}
+{"run_id":"1794521703-747705661","line":167,"new":{"module_name":"serialize","snapshot_name":"a_new_row_takes_the_dominant_terminator","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":167,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 2 1 1 c\n: 3 1 1 d\nE"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 1 1 1 b\n: 3 1 1 d\n: 2 1 1 c\nE"}}
+{"run_id":"1794521703-747705661","line":182,"new":{"module_name":"serialize","snapshot_name":"a_tie_of_terminators_resolves_to_lf","metadata":{"source":"src/usdx-format/tests/serialize.rs","assertion_line":182,"expression":"ser(&d)"},"snapshot":": 0 1 1 a\n: 1 1 1 b\r: 2 1 1 c"},"old":{"module_name":"serialize","metadata":{},"snapshot":": 0 1 1 a\n: 2 1 1 c\n: 1 1 1 b"}}
+{"run_id":"1794521713-692027842","line":139,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":83,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":117,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":182,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":128,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":151,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":100,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":212,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":167,"new":null,"old":null}
+{"run_id":"1794521713-692027842","line":196,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":83,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":100,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":151,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":139,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":128,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":117,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":182,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":167,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":212,"new":null,"old":null}
+{"run_id":"1794521782-321998555","line":196,"new":null,"old":null}

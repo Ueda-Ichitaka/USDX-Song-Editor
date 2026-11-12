@@ -11,5 +11,6 @@
 pub mod bytes;
 pub mod headers;
 pub mod rows;
+pub mod serialize;
 pub mod song;
 pub mod timing;

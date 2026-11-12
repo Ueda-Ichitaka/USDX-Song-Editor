@@ -1,0 +1,19 @@
+#VERSION:1.2.0
+#ARTIST:Testband
+#TITLE:Invented Lyrics
+#YEAR:2026
+#LANGUAGE:English
+#GENRE:Test
+#MP3:testband - invented lyrics.mp3
+#AUDIO:testband - invented lyrics.mp3
+#BPM:381.72
+#GAP:21980
+#CREATOR:UltraSinger [GitHub] 0.0.13.dev16
+: 0 6 -3 In
+: 6 6 -3 ven
+: 12 6 -3 ted
+- 18
+: 18 6 0 lyr
+* 24 6 1 ics
+- 30
+E

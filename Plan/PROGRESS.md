@@ -12,7 +12,7 @@ Status values: `todo`, `in progress`, `done`, `blocked (gate G-xx)`.
 | Task | Title | Status | Notes for later tasks |
 |---|---|---|---|
 | P0-01 | Workspace | done | Virtual workspace defaults to resolver 1 even with edition 2024 members; `resolver = "3"` set explicitly (verified via cargo warning). The `usdx-edit -> usdx-format` dependency edge is added in P2-01 when first used (unused dep warns). |
-| P0-02 | Guarded dev script | todo | |
+| P0-02 | Guarded dev script | done | `dev.sh check/test/build` work through the systemd scope (verified live). `run` fails cleanly until the app bin exists (P0-03); `corpus` fails cleanly until the corpus test exists (P1-09). `cargo run` accepts no `--workspace` flag - run uses `cargo run`. Guard test also covers the 4 GiB boundary and the jobs floor of 1. |
 | P0-03 | App skeleton | todo | |
 | P0-04 | CMake install and desktop integration | todo | |
 | P1-01 | Byte layer | todo | |

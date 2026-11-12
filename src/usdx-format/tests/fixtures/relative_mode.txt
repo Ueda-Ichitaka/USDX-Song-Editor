@@ -1,0 +1,18 @@
+#TITLE:Relative Test
+#ARTIST:Editor
+#BPM:240
+#GAP:1000
+#RELATIVE:yes
+P1
+: 0 4 0 first
+: 4 4 1 sec
+- 8 12
+: 0 4 2 third
+- 4 8
+- 0 5
+P2
+: 0 4 3 other
+- 4 6
+P1
+: 0 4 4 back
+E

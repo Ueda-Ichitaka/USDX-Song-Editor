@@ -46,8 +46,9 @@ pub struct Voice {
 }
 
 /// A note with its absolute start beat. In relative mode the absolute start is
-/// the row's start shifted by the running relative offset, which the `#GAP`
-/// value can make fractional.
+/// the row's start shifted by the running relative offset of its voice.
+/// The offset starts at 0 per voice and accumulates the phrase ends'
+/// rel-offsets, so it stays an integer sum.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AbsNote {
     pub row: RowId,
@@ -98,10 +99,10 @@ impl Song {
         let RowKind::Note(note) = &row.kind else {
             return None;
         };
-        // In non-relative mode the start beat is the row's own start; the
-        // relative-mode shift is added by the relative-mode reading.
+        // In relative mode the start beat is the row's start shifted by the
+        // running relative offset of its voice.
         let start = if self.relative {
-            relative_start(doc, note)
+            relative_start(doc, id, note)
         } else {
             note.start as f64
         };
@@ -117,10 +118,33 @@ impl Song {
 }
 
 /// relative_start computes the absolute start of a note in relative mode. The
-/// relative-mode reading (P1-06) adds the running offset of the voice; until it
-/// lands, the start is returned unshifted.
-fn relative_start(doc: &Document, note: &NoteRow) -> f64 {
-    let _ = doc;
+/// relative offset `rel` starts at 0 per voice (the USDX implementation; the
+/// `#GAP` value stays in the timing, which already adds it at the millisecond
+/// conversion), the rel-offset of every phrase end shifts the following notes
+/// of its voice, and a voice change does not reset the offset.
+fn relative_start(doc: &Document, id: RowId, note: &NoteRow) -> f64 {
+    use std::collections::HashMap;
+
+    let mut rel: HashMap<u8, f64> = HashMap::new();
+    let mut current_voice = 1u8;
+    for row in &doc.rows {
+        match &row.kind {
+            RowKind::Note(row_note) => {
+                if row.id == id {
+                    let offset = rel.get(&current_voice).copied().unwrap_or(0.0);
+                    return offset + row_note.start as f64;
+                }
+            }
+            RowKind::PhraseEnd { rel_offset, .. } => {
+                if let Some(offset) = rel_offset {
+                    *rel.entry(current_voice).or_default() += *offset as f64;
+                }
+            }
+            RowKind::Voice(number) => current_voice = *number,
+            RowKind::End => break,
+            RowKind::Header { .. } | RowKind::Empty | RowKind::Invalid { .. } => {}
+        }
+    }
     note.start as f64
 }
 

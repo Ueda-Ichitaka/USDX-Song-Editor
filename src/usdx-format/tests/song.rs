@@ -1,9 +1,11 @@
-//! About me: tests for the derived song view (task P1-05, plan section 5.4).
-//! They assert that lines split at end-of-phrase markers, voice changes and the
-//! end row exactly as the Factory's note_types.py splits them, the implicit
-//! voice 1, the duet with two voices, the line text joined from the syllables
-//! and the absolute note lookup. The ignored benchmark test asserts the rebuild
-//! time of a generated 3000-row song; `scripts/dev.sh check --release` runs it.
+//! About me: tests for the derived song view (task P1-05, plan section 5.4)
+//! and the relative-mode reading (task P1-06). They assert that lines split at
+//! end-of-phrase markers, voice changes and the end row exactly as the
+//! Factory's note_types.py splits them, the implicit voice 1, the duet with
+//! two voices, the line text joined from the syllables, the absolute note
+//! lookup and the relative-mode offset semantics on the `relative_mode.txt`
+//! fixture. The ignored benchmark test asserts the rebuild time of a
+//! generated 3000-row song; `scripts/dev.sh check --release` runs it.
 
 use std::time::Instant;
 
@@ -211,6 +213,97 @@ fn note_returns_none_for_an_unknown_row_id() {
     let d = doc(": 0 1 1 a\nE\n");
     let s = Song::from_document(&d);
     assert_eq!(s.note(&d, RowId(999)), None);
+}
+
+// ---- Relative mode ----
+
+const RELATIVE_MODE: &str = include_str!("fixtures/relative_mode.txt");
+
+/// relative_song builds the song view of the relative fixture.
+fn relative_song() -> (usdx_format::rows::Document, Song) {
+    let d = doc(RELATIVE_MODE);
+    let s = Song::from_document(&d);
+    (d, s)
+}
+
+#[test]
+fn the_relative_fixture_is_recognized_as_relative() {
+    let (_, s) = relative_song();
+    assert!(s.relative);
+}
+
+// The fixture's absolute beats (USDX semantics, gate G-01 decision): rel
+// starts at 0 per voice, the phrase-end rel-offset accumulates after the
+// marker has been interpreted.
+//
+//   row 6  "first"  rel 0        -> 0
+//   row 7  "sec"    rel 0        -> 4
+//   row 8  `- 8 12` line 8, rel += 12 -> 12
+//   row 9  "third"  rel 12       -> 12
+//   row 10 `- 4 8`  line 16, rel += 8 -> 20
+//   row 11 `- 0 5`  empty line,  rel += 5 -> 25
+//   row 13 "other"  voice 2, rel 0 -> 0
+//   row 14 `- 4 6`  voice 2, rel += 6 -> 6
+//   row 16 "back"   voice 1 again, rel not reset -> 25
+
+#[test]
+fn relative_notes_start_at_the_running_offset() {
+    let (d, s) = relative_song();
+    assert_eq!(s.note(&d, RowId(6)).expect("first is a note").start, 0.0);
+    assert_eq!(s.note(&d, RowId(7)).expect("sec is a note").start, 4.0);
+    assert_eq!(s.note(&d, RowId(9)).expect("third is a note").start, 12.0);
+}
+
+#[test]
+fn the_rel_offset_accumulates_across_phrase_ends() {
+    let (d, s) = relative_song();
+    // After `- 4 8` the voice-1 rel is 20; the empty phrase end `- 0 5`
+    // still adds its offset, so "back" starts at 25.
+    assert_eq!(s.note(&d, RowId(16)).expect("back is a note").start, 25.0);
+}
+
+#[test]
+fn the_rel_offset_is_added_even_without_an_open_line() {
+    // The empty phrase end between `- 4 8` and the P2 change closes no line,
+    // but its rel-offset must still count: it is the 5 in "back" at 25.
+    let (d, s) = relative_song();
+    assert_eq!(s.note(&d, RowId(16)).expect("back is a note").start, 25.0);
+}
+
+#[test]
+fn each_voice_has_its_own_rel_value() {
+    let (d, s) = relative_song();
+    // Voice 2 starts fresh while voice 1 already carries an offset.
+    assert_eq!(s.note(&d, RowId(13)).expect("other is a note").start, 0.0);
+    assert_eq!(s.note(&d, RowId(16)).expect("back is a note").start, 25.0);
+}
+
+#[test]
+fn the_rel_value_does_not_reset_at_a_voice_change() {
+    let (d, s) = relative_song();
+    // "back" belongs to voice 1 again; its rel continues at 25.
+    assert_eq!(s.note(&d, RowId(16)).expect("back is a note").start, 25.0);
+}
+
+#[test]
+fn the_gap_does_not_shift_relative_beats() {
+    // rel starts at 0 even though the fixture sets `#GAP:1000`; the gap stays
+    // in the timing, which adds it at the millisecond conversion.
+    let (d, s) = relative_song();
+    assert_eq!(s.note(&d, RowId(6)).expect("first is a note").start, 0.0);
+}
+
+#[test]
+fn a_non_relative_song_ignores_the_rel_offset_column() {
+    // The row layer stores `rel_offset` for every `- beat offset` row; only
+    // relative mode interprets it.
+    let (d, s) = {
+        let d = doc("#TITLE:T\n: 0 1 1 a\n- 8 12\n: 0 1 1 b\nE\n");
+        let s = Song::from_document(&d);
+        (d, s)
+    };
+    assert!(!s.relative);
+    assert_eq!(s.note(&d, RowId(3)).expect("b is a note").start, 0.0);
 }
 
 // ---- Rebuild benchmark ----

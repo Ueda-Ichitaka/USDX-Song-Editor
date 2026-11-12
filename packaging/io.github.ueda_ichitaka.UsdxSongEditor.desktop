@@ -1,0 +1,17 @@
+# About me: the freedesktop desktop entry of the USDX Song Editor. It puts the
+# application into the launcher menu and tells the Wayland compositor which icon
+# belongs to the window; the application matches itself to this file with
+# QGuiApplication::set_desktop_file_name, so the file name must stay
+# io.github.ueda_ichitaka.UsdxSongEditor.desktop.
+
+[Desktop Entry]
+Type=Application
+Name=USDX Song Editor
+GenericName=UltraStar song editor
+Comment=Fix UltraStar Deluxe song files without losing information
+Exec=usdx-song-editor
+Icon=io.github.ueda_ichitaka.UsdxSongEditor
+Terminal=false
+StartupNotify=true
+Categories=AudioVideo;Audio;
+Keywords=karaoke;ultrastar;sing;notes;pitch;timing;

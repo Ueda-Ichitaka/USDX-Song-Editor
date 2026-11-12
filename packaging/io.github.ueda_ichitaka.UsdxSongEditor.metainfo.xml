@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- About me: the AppStream metainfo of the USDX Song Editor. It describes the
+     application for software centers and appstream validation; the component id and
+     the launchable desktop-id must stay io.github.ueda_ichitaka.UsdxSongEditor. -->
+<component type="desktop-application">
+  <id>io.github.ueda_ichitaka.UsdxSongEditor</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.ueda_ichitaka">
+    <name>ueda_ichitaka</name>
+  </developer>
+  <name>USDX Song Editor</name>
+  <summary>Fix UltraStar Deluxe songs without losing information</summary>
+  <description>
+    <p>
+      A desktop application for editing UltraStar Deluxe song files. It opens a song
+      in the text format that UltraStar Deluxe sings, shows every lyric line with its
+      notes, and lets the editor change pitch, length, type and text with the mouse
+      while listening at the exact spot.
+    </p>
+    <p>
+      Every repair changes the notes in the song file itself and nothing else: the
+      editor reads and writes the format exactly as the format specification defines
+      it, keeps everything it did not edit byte-identical, and refuses to invent
+      content. Repair timing puts racing lines back on time, the health checks name
+      suspicious and racing lines, and exporting anchors for the USDX Song Factory is
+      an extra on top. The application works standalone, with no Factory, container
+      or network needed.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.ueda_ichitaka.UsdxSongEditor.desktop</launchable>
+  <url type="homepage">https://github.com/ueda_ichitaka/USDX-Song-Editor</url>
+  <provides>
+    <binary>usdx-song-editor</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-11-12"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

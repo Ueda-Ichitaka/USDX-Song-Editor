@@ -9,6 +9,7 @@ members = [
     "src/usdx-format",
     "src/usdx-edit",
     "src/usdx-audio",
+    "src/usdx-song-editor",
 ]
 
 [workspace.package]

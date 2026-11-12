@@ -1,0 +1,24 @@
+# About me: manifest of the usdx-song-editor application crate. It builds the library
+# (application logic plus the cxx-qt QML module io.github.ueda_ichitaka.UsdxSongEditor,
+# bridges and QML files) and the thin usdx-song-editor binary around it, tying together
+# the usdx-format, usdx-edit and usdx-audio libraries behind a Kirigami interface.
+
+[package]
+name = "usdx-song-editor"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cxx = "1.0.205"
+cxx-qt = "0.10.0"
+cxx-qt-lib = { version = "0.10.0", features = ["qt_full"] }
+cxx-qt-lib-extras = "0.10.0"
+
+[build-dependencies]
+cxx-qt-build = "0.10.0"
+
+[[bin]]
+name = "usdx-song-editor"
+path = "src/main.rs"

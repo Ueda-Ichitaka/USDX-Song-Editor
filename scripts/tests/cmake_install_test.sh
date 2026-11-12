@@ -28,13 +28,15 @@ mem_ok
 export CARGO_BUILD_JOBS="$(jobs_for)"
 
 # The build goes through CMake, which drives cargo; the memory guard wraps the build.
-run_guarded cmake -S "$repo" -B "$build_dir" -DCMAKE_INSTALL_PREFIX="$prefix" 2>"$tmp/configure.log" \
+# The PATH hides cargo on purpose: in a plain login shell cargo is not on the PATH
+# (it lives in ~/.cargo/bin here), and CMake must locate it itself.
+run_guarded env PATH=/usr/bin:/bin cmake -S "$repo" -B "$build_dir" -DCMAKE_INSTALL_PREFIX="$prefix" 2>"$tmp/configure.log" \
   || { cat "$tmp/configure.log" >&2; fail "cmake configure failed"; }
 ok "cmake configure succeeds with Kirigami and qqc2-desktop-style found"
 
-run_guarded cmake --build "$build_dir" 2>"$tmp/build.log" \
+run_guarded env PATH=/usr/bin:/bin cmake --build "$build_dir" 2>"$tmp/build.log" \
   || { tail -30 "$tmp/build.log" >&2; fail "cmake build failed"; }
-ok "cmake build succeeds"
+ok "cmake build succeeds without cargo on the PATH"
 
 run_guarded cmake --install "$build_dir" 2>"$tmp/install.log" \
   || { cat "$tmp/install.log" >&2; fail "cmake install failed"; }

@@ -27,8 +27,15 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(USDX_CARGO_FLAGS --release)
 endif()
 
+# Cargo is not on every shell's PATH (on this machine it lives in ~/.cargo/bin),
+# so the build target uses the resolved absolute path.
+find_program(USDX_CARGO_EXECUTABLE cargo PATHS "$ENV{HOME}/.cargo/bin")
+if(NOT USDX_CARGO_EXECUTABLE)
+  message(FATAL_ERROR "cargo was not found on PATH or in ~/.cargo/bin; install Rust (https://rustup.rs)")
+endif()
+
 add_custom_target(usdx-song-editor ALL
-  COMMAND cargo build ${USDX_CARGO_FLAGS} --target-dir ${CMAKE_CURRENT_BINARY_DIR}
+  COMMAND ${USDX_CARGO_EXECUTABLE} build ${USDX_CARGO_FLAGS} --target-dir ${CMAKE_CURRENT_BINARY_DIR}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Building the Rust workspace with cargo (${USDX_CARGO_PROFILE})"
   VERBATIM

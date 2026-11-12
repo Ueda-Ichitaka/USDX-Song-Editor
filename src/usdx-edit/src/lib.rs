@@ -10,6 +10,7 @@
 //! This skeleton is filled in by tasks P2-01 to P2-05 and phase 7 of
 //! Plan/IMPLEMENTATION_PLAN.md.
 
+pub mod changes;
 pub mod header_ops;
 pub mod history;
 pub mod ops;

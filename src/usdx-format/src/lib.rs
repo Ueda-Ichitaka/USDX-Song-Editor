@@ -9,3 +9,4 @@
 //! This skeleton is filled in by tasks P1-01 to P1-09 of Plan/IMPLEMENTATION_PLAN.md.
 
 pub mod bytes;
+pub mod rows;

@@ -5,7 +5,9 @@
 //! valid UTF-8, an ASCII-readable `#ENCODING` header, then a chardetng guess between
 //! windows-1252 and windows-1250), and encodes a decoded file back to bytes as the
 //! exact inverse. It exists so that every later layer can work on text while the
-//! loader keeps the file byte-identical unless a row was really edited.
+//! the editor keeps the file byte-identical unless a row was really edited. The module
+//! also defines `DecodedFileMeta`, the file-level metadata the row layer carries in a
+//! document so the serializer can write the BOM and the encoding back unchanged.
 
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::{Encoding, WINDOWS_1250, WINDOWS_1252};
@@ -65,6 +67,27 @@ pub struct DecodedFile {
     pub encoding: TextEncoding,
     pub encoding_source: EncodingSource,
     pub lines: Vec<RawLine>,
+}
+
+/// The file-level metadata of a decoded file. The row layer keeps it in
+/// `Document::file` so the serializer can write the BOM and the encoding back
+/// unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecodedFileMeta {
+    pub bom: bool,
+    pub encoding: TextEncoding,
+    pub encoding_source: EncodingSource,
+}
+
+impl DecodedFile {
+    /// meta returns the file-level metadata of the decoded file.
+    pub fn meta(&self) -> DecodedFileMeta {
+        DecodedFileMeta {
+            bom: self.bom,
+            encoding: self.encoding,
+            encoding_source: self.encoding_source,
+        }
+    }
 }
 
 /// Errors of the byte layer; later layers extend their own error types.

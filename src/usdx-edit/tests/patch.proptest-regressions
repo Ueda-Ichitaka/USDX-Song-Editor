@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fce7467e6a087d62e363c93dcffe409a47f9ee03f96a8ce940bd0d587ce9050d # shrinks to doc = Document { file: DecodedFileMeta { bom: false, encoding: Utf8, encoding_source: Valid }, rows: [], trailing: [] }, choice = (0, 7, 0, false)

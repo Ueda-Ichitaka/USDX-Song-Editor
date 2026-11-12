@@ -77,8 +77,9 @@ fn dominant_terminator(doc: &Document) -> Terminator {
 /// canonical_text formats a dirty row: notes and phrase ends with single ASCII
 /// spaces, headers with the raw key spelling kept for edited rows and the
 /// uppercase key for new ones. Rows that an edit cannot produce keep their raw
-/// text.
-fn canonical_text(row: &Row) -> String {
+/// text. Public because the edit-operation builders write the canonical text
+/// into the rows they mark dirty.
+pub fn canonical_text(row: &Row) -> String {
     match &row.kind {
         RowKind::Header { key, value } => match row.raw.text.find(':') {
             // Keep the original spelling up to and including the first colon

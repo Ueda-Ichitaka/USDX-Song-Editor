@@ -919,6 +919,11 @@ version = "0.1.0"
 [[package]]
 name = "usdx-edit"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror 2.0.21",
+ "usdx-format",
+]
 
 [[package]]
 name = "usdx-format"

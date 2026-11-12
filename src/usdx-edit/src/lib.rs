@@ -9,3 +9,11 @@
 //!
 //! This skeleton is filled in by tasks P2-01 to P2-05 and phase 7 of
 //! Plan/IMPLEMENTATION_PLAN.md.
+
+pub mod header_ops;
+pub mod history;
+pub mod ops;
+pub mod patch;
+
+pub use history::History;
+pub use patch::{EditError, Patch, RowOp};

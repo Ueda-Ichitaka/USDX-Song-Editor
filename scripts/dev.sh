@@ -92,7 +92,14 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       if [[ "${1:-}" == "--release" ]]; then release="--release"; shift; fi
       cargo fmt --all --check
       run_guarded cargo clippy --workspace --all-targets $release -- -D warnings
-      run_guarded cargo test --workspace $release
+      # In release mode the ignored benchmark-style tests run too (plan P1-05:
+      # the song view rebuild benchmark); ignored tests that need external data
+      # skip on their own when their environment is not set.
+      if [[ -n "$release" ]]; then
+        run_guarded cargo test --workspace $release -- --include-ignored
+      else
+        run_guarded cargo test --workspace $release
+      fi
       ;;
     test)
       if (( $# > 0 )); then

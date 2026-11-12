@@ -9,12 +9,13 @@
 //! with the installed desktop file, loads Main.qml from the compiled-in QML module
 //! and runs the event loop. --version prints the version line and --self-test
 //! verifies offscreen that the QML loads and the window root object exists
-//! (plan section 8.1).
+//! (plan section 8.1); with a song path it opens the song through the SongDocument
+//! bridge and reports its line count on stdout (plan section 8.3, task P3-04).
 
 pub mod bridge;
 pub mod controller;
 
-use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QUrl};
+use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QString, QUrl};
 use cxx_qt_lib_extras::QApplication;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -37,6 +38,9 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
         return 0;
     }
     let self_test = args.iter().any(|arg| arg == "--self-test");
+    // The positional argument is the song path: `usdx-song-editor [SONG.txt]`,
+    // and `--self-test SONG.txt` loads it through the bridge (task P3-04).
+    let positional: Vec<&String> = args.iter().filter(|arg| !arg.starts_with('-')).collect();
 
     let mut app = QApplication::new();
     if std::env::var_os("QT_QUICK_CONTROLS_STYLE").is_none() {
@@ -50,6 +54,16 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
     }
 
     if self_test {
+        if let Some(path) = positional.first() {
+            let ok = engine.as_ref().is_some_and(|engine| {
+                bridge::selftest::usdx_selftest_load_song(engine, &QString::from(path.as_str()))
+            });
+            if !ok {
+                eprintln!("self-test failed: the song did not load through the bridge");
+                return 1;
+            }
+            return 0;
+        }
         let ok = engine
             .as_ref()
             .is_some_and(bridge::selftest::usdx_qml_root_object_exists);

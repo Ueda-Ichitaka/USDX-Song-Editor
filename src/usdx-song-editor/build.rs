@@ -11,7 +11,7 @@ fn main() {
         QmlModule::new("io.github.ueda_ichitaka.UsdxSongEditor").qml_files(["qml/Main.qml"]);
     unsafe {
         CxxQtBuilder::new_qml_module(qml_module)
-            .files(["src/bridge/selftest.rs"])
+            .files(["src/bridge/selftest.rs", "src/bridge/song_document.rs"])
             .cpp_file("cpp/selftest.cpp")
             .cc_builder(|cc| {
                 cc.include("cpp");

@@ -11,6 +11,7 @@
 //! feed back into lands here, so the flows behave the same no matter which
 //! control triggered them.
 
+use std::io;
 use std::path::Path;
 
 use usdx_format::headers::Headers;
@@ -344,7 +345,35 @@ fn save_to_own_path(
     match result {
         Ok(()) => Transition::Continue,
         Err(SaveError::ExternalChange) => Transition::AskChangedOnDisk,
-        Err(error) => Transition::Stop(Some(error.to_string())),
+        Err(error) => Transition::Stop(Some(save_failure_reason(&error, &path))),
+    }
+}
+
+/// save_failure_reason renders a save failure as the user-facing reason of
+/// the UI_SPEC 6 banner text `Could not save: <reason>. Your changes are
+/// still here.` The `path` is the save target; its file name appears in the
+/// wording.
+pub fn save_failure_reason(error: &SaveError, path: &Path) -> String {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned());
+    match error {
+        SaveError::ReadOnly => String::from("the song is read-only"),
+        // The save flow turns this into the changed-on-disk dialog before a
+        // reason is rendered; the text keeps the refusal honest anyway.
+        SaveError::ExternalChange => String::from("the file changed on disk since it was loaded"),
+        SaveError::Serialize(detail) => {
+            format!("the song text cannot be written: {detail}")
+        }
+        SaveError::Io(error) => match error.kind() {
+            io::ErrorKind::PermissionDenied => format!("no permission to write \"{name}\""),
+            io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded => {
+                String::from("the disk is full")
+            }
+            io::ErrorKind::NotFound => String::from("the folder no longer exists"),
+            _ => format!("\"{name}\" could not be written: {error}"),
+        },
     }
 }
 

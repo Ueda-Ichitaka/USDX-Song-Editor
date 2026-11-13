@@ -64,14 +64,26 @@ impl EditorController {
     }
 
     /// open loads the song at `path`. A failure leaves the previously loaded
-    /// song in place, so the UI keeps showing what the user had.
+    /// song in place, so the UI keeps showing what the user had. The failure
+    /// texts are the UI_SPEC 6 open-failure texts, verbatim.
     pub fn open(&mut self, path: &Path) -> Result<(), String> {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
         let bytes =
-            fs::read(path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
+            fs::read(path).map_err(|error| format!("\"{name}\" could not be read: {error}."))?;
         let decoded =
-            decode(&bytes).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
+            decode(&bytes).map_err(|error| format!("\"{name}\" could not be read: {error}."))?;
         let document = classify(decoded);
         let song = Song::from_document(&document);
+        // Without a usable #BPM the note sheet cannot place notes in time,
+        // so the file is refused as not a song (UI_SPEC 6).
+        if song.timing.is_none() {
+            return Err(format!(
+                "\"{name}\" is not an UltraStar song: it has no #BPM header."
+            ));
+        }
         // The serializer self-check: a file we cannot write back unchanged
         // is shown read-only (UI_SPEC 4.5).
         let round_trip = serialize(&document)

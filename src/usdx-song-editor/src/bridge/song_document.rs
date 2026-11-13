@@ -1018,7 +1018,7 @@ impl qobject::SongDocument {
             }
             Err(error) => {
                 self.as_mut()
-                    .report_save_failure(QString::from(error.to_string()));
+                    .report_save_failure(QString::from(shell::save_failure_reason(&error, path)));
                 false
             }
         }

@@ -5,6 +5,7 @@
 //! major-version-2 (or unparsable) song loads read-only while unversioned
 //! and 1.x songs stay editable, that a failed open keeps the previously
 //! loaded song, and that the file fingerprint separates content by hash.
+//! The open-failure texts follow UI_SPEC 6 exactly.
 
 use std::path::Path;
 
@@ -126,4 +127,53 @@ fn the_fingerprint_hash_separates_content_of_the_same_size() {
     assert_eq!(a, same);
     assert_ne!(a.hash, other.hash);
     assert_eq!(a.size, other.size);
+}
+
+// --- Open-failure texts (UI_SPEC 6) ---
+
+#[test]
+fn a_song_without_bpm_is_refused_with_the_exact_text() {
+    let (dir, path) = fixture("#TITLE:T\n: 0 4 0 la\n- 4\nE\n");
+    let mut controller = EditorController::new();
+    let error = controller.open(&path).expect_err("the song has no #BPM");
+    assert_eq!(
+        error,
+        "\"song.txt\" is not an UltraStar song: it has no #BPM header."
+    );
+    assert!(!controller.is_loaded());
+    drop(dir);
+}
+
+#[test]
+fn an_unreadable_file_is_refused_with_the_exact_text() {
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    let mut controller = EditorController::new();
+    let error = controller.open(&path).expect_err("the file is missing");
+    assert_eq!(
+        error,
+        format!(
+            "\"song.txt\" could not be read: {}.",
+            "No such file or directory (os error 2)"
+        )
+    );
+    assert!(!controller.is_loaded());
+    drop(dir);
+}
+
+#[test]
+fn an_undecodable_file_is_refused_with_the_exact_text() {
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, b"#ENCODING:UTF-8\n\xFF\xFE").expect("the fixture is written");
+    let mut controller = EditorController::new();
+    let error = controller.open(&path).expect_err("the bytes do not decode");
+    assert_eq!(
+        error,
+        format!(
+            "\"song.txt\" could not be read: {}.",
+            "the file claims UTF-8 but the bytes are not valid UTF-8"
+        )
+    );
+    drop(dir);
 }

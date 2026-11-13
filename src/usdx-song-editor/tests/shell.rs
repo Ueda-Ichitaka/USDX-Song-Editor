@@ -11,13 +11,17 @@
 //! changes.
 
 use std::fs;
+use std::io;
+use std::path::Path;
 
 use tempfile::TempDir;
 use usdx_edit::ops::move_notes;
+use usdx_song_editor::controller::save::SaveError;
 use usdx_song_editor::controller::shell::{
     ActivationChange, AudioState, ChangedOnDiskChoice, SaveChangesChoice, TrackKind, Transition,
-    activation_change, audio_state, enablement, has_track, page_title, transition_changed_on_disk,
-    transition_reload, transition_save_changes, transition_start, window_title,
+    activation_change, audio_state, enablement, has_track, page_title, save_failure_reason,
+    transition_changed_on_disk, transition_reload, transition_save_changes, transition_start,
+    window_title,
 };
 use usdx_song_editor::controller::{EditorController, SaveService};
 
@@ -499,10 +503,89 @@ fn a_failing_reload_stops_with_the_reason() {
     assert_eq!(
         transition_reload(&mut controller),
         Transition::Stop(Some(format!(
-            "Cannot read {}: {}",
-            path.display(),
+            "\"song.txt\" could not be read: {}.",
             "No such file or directory (os error 2)"
         ))),
     );
     drop(dir);
+}
+
+// --- Save failure reason texts (UI_SPEC 6) ---
+
+#[test]
+fn a_refused_save_names_the_missing_permission() {
+    let error = SaveError::Io(io::Error::from(io::ErrorKind::PermissionDenied));
+    let reason = save_failure_reason(&error, Path::new("/somewhere/song.txt"));
+    assert_eq!(reason, "no permission to write \"song.txt\"");
+}
+
+#[test]
+fn a_full_disk_says_so() {
+    let error = SaveError::Io(io::Error::from(io::ErrorKind::StorageFull));
+    let reason = save_failure_reason(&error, Path::new("/somewhere/song.txt"));
+    assert_eq!(reason, "the disk is full");
+}
+
+#[test]
+fn a_quota_error_says_the_disk_is_full() {
+    // EDQUOT is a disk-space problem for the user as well.
+    let error = SaveError::Io(io::Error::from(io::ErrorKind::QuotaExceeded));
+    let reason = save_failure_reason(&error, Path::new("/somewhere/song.txt"));
+    assert_eq!(reason, "the disk is full");
+}
+
+#[test]
+fn a_missing_folder_says_it_is_gone() {
+    // The write creates a temp file in the target's folder; the folder being
+    // gone surfaces as NotFound.
+    let error = SaveError::Io(io::Error::from(io::ErrorKind::NotFound));
+    let reason = save_failure_reason(&error, Path::new("/somewhere/song.txt"));
+    assert_eq!(reason, "the folder no longer exists");
+}
+
+#[test]
+fn another_io_failure_names_the_file_and_the_reason() {
+    let error = SaveError::Io(io::Error::other("read-only file system"));
+    let reason = save_failure_reason(&error, Path::new("/somewhere/song.txt"));
+    assert_eq!(
+        reason,
+        "\"song.txt\" could not be written: read-only file system"
+    );
+}
+
+#[test]
+fn a_read_only_song_says_it_cannot_be_written() {
+    let reason = save_failure_reason(&SaveError::ReadOnly, Path::new("/somewhere/song.txt"));
+    assert_eq!(reason, "the song is read-only");
+}
+
+#[test]
+fn a_serialize_failure_carries_the_detail() {
+    // The serializer's detail is developer-facing, but the frame stays
+    // honest about what happened. The declared UTF-8 encoding with invalid
+    // bytes is a certain decode failure.
+    let detail = usdx_format::bytes::decode(b"#ENCODING:UTF-8\n\xFF\xFE")
+        .expect_err("declared UTF-8 with invalid bytes does not decode");
+    let reason = save_failure_reason(
+        &SaveError::Serialize(detail),
+        Path::new("/somewhere/song.txt"),
+    );
+    assert!(
+        reason.starts_with("the song text cannot be written: "),
+        "the serialize reason frames the detail, got: {reason}"
+    );
+}
+
+#[test]
+fn a_failed_save_stops_with_the_exact_reason() {
+    // Integration: the shell transition carries the UI_SPEC 6 reason, not
+    // the raw error Display.
+    let (_dir, _path, mut controller) = opened(READ_ONLY);
+    edit(&mut controller);
+    let mut saves = SaveService::new();
+    let outcome = transition_save_changes(&mut controller, &mut saves, SaveChangesChoice::Save);
+    assert_eq!(
+        outcome,
+        Transition::Stop(Some(String::from("the song is read-only")))
+    );
 }

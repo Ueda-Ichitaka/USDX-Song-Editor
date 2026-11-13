@@ -10,3 +10,7 @@
 
 #[cfg(test)]
 pub mod testmedia;
+
+pub mod player;
+
+pub use player::{AudioError, PlayState, Player, PlayerEvent, Track};

@@ -1,13 +1,15 @@
-//! About me: test media helper of the usdx-audio tests (plan section 9.4,
-//! task P4-01). It generates the test audio the player and analysis tests
-//! run on: a 5 s 440 Hz tone with a 1 s silence in the middle (2 s tone, 1 s
-//! silence, 2 s tone), as Ogg/Opus and as MP3, into a per-test temporary
-//! directory - no audio fixtures are stored in the repository. The encoder
-//! pipelines were verified with gst-launch-1.0 first (plan section 9.4);
-//! they differ from the plan's one-liner because audiotestsrc adapts to the
-//! negotiated rate, so each segment pins its source rate to 44100 with a
-//! capsfilter (num-buffers x samplesperbuffer is rate-sensitive) and the
-//! Opus branch resamples to the 48000 Hz Opus requires.
+//! About me: the test media helper for the audio tests of every crate (plan
+//! section 9.4, task P4-01). It generates the test audio the player and
+//! analysis tests run on: a 5 s 440 Hz tone with a 1 s silence in the middle
+//! (2 s tone, 1 s silence, 2 s tone), as Ogg/Opus and as MP3, into a
+//! per-test temporary directory - no audio fixtures are stored in the
+//! repository. The player bridge tests of the app crate use it through the
+//! public module. The encoder pipelines were verified with gst-launch-1.0
+//! first (plan section 9.4); they differ from the plan's one-liner because
+//! audiotestsrc adapts to the negotiated rate, so each segment pins its
+//! source rate to 44100 with a capsfilter (num-buffers x samplesperbuffer is
+//! rate-sensitive) and the Opus branch resamples to the 48000 Hz Opus
+//! requires.
 
 use std::path::Path;
 

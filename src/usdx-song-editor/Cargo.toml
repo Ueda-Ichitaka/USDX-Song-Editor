@@ -20,6 +20,7 @@ log = "0.4.35"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 toml = "1.2.1"
+usdx-audio = { path = "../usdx-audio" }
 usdx-edit = { path = "../usdx-edit" }
 usdx-format = { path = "../usdx-format" }
 

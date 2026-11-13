@@ -66,6 +66,10 @@ pub struct Player {
     duration_reported: bool,
     range_end: Option<f64>,
     last_position: Option<f64>,
+    /// Set by a flush seek until the pipeline plays again: a seek makes
+    /// playbin churn through Stopped and Paused states before Playing, and
+    /// those transient messages would report a long-gone state.
+    seek_pending: bool,
 }
 
 impl Player {
@@ -102,6 +106,7 @@ impl Player {
             duration_reported: false,
             range_end: None,
             last_position: None,
+            seek_pending: false,
         })
     }
 
@@ -130,6 +135,7 @@ impl Player {
         self.duration_reported = false;
         self.range_end = None;
         self.last_position = None;
+        self.seek_pending = false;
         Ok(())
     }
 
@@ -140,6 +146,7 @@ impl Player {
 
     /// Pauses playback.
     pub fn pause(&mut self) {
+        self.seek_pending = false;
         let _ = self.playbin.set_state(gst::State::Paused);
     }
 
@@ -171,7 +178,7 @@ impl Player {
     /// The common seek: flushes to `start_ms` at `rate`, with an optional
     /// stop position that turns the segment flag into a range playback.
     fn seek(
-        &self,
+        &mut self,
         start_ms: f64,
         rate: f64,
         flags: gst::SeekFlags,
@@ -181,6 +188,7 @@ impl Player {
             Some(ms) => (gst::SeekType::Set, Some(clock_time_from_ms(ms))),
             None => (gst::SeekType::None, None),
         };
+        self.seek_pending = true;
         self.playbin
             .seek(
                 rate,
@@ -191,6 +199,57 @@ impl Player {
                 stop,
             )
             .map_err(|error| AudioError::Gst(format!("the seek fails: {error}")))
+    }
+
+    /// Switches to another audio file at `position_ms` while keeping the
+    /// rate and, with `resume`, the playing state. The track switch of the
+    /// bridge uses this so Vocals and Instrumental start where Mix stood.
+    pub fn switch_file(
+        &mut self,
+        path: &Path,
+        position_ms: f64,
+        resume: bool,
+    ) -> Result<(), AudioError> {
+        if !path.is_file() {
+            return Err(AudioError::File(path.display().to_string()));
+        }
+        let uri = gst::glib::filename_to_uri(path, None).map_err(|error| {
+            AudioError::Gst(format!("the audio path does not become a uri: {error}"))
+        })?;
+        self.playbin
+            .set_state(gst::State::Null)
+            .map_err(|error| AudioError::Gst(format!("the player does not stop: {error}")))?;
+        self.playbin.set_property("uri", uri.as_str());
+        self.playbin
+            .set_state(gst::State::Paused)
+            .map_err(|error| AudioError::Gst(format!("the player does not start: {error}")))?;
+        let (result, state, _) = self.playbin.state(Some(STATE_TIMEOUT));
+        if result.is_err() || state != gst::State::Paused {
+            return Err(AudioError::Gst(String::from(
+                "the player does not reach PAUSED within 10 s",
+            )));
+        }
+        // The rate survives the switch (the speed combo keeps its choice);
+        // load() resets it, so the seek carries the rate explicitly.
+        self.duration_reported = false;
+        self.range_end = None;
+        self.last_position = None;
+        self.seek(
+            position_ms.max(0.0),
+            self.rate,
+            gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
+            None,
+        )?;
+        if resume {
+            // The suppression stays armed: the state churn of the seek
+            // arrives after this call and only Playing ends it.
+            self.play();
+        } else {
+            // Without a resume the pipeline rests in Paused, whose state
+            // message must stay reportable.
+            self.seek_pending = false;
+        }
+        Ok(())
     }
 
     /// Changes the playback rate (0.5, 0.75, 1.0) by seeking with the new
@@ -253,12 +312,20 @@ impl Player {
                     let from_playbin =
                         message.src() == Some(self.playbin.upcast_ref::<gst::Object>());
                     if from_playbin {
-                        let state = match state_changed.current() {
-                            gst::State::Playing => PlayState::Playing,
-                            gst::State::Paused => PlayState::Paused,
-                            _ => PlayState::Stopped,
-                        };
-                        events.push(PlayerEvent::StateChanged(state));
+                        match state_changed.current() {
+                            gst::State::Playing => {
+                                // The pipeline plays again: the transient
+                                // states after a flush seek are over.
+                                self.seek_pending = false;
+                                events.push(PlayerEvent::StateChanged(PlayState::Playing));
+                            }
+                            gst::State::Paused if self.seek_pending => {}
+                            gst::State::Paused => {
+                                events.push(PlayerEvent::StateChanged(PlayState::Paused))
+                            }
+                            _ if self.seek_pending => {}
+                            _ => events.push(PlayerEvent::StateChanged(PlayState::Stopped)),
+                        }
                     }
                 }
                 gst::MessageView::Eos(_) => {
@@ -480,5 +547,187 @@ mod tests {
             matches!(error, AudioError::File(_)),
             "a missing file reports a file error, got {error:?}"
         );
+    }
+
+    /// Builds two tone files of one format in one temporary directory and a
+    /// player loaded with the first one, so a switch has a second file to
+    /// move to.
+    fn player_with_two_files(
+        extension: &str,
+    ) -> (Player, std::path::PathBuf, std::path::PathBuf, tempfile::TempDir) {
+        use_test_sink();
+        let generate: fn(&Path) -> Result<(), String> = if extension == "mp3" {
+            testmedia::tone_mp3
+        } else {
+            testmedia::tone_opus
+        };
+        let dir = tempfile::tempdir().expect("the temporary directory is created");
+        let path_a = dir.path().join(format!("tone-a.{extension}"));
+        let path_b = dir.path().join(format!("tone-b.{extension}"));
+        generate(&path_a).expect("the first tone is generated");
+        generate(&path_b).expect("the second tone is generated");
+        let mut player = Player::new().expect("the player is built");
+        player.load(&path_a).expect("the first tone is loaded");
+        (player, path_a, path_b, dir)
+    }
+
+    /// A playing player at about 1000 ms for the switch tests.
+    fn playing_at_1000(player: &mut Player) {
+        player.seek_ms(1000.0).expect("the seek succeeds");
+        player.play();
+        wait_for(player, |event| {
+            *event == PlayerEvent::StateChanged(PlayState::Playing)
+        });
+        let deadline = Instant::now() + WAIT;
+        while player.position_ms().is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "the position is not reported within {WAIT:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The track switch keeps the playing state and continues from the
+    /// requested position in the new file (the bridge seeks the remembered
+    /// Mix position back after the swap).
+    #[test]
+    fn switch_file_keeps_playing_and_position() {
+        for extension in ["opus", "mp3"] {
+            let (mut player, path_a, path_b, _dir) = player_with_two_files(extension);
+            playing_at_1000(&mut player);
+            player
+                .switch_file(&path_b, 1000.0, true)
+                .expect("the switch succeeds");
+            wait_for(&mut player, |event| {
+                *event == PlayerEvent::StateChanged(PlayState::Playing)
+            });
+            let deadline = Instant::now() + WAIT;
+            loop {
+                if let Some(position) = player.position_ms() {
+                    // The position may have advanced a little between the
+                    // resume and the query; 200 ms of wall clock slack.
+                    assert!(
+                        (position - 1000.0).abs() <= 200.0,
+                        "the switch continues at 1000 ms in the new file, measured {position} ms"
+                    );
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the position is not reported within {WAIT:?} after the switch"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let _ = &path_a;
+        }
+    }
+
+    /// The track switch keeps the rate: after a switch at rate 0.5 the
+    /// position advances at about half speed.
+    #[test]
+    fn switch_file_keeps_the_rate() {
+        for extension in ["opus", "mp3"] {
+            let (mut player, _path_a, path_b, _dir) = player_with_two_files(extension);
+            playing_at_1000(&mut player);
+            player.set_rate(0.5).expect("the rate changes");
+            let deadline = Instant::now() + WAIT;
+            let start = loop {
+                if let Some(position) = player.position_ms() {
+                    break position;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the position is not reported within {WAIT:?} after the rate change"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            player
+                .switch_file(&path_b, 2000.0, true)
+                .expect("the switch succeeds");
+            wait_for(&mut player, |event| {
+                *event == PlayerEvent::StateChanged(PlayState::Playing)
+            });
+            let switch_start = loop {
+                if let Some(position) = player.position_ms() {
+                    assert!(
+                        (position - 2000.0).abs() <= 200.0,
+                        "the switch continues at 2000 ms in the new file, measured {position} ms"
+                    );
+                    break position;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the position is not reported within {WAIT:?} after the switch"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            std::thread::sleep(Duration::from_secs(1));
+            let end = player
+                .position_ms()
+                .expect("the position is reported while playing");
+            let advance = end - switch_start;
+            assert!(
+                (advance - 500.0).abs() <= 75.0,
+                "after the switch the position still advances at half speed, measured {advance} ms in 1 s"
+            );
+            let _ = start;
+        }
+    }
+
+    /// Without `resume` the switch lands paused at the requested position.
+    #[test]
+    fn switch_file_without_resume_stays_paused() {
+        for extension in ["opus", "mp3"] {
+            let (mut player, _path_a, path_b, _dir) = player_with_two_files(extension);
+            playing_at_1000(&mut player);
+            player
+                .switch_file(&path_b, 2500.0, false)
+                .expect("the switch succeeds");
+            // The player never turns Playing again within a second.
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < deadline {
+                for event in player.poll() {
+                    assert_ne!(
+                        event,
+                        PlayerEvent::StateChanged(PlayState::Playing),
+                        "the switch without resume must not start playback"
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let position = player
+                .position_ms()
+                .expect("the position is reported while paused");
+            assert!(
+                (position - 2500.0).abs() <= 10.0,
+                "the paused switch lands at 2500 ms within 10 ms, measured {position} ms"
+            );
+        }
+    }
+
+    /// A switch to a missing file fails with a file error and leaves the
+    /// current playback untouched.
+    #[test]
+    fn switch_file_to_missing_file_keeps_playing() {
+        for extension in ["opus", "mp3"] {
+            let (mut player, path_a, _path_b, dir) = player_with_two_files(extension);
+            playing_at_1000(&mut player);
+            let missing = dir.path().join(format!("missing.{extension}"));
+            let error = player.switch_file(&missing, 1000.0, true).unwrap_err();
+            assert!(
+                matches!(error, AudioError::File(_)),
+                "a missing file reports a file error, got {error:?}"
+            );
+            std::thread::sleep(Duration::from_millis(300));
+            let position = player
+                .position_ms()
+                .expect("the old playback continues");
+            assert!(
+                position > 1000.0,
+                "the old file keeps playing after a failed switch, measured {position} ms"
+            );
+            let _ = &path_a;
+        }
     }
 }

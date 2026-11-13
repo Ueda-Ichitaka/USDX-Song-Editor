@@ -20,8 +20,8 @@ use usdx_song_editor::controller::save::SaveError;
 use usdx_song_editor::controller::shell::{
     ActivationChange, AudioState, ChangedOnDiskChoice, SaveChangesChoice, TrackKind, Transition,
     activation_change, audio_state, enablement, has_track, page_title, save_failure_reason,
-    transition_changed_on_disk, transition_reload, transition_save_changes, transition_start,
-    window_title,
+    track_path, transition_changed_on_disk, transition_reload, transition_save_changes,
+    transition_start, window_title,
 };
 use usdx_song_editor::controller::{EditorController, SaveService};
 
@@ -588,4 +588,60 @@ fn a_failed_save_stops_with_the_exact_reason() {
         outcome,
         Transition::Stop(Some(String::from("the song is read-only")))
     );
+}
+
+/// track_path returns the Mix file from the #AUDIO header, resolved against
+/// the song folder (plan 7.1).
+#[test]
+fn track_path_returns_the_mix_file_from_the_audio_header() {
+    let (dir, path) = fixture(SONG_WITH_AUDIO);
+    fs::write(dir.path().join("song.ogg"), b"x").expect("the audio file is written");
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    let mix = track_path(&controller, TrackKind::Mix)
+        .expect("the mix track has a file");
+    assert_eq!(mix, dir.path().join("song.ogg"));
+}
+
+/// track_path falls back to #MP3 when no #AUDIO header exists.
+#[test]
+fn track_path_falls_back_to_the_mp3_header() {
+    let text = "#TITLE:Song Title\n#ARTIST:The Artist\n#MP3:song.mp3\n#BPM:240\n: 0 4 0 la\n- 4\n";
+    let (dir, path) = fixture(text);
+    fs::write(dir.path().join("song.mp3"), b"x").expect("the audio file is written");
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    let mix = track_path(&controller, TrackKind::Mix)
+        .expect("the mix track falls back to #MP3");
+    assert_eq!(mix, dir.path().join("song.mp3"));
+}
+
+/// track_path returns the vocals and instrumental files from their headers.
+#[test]
+fn track_path_returns_the_stem_files() {
+    let text = "#TITLE:Song Title\n#ARTIST:The Artist\n#AUDIO:song.ogg\n#VOCALS:vocals.opus\n#INSTRUMENTAL:inst.opus\n#BPM:240\n: 0 4 0 la\n- 4\n";
+    let (dir, path) = fixture(text);
+    fs::write(dir.path().join("song.ogg"), b"x").expect("the audio file is written");
+    fs::write(dir.path().join("vocals.opus"), b"x").expect("the vocals file is written");
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    let vocals = track_path(&controller, TrackKind::Vocals)
+        .expect("the vocals track has a file");
+    assert_eq!(vocals, dir.path().join("vocals.opus"));
+    assert_eq!(
+        track_path(&controller, TrackKind::Instrumental),
+        None,
+        "a missing instrumental file is no path"
+    );
+}
+
+/// track_path is None without a loaded song and for a mix file that does
+/// not exist.
+#[test]
+fn track_path_is_none_without_a_file() {
+    let mut controller = EditorController::new();
+    assert_eq!(track_path(&controller, TrackKind::Mix), None);
+    let (_dir, path, controller) = opened(SONG_WITH_MISSING_AUDIO);
+    assert_eq!(track_path(&controller, TrackKind::Mix), None);
+    let _ = path;
 }

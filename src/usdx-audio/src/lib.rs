@@ -8,7 +8,6 @@
 //!
 //! This skeleton is filled in by tasks P4-01 to P4-03 of Plan/IMPLEMENTATION_PLAN.md.
 
-#[cfg(test)]
 pub mod testmedia;
 
 pub mod analysis;

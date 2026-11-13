@@ -1392,6 +1392,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml",
+ "usdx-audio",
  "usdx-edit",
  "usdx-format",
 ]

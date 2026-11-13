@@ -183,7 +183,7 @@ pub fn audio_state(controller: &EditorController) -> Option<AudioState> {
     match name {
         None => Some(AudioState::Unnamed),
         Some(name) => {
-            if track_file_exists(&loaded.path, name) {
+            if track_file(&loaded.path, name).is_some() {
                 Some(AudioState::Present)
             } else {
                 Some(AudioState::Missing(String::from(name)))
@@ -204,28 +204,39 @@ fn audio_header_value(headers: &Headers) -> Option<&str> {
 /// has_track tells whether the track's file exists in the song folder; a
 /// missing track is listed but disabled in the UI (UI_SPEC 4.3, plan 7.1).
 pub fn has_track(controller: &EditorController, track: TrackKind) -> bool {
-    let Some(loaded) = controller.loaded() else {
-        return false;
-    };
+    track_path(controller, track).is_some()
+}
+
+/// track_path returns the audio file of the track when it exists in the
+/// song folder (plan 7.1: Mix = `#AUDIO` else `#MP3`, Vocals = `#VOCALS`,
+/// Instrumental = `#INSTRUMENTAL`); None without a song or a missing file.
+/// The player bridge switches tracks through this path.
+pub fn track_path(controller: &EditorController, track: TrackKind) -> Option<std::path::PathBuf> {
+    let loaded = controller.loaded()?;
     let headers = Headers::from_document(&loaded.document);
     match track {
-        TrackKind::Mix => audio_state(controller) == Some(AudioState::Present),
-        TrackKind::Vocals => header_file_exists(&headers, "VOCALS", &loaded.path),
-        TrackKind::Instrumental => header_file_exists(&headers, "INSTRUMENTAL", &loaded.path),
+        TrackKind::Mix => {
+            let name = audio_header_value(&headers)?;
+            track_file(&loaded.path, name)
+        }
+        TrackKind::Vocals => header_track_file(&headers, "VOCALS", &loaded.path),
+        TrackKind::Instrumental => header_track_file(&headers, "INSTRUMENTAL", &loaded.path),
     }
 }
 
-/// header_file_exists tells whether the header names a file that exists.
-fn header_file_exists(headers: &Headers, key: &str, song_path: &Path) -> bool {
-    headers
-        .get(key)
-        .filter(|value| !value.is_empty())
-        .is_some_and(|value| track_file_exists(song_path, value))
+/// header_track_file returns the file a track header names, when it exists.
+fn header_track_file(
+    headers: &Headers,
+    key: &str,
+    song_path: &Path,
+) -> Option<std::path::PathBuf> {
+    let name = headers.get(key).filter(|value| !value.is_empty())?;
+    track_file(song_path, name)
 }
 
-/// track_file_exists resolves a track file name against the song folder
-/// (absolute names are used as they are).
-fn track_file_exists(song_path: &Path, name: &str) -> bool {
+/// track_file resolves a track file name against the song folder (absolute
+/// names are used as they are) and returns it when it exists.
+fn track_file(song_path: &Path, name: &str) -> Option<std::path::PathBuf> {
     let path = Path::new(name);
     let path = if path.is_absolute() {
         path.to_owned()
@@ -235,7 +246,7 @@ fn track_file_exists(song_path: &Path, name: &str) -> bool {
             .map(|folder| folder.join(name))
             .unwrap_or_else(|| path.to_owned())
     };
-    path.exists()
+    path.is_file().then_some(path)
 }
 
 /// enablement computes the enabled state of every toolbar and menu control

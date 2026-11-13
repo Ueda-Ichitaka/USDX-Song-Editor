@@ -1,0 +1,141 @@
+.TH DEV.SH 1 "November 2026" "USDX Song Editor" "User Commands"
+.SH NAME
+dev.sh \- guarded build and test entry point for the USDX Song Editor workspace
+.SH SYNOPSIS
+.B scripts/dev.sh
+.I command
+.RB [ options ]
+.br
+.B scripts/dev.sh check
+.RB [ --release ]
+.br
+.B scripts/dev.sh test
+.RB [ crate ]
+.RB [ filter ]
+.br
+.B scripts/dev.sh build
+.RB [ --release ]
+.br
+.B scripts/dev.sh run
+.B --
+.RB [ app\ arguments ]
+.br
+.B scripts/dev.sh corpus
+.SH DESCRIPTION
+.B scripts/dev.sh
+is the development entry point of the USDX Song Editor. It wraps cargo with a memory
+guard so a build or test run cannot take the desktop down on a machine that is shared
+with other workloads.
+.PP
+Before every run it:
+.IP \(bu 2
+checks the available memory (\fIMemAvailable\fP in \fI/proc/meminfo\fP) and refuses to
+start below 4 GiB;
+.IP \(bu 2)
+caps cargo's build parallelism to \fImax(1, min(nproc / 2, available GiB / 2))\fP by
+exporting \fICARGO_BUILD_JOBS\fP;
+.IP \(bu 2)
+prepends \fI~/.cargo/bin\fP to \fIPATH\fP so cargo is found in plain shells.
+.PP
+Cargo itself runs inside a systemd user scope
+(\fBsystemd-run --user --scope -q -p "MemoryMax=..."\fP) limited to 70 percent of the
+currently available memory, rounded down to whole MiB. Where \fBsystemd-run\fP is not
+available the command runs directly.
+.PP
+An out-of-memory kill (exit status 137) is reported on stderr as
+"killed: out of memory (the memory guard stopped the job; this is not a test failure)" -
+it is never mistaken for a failing test or build. The script is written in bash with
+\fBset -euo pipefail\fP and stops on the first failing step. The guard functions
+(\fBmem_available_kib\fP, \fBmem_ok\fP, \fBjobs_for\fP, \fBmemory_max\fP,
+\fBrun_guarded\fP) are written so they can be sourced and are tested by
+\fIscripts/tests/dev_guard_test.sh\fP.
+.SH SUBCOMMANDS
+.TP
+.B check
+.RS
+The full quality gate, in order:
+.IP 1. 3
+\fBcargo fmt --all --check\fP (formatting must be clean),
+.IP 2. 3
+\fBcargo clippy --workspace --all-targets -- -D warnings\fP (no warnings allowed),
+.IP 3. 3
+\fBcargo test --workspace\fP.
+.RE
+.IP
+With \fB--release\fP the clippy and test steps run in release mode and the test step
+also executes the benchmark-style tests that are normally marked \fB#[ignore]\fP
+(\fB--include-ignored\fP). Ignored tests that need external data skip on their own when
+their environment variable is not set.
+.TP
+.B test \fR[\fIcrate\fR]\fR [\fIfilter\fR]
+.B cargo test
+for the whole workspace, or for one crate when a crate name is given (\fB-p\fP
+\fIcrate\fP). Any further arguments are passed to cargo (a test-name filter).
+.TP
+.B build
+.RS
+\fBcargo build --workspace\fP, optionally \fB--release\fP.
+.RE
+.TP
+.B run \fB--\fR \fR[\fIapp arguments\fR]
+\fBcargo run\fP. Arguments after \fB--\fP are handed to the application (for example a
+song path). Note that plain \fBcargo\fP accepts no \fB--workspace\fP flag here, so
+\fBrun\fP always runs the single binary crate.
+.TP
+.B corpus
+Runs the opt-in real-song round-trip test
+(\fBcargo test -p usdx-format --test corpus -- --ignored\fP). It sets
+\fBUSDX_CORPUS\fP from the environment, defaulting to the approved USDX Song Factory
+output folders (the \fInew\fP, \fIrepaired/recreated\fP and \fIrepaired/sync\fP
+folders of that repository). See \fIPlan/IMPLEMENTATION_PLAN.md\fP section 9 for the
+folder rules; the songs are read-only, tests never write into them.
+.SH ENVIRONMENT
+.TP
+.B DEV_MEMINFO
+Path of the meminfo file the guard reads instead of \fI/proc/meminfo\fP. Used by the
+guard tests so they can exercise the 4 GiB floor and the job calculation without
+touching the real system.
+.TP
+.B DEV_NPROC
+Overrides the CPU count the job cap is computed from (the value of \fBnproc\fP).
+.TP
+.B USDX_CORPUS
+Colon-separated list of folders the corpus test walks. Only files that contain a
+\fB#BPM\fP header are treated as songs; the Factory helper files (\fIlyrics.txt\fP,
+\fIlanguage.txt\fP, \fIsong_end.txt\fP, \fIanchors.txt\fP) and every \fI.bak\fP file
+are skipped. Set automatically by \fBcorpus\fP when unset.
+.TP
+.B CARGO_BUILD_JOBS
+Exported by the script for every cargo run; do not set it yourself, the guard computes
+it. See \fBjobs_for\fP in the DESCRIPTION.
+.SH EXIT STATUS
+.TP
+.B 0
+All requested steps succeeded.
+.TP
+.B 2
+Usage error: no or unknown subcommand.
+.TP
+.B 1
+The memory guard refused to start, a build or test step failed, or the meminfo source
+could not be read.
+.TP
+.B 137
+The job was killed by the memory limit. The script reports this on stderr as an
+out-of-memory kill and passes the status through; it is not a test failure.
+.SH FILES
+.TP
+.I scripts/dev.sh
+The script itself.
+.TP
+.I scripts/tests/dev_guard_test.sh
+Tests for the guard functions (sourced, not executed).
+.TP
+.I /proc/meminfo
+Default source of the \fIMemAvailable\fP value; overridable with \fBDEV_MEMINFO\fP.
+.SH SEE ALSO
+.BR cargo (1),
+.BR systemd-run (1)
+.PP
+\fIDocs/building.md\fP - how to build and test the project,
+\fIPlan/IMPLEMENTATION_PLAN.md\fP section 2.5 - the specification of the script.

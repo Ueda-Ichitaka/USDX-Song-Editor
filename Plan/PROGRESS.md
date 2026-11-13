@@ -61,4 +61,4 @@ Status values: `todo`, `in progress`, `done`, `blocked (gate G-xx)`.
 | P8-02 | PropertiesPage, validation list, UpgradeDialog | todo | gate G-05 |
 | P8-03 | Settings page | todo | |
 | P8-04 | Packaging | todo | |
-| P8-05 | Documentation | todo | |
+| P8-05 | Documentation | todo | Started early (user documentation break, 2026-11-13): `README.md` (rewritten: intro, motivation, features, install, quickstart), `Docs/user-manual.md` (13 sections, UI_SPEC-based with current-build notes), `Docs/status.md` (in-build vs planned tables), `Docs/building.md` (deps, dev.sh, cargo, self-test, tests, CMake install, troubleshooting), `Docs/architecture.md` (crates, one-way data flow, bridge-thin/controller-fat, testing levels), `Docs/dev-script.1` (roff manpage for scripts/dev.sh, renders with man). P8-05 needs: a fact-check pass against the final build and the P8 feature texts (song properties, upgrade, settings page, packaging). |

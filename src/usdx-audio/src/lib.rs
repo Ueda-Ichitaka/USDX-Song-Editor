@@ -11,6 +11,9 @@
 #[cfg(test)]
 pub mod testmedia;
 
+pub mod analysis;
+pub mod cache;
 pub mod player;
 
+pub use analysis::{Activity, Peaks, analyze};
 pub use player::{AudioError, PlayState, Player, PlayerEvent, Track};

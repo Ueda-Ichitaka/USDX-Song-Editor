@@ -44,6 +44,8 @@ pub enum AudioError {
     File(String),
     #[error("the gstreamer player failed: {0}")]
     Gst(String),
+    #[error("the analysis was cancelled")]
+    Cancelled,
 }
 
 /// How long the player waits for a synchronous state change (load) before it

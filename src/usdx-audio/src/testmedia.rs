@@ -20,8 +20,10 @@ use gstreamer as gst;
 const SEGMENTS: &[(bool, u32)] = &[(true, 2), (false, 1), (true, 2)];
 
 /// Generates the tone-with-silence media at `path`, with `encoder_chain`
-/// describing everything between the concat element and the filesink.
-fn generate(path: &Path, encoder_chain: &str) -> Result<(), String> {
+/// describing everything between the concat element and the filesink; the
+/// 3 segment pattern (2 s tone, 1 s silence, 2 s tone) repeats `repeats`
+/// times.
+fn generate(path: &Path, encoder_chain: &str, repeats: usize) -> Result<(), String> {
     gst::init().map_err(|error| format!("gstreamer could not initialize: {error}"))?;
     // The verified pipeline shape: a rate-pinned source per segment into a
     // concat element, then the encoder chain to the filesink. The location
@@ -30,12 +32,14 @@ fn generate(path: &Path, encoder_chain: &str) -> Result<(), String> {
         "concat name=c ! {encoder_chain} location=\"{}\"",
         path.display()
     );
-    for (tone, buffers) in SEGMENTS {
-        let wave = if *tone { "" } else { " wave=silence" };
-        description.push_str(&format!(
-            " audiotestsrc{wave} freq=440 samplesperbuffer=44100 num-buffers={buffers}"
-        ));
-        description.push_str(" ! audio/x-raw,rate=44100 ! c.");
+    for _ in 0..repeats {
+        for (tone, buffers) in SEGMENTS {
+            let wave = if *tone { "" } else { " wave=silence" };
+            description.push_str(&format!(
+                " audiotestsrc{wave} freq=440 samplesperbuffer=44100 num-buffers={buffers}"
+            ));
+            description.push_str(" ! audio/x-raw,rate=44100 ! c.");
+        }
     }
     let pipeline = gst::parse::launch_full(&description, None, gst::ParseFlags::empty())
         .map_err(|error| format!("the media pipeline does not parse: {error}"))?;
@@ -69,17 +73,25 @@ fn generate(path: &Path, encoder_chain: &str) -> Result<(), String> {
 
 /// Generates the 5 s tone-with-silence media as Ogg/Opus at `path`.
 pub fn tone_opus(path: &Path) -> Result<(), String> {
+    tone_opus_repeated(path, 1)
+}
+
+/// Generates the tone-with-silence media as Ogg/Opus at `path`, `repeats`
+/// times 5 s long; the cancel test uses a long file so the cancel arrives
+/// while the analysis is still running.
+pub fn tone_opus_repeated(path: &Path, repeats: usize) -> Result<(), String> {
     // audioresample to the 48000 Hz Opus requires; without it the encoder
     // relabels 44100 Hz samples as 48000 and the tone is pitch-shifted.
     generate(
         path,
         "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc ! oggmux ! filesink",
+        repeats,
     )
 }
 
 /// Generates the 5 s tone-with-silence media as MP3 at `path`.
 pub fn tone_mp3(path: &Path) -> Result<(), String> {
-    generate(path, "audioconvert ! lamemp3enc ! id3v2mux ! filesink")
+    generate(path, "audioconvert ! lamemp3enc ! id3v2mux ! filesink", 1)
 }
 
 /// Reports the duration of an audio file in milliseconds, measured through

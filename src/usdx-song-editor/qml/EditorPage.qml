@@ -3,9 +3,11 @@
 // column with the banners, the line header and the note sheet area, and the
 // status bar in the page footer. Without a song the page shows the start
 // screen with the recent songs list (UI_SPEC 4.1). The playback controls
-// show their final enablement but are inert until the player of P4 exists;
-// the note sheet area stays an empty view background until P4, the
-// inspector arrives with P5.
+// drive the Player bridge: Play and Play line run the audio, Loop replays
+// the current line, and the shortcuts Space, P, L, V, [ and ] follow the
+// plan's key table (8.6) as Shortcut elements (they move into the
+// Kirigami.Actions of the menus when those arrive). The note sheet area
+// stays an empty view background until P4, the inspector arrives with P5.
 
 import QtQuick
 import QtQuick.Controls
@@ -17,10 +19,22 @@ import io.github.ueda_ichitaka.UsdxSongEditor as Usdx
 Kirigami.Page {
     id: root
 
-    // The document the page edits and the application window, which owns
-    // the dialogs and the global drawer.
+    // The document the page edits, the player of the audio playback and the
+    // application window, which owns the dialogs and the global drawer.
     property Usdx.SongDocument document
+    property Usdx.Player player
     property QtObject shell
+
+    // Loop on or off; the rangeDone signal of the player replays the line
+    // while it is on (UI_SPEC 4.3).
+    property bool loopLine: false
+
+    // The playback speed choices of the toolbar combo.
+    readonly property var speedRates: [0.5, 0.75, 1.0]
+
+    // The line padding of the settings (0.3 s), hard-coded until the
+    // Settings bridge arrives with P8-03.
+    readonly property int linePaddingMs: 300
 
     title: ""
     padding: 0
@@ -83,13 +97,27 @@ Kirigami.Page {
 
             Kirigami.Separator {}
 
-            // The playback controls are enabled with the audio file in the
-            // song folder and do nothing until the player of P4 arrives.
+            // The playback controls run the Player bridge (UI_SPEC 4.3).
             QQC2.ToolButton {
-                icon.name: "media-playback-start"
-                text: qsTr("Play")
+                id: playButton
+
+                icon.name: root.player && root.player.playing
+                           ? "media-playback-pause" : "media-playback-start"
+                text: root.player && root.player.playing ? qsTr("Pause") : qsTr("Play")
                 display: QQC2.AbstractButton.TextBesideIcon
                 enabled: root.document && root.document.canPlay
+                checkable: true
+                checked: root.player ? root.player.playing : false
+                onClicked: {
+                    root.player.toggle();
+                    // The click flipped checked locally; the playback state
+                    // stays the source of truth.
+                    playButton.checked = Qt.binding(function() {
+                        return root.player && root.player.playing;
+                    });
+                }
+                QQC2.ToolTip.text: qsTr("Play or pause (Space)")
+                QQC2.ToolTip.visible: hovered
             }
 
             QQC2.ToolButton {
@@ -97,13 +125,23 @@ Kirigami.Page {
                 text: qsTr("Play line")
                 display: QQC2.AbstractButton.TextBesideIcon
                 enabled: root.document && root.document.canPlayLine
+                onClicked: root.playCurrentLine()
+                QQC2.ToolTip.text: qsTr("Play the current line (P)")
+                QQC2.ToolTip.visible: hovered
             }
 
             QQC2.ToolButton {
+                id: loopButton
+
                 icon.name: "media-playlist-repeat"
                 text: qsTr("Loop")
                 display: QQC2.AbstractButton.TextBesideIcon
                 enabled: root.document && root.document.canLoop
+                checkable: true
+                checked: root.loopLine
+                onToggled: root.loopLine = checked
+                QQC2.ToolTip.text: qsTr("Loop the current line (L)")
+                QQC2.ToolTip.visible: hovered
             }
 
             QQC2.Label {
@@ -116,7 +154,7 @@ Kirigami.Page {
                 id: trackCombo
 
                 // Every track is listed; the ones whose file is missing are
-                // disabled (UI_SPEC 4.3). The player of P4 uses the choice.
+                // disabled (UI_SPEC 4.3). The choice drives the player.
                 textRole: "label"
                 model: [
                     { label: qsTr("Mix"), available: root.document ? root.document.audioPresent : false },
@@ -124,6 +162,13 @@ Kirigami.Page {
                     { label: qsTr("Instrumental"), available: root.document ? root.document.hasInstrumental : false }
                 ]
                 enabled: root.document && root.document.canTrack
+                currentIndex: root.player ? root.player.track : 0
+                onActivated: function(index) {
+                    root.player.setTrack(index);
+                    trackCombo.currentIndex = Qt.binding(function() {
+                        return root.player ? root.player.track : 0;
+                    });
+                }
                 delegate: QQC2.ItemDelegate {
                     required property var modelData
                     required property int index
@@ -142,8 +187,18 @@ Kirigami.Page {
             }
 
             QQC2.ComboBox {
+                id: speedCombo
+
                 model: ["0.5x", "0.75x", "1x"]
                 enabled: root.document && root.document.canSpeed
+                currentIndex: root.player
+                              ? root.speedRates.indexOf(root.player.rate) : 2
+                onActivated: function(index) {
+                    root.player.setRate(root.speedRates[index]);
+                    speedCombo.currentIndex = Qt.binding(function() {
+                        return root.player ? root.speedRates.indexOf(root.player.rate) : 2;
+                    });
+                }
             }
 
             Item {
@@ -170,6 +225,107 @@ Kirigami.Page {
 
     footer: Usdx.StatusBar {
         document: root.document
+        player: root.player
+    }
+
+    // The playhead follows while the player plays: every frame drains the
+    // GStreamer bus events into the player's properties.
+    FrameAnimation {
+        running: root.player ? root.player.playing : false
+        onTriggered: root.player.tick()
+    }
+
+    // The rangeDone signal replays the line while Loop is on (UI_SPEC 4.3).
+    Connections {
+        target: root.player
+        function onRangeDone() {
+            if (root.loopLine) {
+                root.playCurrentLine();
+            }
+        }
+    }
+
+    // The playback shortcuts of the key table (plan 8.6).
+    Shortcut {
+        sequence: "Space"
+        enabled: root.document && root.document.canPlay
+        onActivated: root.player.toggle()
+    }
+
+    Shortcut {
+        sequence: "P"
+        enabled: root.document && root.document.canPlayLine
+        onActivated: root.playCurrentLine()
+    }
+
+    Shortcut {
+        sequence: "L"
+        enabled: root.document && root.document.canLoop
+        onActivated: root.loopLine = !root.loopLine
+    }
+
+    Shortcut {
+        sequence: "V"
+        enabled: root.document && root.document.canTrack
+        onActivated: root.nextTrack()
+    }
+
+    Shortcut {
+        sequence: "["
+        enabled: root.document && root.document.canSpeed
+        onActivated: root.changeSpeed(-1)
+    }
+
+    Shortcut {
+        sequence: "]"
+        enabled: root.document && root.document.canSpeed
+        onActivated: root.changeSpeed(1)
+    }
+
+    // Esc stops the playback (plan 8.6); closing dialogs and leaving pages
+    // keep their precedence.
+    Shortcut {
+        sequence: "Esc"
+        enabled: root.player && root.player.playing
+        onActivated: root.player.pause()
+    }
+
+    // playCurrentLine plays the padded range of the current line; the
+    // rangeDone replay of the Loop uses it as well.
+    function playCurrentLine() {
+        if (!root.document || !root.player) {
+            return;
+        }
+        root.player.playRange(root.document.currentLineStartMs - root.linePaddingMs,
+                              root.document.currentLineEndMs + root.linePaddingMs);
+    }
+
+    // nextTrack moves to the following track, skipping the missing ones
+    // and wrapping around (shortcut V, plan 8.6).
+    function nextTrack() {
+        if (!root.document || !root.player) {
+            return;
+        }
+        const available = [root.document.audioPresent,
+                           root.document.hasVocals,
+                           root.document.hasInstrumental];
+        for (let step = 1; step <= available.length; step++) {
+            const candidate = (root.player.track + step) % available.length;
+            if (available[candidate]) {
+                root.player.setTrack(candidate);
+                return;
+            }
+        }
+    }
+
+    // changeSpeed steps through the speed combo in the given direction.
+    function changeSpeed(step) {
+        if (!root.player) {
+            return;
+        }
+        const index = root.speedRates.indexOf(root.player.rate);
+        const next = Math.min(root.speedRates.length - 1, Math.max(0, index + step));
+        root.player.setRate(root.speedRates[next]);
     }
 
     ColumnLayout {

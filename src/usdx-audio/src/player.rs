@@ -554,7 +554,12 @@ mod tests {
     /// move to.
     fn player_with_two_files(
         extension: &str,
-    ) -> (Player, std::path::PathBuf, std::path::PathBuf, tempfile::TempDir) {
+    ) -> (
+        Player,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        tempfile::TempDir,
+    ) {
         use_test_sink();
         let generate: fn(&Path) -> Result<(), String> = if extension == "mp3" {
             testmedia::tone_mp3
@@ -720,9 +725,7 @@ mod tests {
                 "a missing file reports a file error, got {error:?}"
             );
             std::thread::sleep(Duration::from_millis(300));
-            let position = player
-                .position_ms()
-                .expect("the old playback continues");
+            let position = player.position_ms().expect("the old playback continues");
             assert!(
                 position > 1000.0,
                 "the old file keeps playing after a failed switch, measured {position} ms"

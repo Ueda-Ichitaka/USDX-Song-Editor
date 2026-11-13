@@ -1,12 +1,12 @@
 // About me: the root window of the USDX Song Editor (UI_SPEC 2.6). It owns
-// the SongDocument bridge with its models, the main menu drawer and the
-// editor page, and orchestrates the guarded transitions of UI_SPEC 5.1 and
-// 5.2: before opening another song, reloading or closing, a dirty song asks
-// through the Save changes? dialog; a save that hits an external change
-// asks through the Song changed on disk dialog; open and reload failures
-// show the Cannot open song dialog. It also restores and remembers the
-// window size, checks the file on disk when the window becomes active
-// again, and accepts .txt drops on the window. The note sheet and the
+// the SongDocument bridge with its models, the Player bridge, the main menu
+// drawer and the editor page, and orchestrates the guarded transitions of
+// UI_SPEC 5.1 and 5.2: before opening another song, reloading or closing, a
+// dirty song asks through the Save changes? dialog; a save that hits an
+// external change asks through the Song changed on disk dialog; open and
+// reload failures show the Cannot open song dialog. It also restores and
+// remembers the window size, checks the file on disk when the window becomes
+// active again, and accepts .txt drops on the window. The note sheet and the
 // remaining dialogs arrive with the later tasks.
 
 import QtQuick
@@ -35,6 +35,10 @@ Kirigami.ApplicationWindow {
         objectName: "recentModel"
         document: root.songDocument
     }
+    property Usdx.Player player: Usdx.Player {
+        objectName: "player"
+        document: root.songDocument
+    }
 
     // The action waiting behind a Save changes? or Song changed on disk
     // dialog; null while no transition is pending.
@@ -49,6 +53,7 @@ Kirigami.ApplicationWindow {
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
     pageStack.initialPage: Usdx.EditorPage {
         document: root.songDocument
+        player: root.player
         shell: root
     }
 

@@ -1,19 +1,22 @@
 // About me: the status bar of the editor page (UI_SPEC 4.3). It shows the
-// song facts BPM, GAP and the format version, and the state pills for
-// unsaved changes, read-only and missing audio. The playhead label is added
-// by the playback task P4-04.
+// song facts BPM, GAP and the format version, the playhead position with
+// its beat, and the state pills for unsaved changes, read-only and missing
+// audio.
 
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import io.github.ueda_ichitaka.UsdxSongEditor as Usdx
+import "format.js" as Time
 
 Rectangle {
     id: root
 
-    // The document the bar mirrors; set by the editor page.
+    // The document the bar mirrors and the player whose playhead it shows;
+    // both set by the editor page.
     property Usdx.SongDocument document
+    property Usdx.Player player
 
     color: Kirigami.Theme.backgroundColor
     implicitHeight: metrics.statusBarHeight
@@ -86,6 +89,20 @@ Rectangle {
             label: qsTr("GAP")
             value: document && document.isLoaded
                    ? Math.round(document.gapMs) + " " + qsTr("ms") : ""
+        }
+
+        FactLabel {
+            label: qsTr("Playhead")
+            // The position and the beat in the song file's beat unit,
+            // where one beat lasts 15000 / BPM ms (UI_SPEC 4.3).
+            value: player && document && document.isLoaded
+                   ? Time.longTime(player.positionMs)
+                     + " \u00B7 "
+                     + qsTr("beat")
+                     + " "
+                     + Math.floor((player.positionMs - document.gapMs)
+                                  * document.bpm / 15000)
+                   : ""
         }
 
         FactLabel {

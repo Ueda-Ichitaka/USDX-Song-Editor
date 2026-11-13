@@ -1,10 +1,12 @@
-//! The SongDocument, LinesModel and RecentSongsModel bridges.
+//! The SongDocument, LinesModel, RecentSongsModel and Player bridges.
 //!
 //! About me: this cxx-qt bridge exposes the editor controller and the
 //! settings to QML. The SongDocument QObject holds the EditorController, the
 //! SaveService and the Settings and mirrors their state into Q_PROPERTIES
 //! after every state change; the LinesModel QAbstractListModel feeds the
-//! lines pane and the RecentSongsModel feeds the recent songs list. The
+//! lines pane and the RecentSongsModel feeds the recent songs list; the
+//! Player QObject (declared here next to the document it follows, its logic
+//! living in bridge/player.rs) drives the audio playback of P4-04. The
 //! bridges are thin: the logic lives in the plain-Rust controller
 //! (src/controller), this file only converts between Qt and Rust types and
 //! routes the guarded transition results of the shell (UI_SPEC 5.1, 5.2) to
@@ -26,6 +28,7 @@ use usdx_format::bytes::decode;
 use usdx_format::headers::{Headers, Version};
 use usdx_format::rows::{NoteType, RowKind};
 
+use crate::bridge::player::PlayerCore;
 use crate::controller::save::SaveError;
 use crate::controller::settings::{Settings, settings_path};
 use crate::controller::shell;
@@ -420,7 +423,103 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "takeLastBackup"]
         fn take_last_backup(self: Pin<&mut SongDocument>) -> QString;
+
+        /// Return the audio file path of the track (0 mix, 1 vocals,
+        /// 2 instrumental), empty when the song has no such file; the
+        /// waveform lane and the playback use it.
+        #[qinvokable]
+        #[cxx_name = "audioPath"]
+        fn audio_path(self: &SongDocument, track: i32) -> QString;
     }
+
+    extern "RustQt" {
+        #[qobject]
+        #[qml_element]
+        #[qproperty(*mut SongDocument, document)]
+        #[qproperty(f64, position_ms, cxx_name = "positionMs")]
+        #[qproperty(f64, duration_ms, cxx_name = "durationMs")]
+        #[qproperty(bool, playing)]
+        // The WRITE setters are the setRate and setTrack invokables below:
+        // a generated setter would collide with them on the Rust side.
+        #[qproperty(f64, rate, READ, WRITE = set_rate, NOTIFY)]
+        #[qproperty(i32, track, READ, WRITE = set_track, NOTIFY)]
+        #[qproperty(bool, has_vocals, cxx_name = "hasVocals")]
+        #[qproperty(bool, has_instrumental, cxx_name = "hasInstrumental")]
+        type Player = super::PlayerRust;
+    }
+
+    /// The audio track a playback request addresses (plan section 8.3); the
+    /// values double as the i32 of the track property.
+    #[qenum(Player)]
+    enum Track {
+        /// The mixed song audio.
+        Mix,
+        /// The vocals stem.
+        Vocals,
+        /// The instrumental stem.
+        Instrumental,
+    }
+
+    unsafe extern "RustQt" {
+        /// Emitted when the played range is over; QML replays it while
+        /// Loop is on.
+        #[qsignal]
+        #[cxx_name = "rangeDone"]
+        fn range_done(self: Pin<&mut Player>);
+
+        /// Emitted with a user-facing message when a load, a switch or the
+        /// playback failed; shown as a passive notification.
+        #[qsignal]
+        #[cxx_name = "errorOccurred"]
+        fn error_occurred(self: Pin<&mut Player>, message: QString);
+    }
+
+    extern "RustQt" {
+        /// Play the whole song from the current position; when no track is
+        /// loaded yet, it loads first and then plays.
+        #[qinvokable]
+        fn play(self: Pin<&mut Player>);
+
+        /// Pause playback.
+        #[qinvokable]
+        fn pause(self: Pin<&mut Player>);
+
+        /// Play or pause, whatever does the opposite of the current state.
+        #[qinvokable]
+        fn toggle(self: Pin<&mut Player>);
+
+        /// Seek to `ms` milliseconds into the song.
+        #[qinvokable]
+        #[cxx_name = "seekMs"]
+        fn seek_ms(self: Pin<&mut Player>, ms: f64);
+
+        /// Play only the range from start to end in milliseconds; the
+        /// `rangeDone` signal follows when the range is over.
+        #[qinvokable]
+        #[cxx_name = "playRange"]
+        fn play_range(self: Pin<&mut Player>, start_ms: f64, end_ms: f64);
+
+        /// Change the playback rate (0.5, 0.75, 1.0); doubles as the WRITE
+        /// setter of the rate property.
+        #[qinvokable]
+        #[cxx_name = "setRate"]
+        fn set_rate(self: Pin<&mut Player>, rate: f64);
+
+        /// Switch to the track with the enum value (0 mix, 1 vocals,
+        /// 2 instrumental); doubles as the WRITE setter of the track
+        /// property. The switch keeps the position, the playing state and
+        /// the rate and runs on a worker thread.
+        #[qinvokable]
+        #[cxx_name = "setTrack"]
+        fn set_track(self: Pin<&mut Player>, track: i32);
+
+        /// Drain the bus events into the properties and follow the
+        /// playhead; the FrameAnimation calls it every frame while playing.
+        #[qinvokable]
+        fn tick(self: Pin<&mut Player>);
+    }
+
+    impl cxx_qt::Threading for Player {}
 }
 
 use core::pin::Pin;
@@ -431,6 +530,51 @@ use crate::bridge::song_document::qobject::{
     ActivationKind, ChangedOnDiskKind, LinesModel, RecentRoles, RecentSongsModel, Roles,
     SaveChangesKind, SongDocument, TransitionKind, usdx_relative_date_text,
 };
+
+/// The Rust side of the Player: the playback core plus the Q_PROPERTY
+/// storage. The logic lives in the impls in bridge/player.rs.
+#[derive(Default)]
+pub struct PlayerRust {
+    pub(crate) core: PlayerCore,
+    /// The document the playback follows; QML sets it once on startup.
+    pub(crate) document: *mut SongDocument,
+    /// True while a load or a track switch runs on the worker thread.
+    pub(crate) loading: bool,
+    /// True when Play was pressed while the track still loads; the load
+    /// finished handler starts the playback.
+    pub(crate) play_requested: bool,
+    /// The range a parked play request plays, None for the whole song.
+    pub(crate) pending_range: Option<(f64, f64)>,
+    /// True once the track was resolved for the current song (from the
+    /// settings default); set_track marks it resolved too.
+    pub(crate) track_resolved: bool,
+    /// The song path the current playback state belongs to; a change
+    /// unloads the player so the next play loads the new song's audio.
+    pub(crate) loaded_song_path: String,
+    // The Q_PROPERTY storage, mirrored from the core; the setters run
+    // through the generated set_* methods.
+    pub(crate) position_ms: f64,
+    pub(crate) duration_ms: f64,
+    pub(crate) playing: bool,
+    pub(crate) rate: f64,
+    pub(crate) track: i32,
+    pub(crate) has_vocals: bool,
+    pub(crate) has_instrumental: bool,
+}
+
+impl SongDocumentRust {
+    /// The controller behind the document; the player resolves the track
+    /// files through it.
+    pub(crate) fn editor(&self) -> &EditorController {
+        &self.controller
+    }
+
+    /// The settings behind the document; the player reads the default
+    /// track from it.
+    pub(crate) fn editor_settings(&self) -> &Settings {
+        &self.settings
+    }
+}
 
 /// One row of the lines pane model (plan section 8.3).
 #[derive(Clone)]
@@ -942,6 +1086,18 @@ impl qobject::SongDocument {
     pub fn take_last_backup(mut self: Pin<&mut Self>) -> QString {
         let backup = self.as_mut().rust_mut().get_mut().saves.take_last_backup();
         backup
+            .map(|path| QString::from(path.to_string_lossy().into_owned()))
+            .unwrap_or_default()
+    }
+
+    /// audio_path returns the audio file of the track, empty when the song
+    /// has none; the waveform lane and the playback use it (plan 8.3).
+    pub fn audio_path(&self, track: i32) -> QString {
+        let rust = self.rust();
+        let Some(kind) = crate::bridge::player::track_kind(track) else {
+            return QString::default();
+        };
+        shell::track_path(&rust.controller, kind)
             .map(|path| QString::from(path.to_string_lossy().into_owned()))
             .unwrap_or_default()
     }

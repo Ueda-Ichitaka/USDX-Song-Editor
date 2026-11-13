@@ -11,6 +11,7 @@ pub mod fingerprint;
 pub mod save;
 pub mod settings;
 pub mod shell;
+pub mod waveform;
 
 pub use editor::EditorController;
 pub use fingerprint::FileFingerprint;

@@ -9,12 +9,11 @@
 //! exists. Only Opus runs here: the codec-specific behaviours (mp3 duration
 //! slack, seek accuracy) are covered by the usdx-audio tests.
 
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use usdx_audio::testmedia;
-use usdx_audio::{PlayState, Player, PlayerEvent, Track};
+use usdx_audio::{PlayState, Player, PlayerEvent};
 use usdx_song_editor::bridge::player::{CoreSignal, PlaybackState, PlayerCore, apply_event};
 
 /// How long a test waits for an expected condition before it fails; the
@@ -244,10 +243,22 @@ fn play_range_reports_range_done_and_pauses() {
     let (mut core, _path_a, _path_b, _dir) = attached_core();
     assert!(core.play_range(1000.0, 1500.0).is_empty());
     assert_eq!(core.position_ms(), 1000.0, "the playhead starts the range");
-    let signals = tick_until(&mut core, |core| !core.playing());
+    // The playing property turns on optimistically; the range is over
+    // when the RangeDone signal arrives.
+    let deadline = Instant::now() + WAIT;
+    let mut saw_range_done = false;
+    while !saw_range_done {
+        assert!(
+            Instant::now() < deadline,
+            "the range end did not report RangeDone within {WAIT:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+        saw_range_done = core.tick().contains(&CoreSignal::RangeDone);
+    }
     assert!(
-        signals.iter().any(|signal| *signal == CoreSignal::RangeDone),
-        "the range end reports RangeDone, got {signals:?}"
+        !core.playing(),
+        "the range end pauses the player, playing is {}",
+        core.playing()
     );
     assert!(
         (core.position_ms() - 1500.0).abs() <= 50.0,
@@ -342,6 +353,56 @@ fn set_rate_forwards_to_the_player() {
     tick_until(&mut core, |core| core.playing());
     assert!(core.set_rate(0.5).is_empty());
     assert_eq!(core.rate(), 0.5);
+}
+
+// --- the initial track choice and the song change ---
+
+/// The settings default and the track availability pick the track the
+/// player loads when a song opens (UI_SPEC 4.10).
+#[test]
+fn the_initial_track_follows_the_settings_and_the_availability() {
+    use usdx_song_editor::bridge::player::initial_track;
+    use usdx_song_editor::controller::settings::TrackDefault;
+
+    assert_eq!(
+        initial_track(TrackDefault::VocalsIfPresentElseMix, true, false),
+        1,
+        "vocals present wins for the vocals default"
+    );
+    assert_eq!(
+        initial_track(TrackDefault::VocalsIfPresentElseMix, false, true),
+        0,
+        "without vocals the mix plays"
+    );
+    assert_eq!(
+        initial_track(TrackDefault::InstrumentalIfPresentElseMix, true, true),
+        2,
+        "instrumental present wins for the instrumental default"
+    );
+    assert_eq!(
+        initial_track(TrackDefault::InstrumentalIfPresentElseMix, true, false),
+        0,
+        "without an instrumental the mix plays"
+    );
+    assert_eq!(
+        initial_track(TrackDefault::Mix, true, true),
+        0,
+        "the mix default always plays the mix"
+    );
+}
+
+/// reset clears the playback state after the song changed: no player, no
+/// position, no range, paused.
+#[test]
+fn reset_clears_the_playback_state() {
+    let (mut core, _path_a, _path_b, _dir) = attached_core();
+    core.play();
+    tick_until(&mut core, |core| core.playing());
+    core.reset();
+    assert!(!core.has_player());
+    assert!(!core.playing());
+    assert_eq!(core.position_ms(), 0.0);
+    assert_eq!(core.duration_ms(), 0.0);
 }
 
 /// A convenience for tests that only set up a range.

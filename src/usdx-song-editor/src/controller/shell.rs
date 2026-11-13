@@ -225,11 +225,7 @@ pub fn track_path(controller: &EditorController, track: TrackKind) -> Option<std
 }
 
 /// header_track_file returns the file a track header names, when it exists.
-fn header_track_file(
-    headers: &Headers,
-    key: &str,
-    song_path: &Path,
-) -> Option<std::path::PathBuf> {
+fn header_track_file(headers: &Headers, key: &str, song_path: &Path) -> Option<std::path::PathBuf> {
     let name = headers.get(key).filter(|value| !value.is_empty())?;
     track_file(song_path, name)
 }

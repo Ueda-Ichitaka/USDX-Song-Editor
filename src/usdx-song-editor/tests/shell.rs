@@ -598,8 +598,7 @@ fn track_path_returns_the_mix_file_from_the_audio_header() {
     fs::write(dir.path().join("song.ogg"), b"x").expect("the audio file is written");
     let mut controller = EditorController::new();
     controller.open(&path).expect("the song loads");
-    let mix = track_path(&controller, TrackKind::Mix)
-        .expect("the mix track has a file");
+    let mix = track_path(&controller, TrackKind::Mix).expect("the mix track has a file");
     assert_eq!(mix, dir.path().join("song.ogg"));
 }
 
@@ -611,8 +610,7 @@ fn track_path_falls_back_to_the_mp3_header() {
     fs::write(dir.path().join("song.mp3"), b"x").expect("the audio file is written");
     let mut controller = EditorController::new();
     controller.open(&path).expect("the song loads");
-    let mix = track_path(&controller, TrackKind::Mix)
-        .expect("the mix track falls back to #MP3");
+    let mix = track_path(&controller, TrackKind::Mix).expect("the mix track falls back to #MP3");
     assert_eq!(mix, dir.path().join("song.mp3"));
 }
 
@@ -625,8 +623,7 @@ fn track_path_returns_the_stem_files() {
     fs::write(dir.path().join("vocals.opus"), b"x").expect("the vocals file is written");
     let mut controller = EditorController::new();
     controller.open(&path).expect("the song loads");
-    let vocals = track_path(&controller, TrackKind::Vocals)
-        .expect("the vocals track has a file");
+    let vocals = track_path(&controller, TrackKind::Vocals).expect("the vocals track has a file");
     assert_eq!(vocals, dir.path().join("vocals.opus"));
     assert_eq!(
         track_path(&controller, TrackKind::Instrumental),
@@ -639,7 +636,7 @@ fn track_path_returns_the_stem_files() {
 /// not exist.
 #[test]
 fn track_path_is_none_without_a_file() {
-    let mut controller = EditorController::new();
+    let controller = EditorController::new();
     assert_eq!(track_path(&controller, TrackKind::Mix), None);
     let (_dir, path, controller) = opened(SONG_WITH_MISSING_AUDIO);
     assert_eq!(track_path(&controller, TrackKind::Mix), None);

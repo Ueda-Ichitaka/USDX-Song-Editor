@@ -1,8 +1,9 @@
 // About me: the app colours of UI_SPEC 2.3 that are not theme roles: the
-// note type chip colours, the chip text colour and the anchor colour. The
-// dark variants follow the brightness of the theme background, so the
-// colours work in both Breeze themes. The file is an invisible Item because
-// the Kirigami theme attached properties need an item; every QML file that
+// note type chip colours, the chip text colour, the anchor colour and the
+// waveform lane colours (2.3: theme colours at 55 % opacity). The dark
+// variants follow the brightness of the theme background, so the colours
+// work in both Breeze themes. The file is an invisible Item because the
+// Kirigami theme attached properties need an item; every QML file that
 // draws chips instantiates `Palette {}` (the contents are derived
 // constants, so one instance per file needs no state).
 
@@ -36,4 +37,8 @@ Item {
     // The anchor colour with the readable text colour on it.
     readonly property color anchor: dark ? "#f27fb3" : "#a3245e"
     readonly property color anchorText: dark ? "#0b0e12" : "#ffffff"
+
+    // The waveform lane colours (UI_SPEC 2.3): theme colours at 55 %.
+    readonly property color waveform: Qt.alpha(Kirigami.Theme.highlightColor, 0.55)
+    readonly property color vocalActivity: Qt.alpha(Kirigami.Theme.positiveTextColor, 0.55)
 }

@@ -1,13 +1,27 @@
 // About me: declaration of the --self-test helpers bound by src/bridge/selftest.rs.
 // They check QQmlApplicationEngine::rootObjects() so the app can exit non-zero when
-// the QML window root object was not created, and load a song through the
-// SongDocument bridge and report its line count on stdout (task P3-04).
+// the QML window root object was not created, open a song silently through the
+// SongDocument bridge (also the seam for the later --song flag), and verify the
+// loaded song end to end: line count, lines model rows and window title.
 
 #pragma once
 #include <QQmlApplicationEngine>
 #include <QString>
 
 bool usdx_qml_root_object_exists(const QQmlApplicationEngine &engine);
+
+// Installs a Qt message handler that writes every warning to stderr; the
+// self-test uses it so QML load errors are visible without a display.
+void usdx_install_message_handler();
+
+// Opens the song at path through the SongDocument bridge's open() invokable
+// without any output; false when the open failed or the bridge was not found.
+bool usdx_open_song(const QQmlApplicationEngine &engine, const QString &path);
+
+// Self-test verification: opens the song, prints "lines: N" and
+// "title: <window title>" on stdout and checks that the lines model row count
+// matches the document and that the window title shows the song instead of
+// the plain app name.
 bool usdx_selftest_load_song(const QQmlApplicationEngine &engine, const QString &path);
 
 // Reads the named property of the loaded window root object as a bool; false

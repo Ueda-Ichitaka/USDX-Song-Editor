@@ -90,6 +90,13 @@ impl History {
         self.undo_stack.len() != self.saved
     }
 
+    /// unsaved_steps returns how many edit steps the current history
+    /// position is away from the saved one; the UI uses it for the "N
+    /// unsaved changes" pill and dialog texts.
+    pub fn unsaved_steps(&self) -> usize {
+        self.undo_stack.len().abs_diff(self.saved)
+    }
+
     /// undo_label returns the label of the step `undo` would perform.
     pub fn undo_label(&self) -> Option<&str> {
         self.undo_stack.last().map(|patch| patch.label.as_str())

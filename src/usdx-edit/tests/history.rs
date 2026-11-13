@@ -184,3 +184,30 @@ fn the_saved_position_drives_is_dirty() {
     history.redo(&mut d);
     assert!(!history.is_dirty());
 }
+
+#[test]
+fn unsaved_steps_counts_the_edits_between_here_and_the_saved_file() {
+    let mut d = doc(": 0 4 0 la\nE\n");
+    let mut history = History::new();
+    assert_eq!(history.unsaved_steps(), 0, "a fresh document is clean");
+
+    let patch = replace_patch(&d, "first");
+    history.commit(&mut d, patch).expect("applies");
+    let patch = replace_patch(&d, "second");
+    history.commit(&mut d, patch).expect("applies");
+    assert_eq!(history.unsaved_steps(), 2);
+
+    history.mark_saved();
+    assert_eq!(history.unsaved_steps(), 0);
+
+    // Undoing to the saved position counts down, undoing past it counts up
+    // again.
+    history.undo(&mut d);
+    assert_eq!(history.unsaved_steps(), 1);
+    history.undo(&mut d);
+    assert_eq!(history.unsaved_steps(), 2);
+    history.redo(&mut d);
+    assert_eq!(history.unsaved_steps(), 1);
+    history.redo(&mut d);
+    assert_eq!(history.unsaved_steps(), 0);
+}

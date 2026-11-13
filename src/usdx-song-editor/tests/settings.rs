@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use usdx_song_editor::controller::settings::{
-    AnalysisThresholds, HealthThresholds, Settings, TrackDefault,
+    AnalysisThresholds, HealthThresholds, RecentFile, Settings, TrackDefault,
 };
 
 /// a settings value with every field off its default.
@@ -34,14 +34,17 @@ fn non_default() -> Settings {
             activity_floor_db: 10.0,
         },
         window_size: Some([1024, 768]),
-        recent_files: vec![PathBuf::from("/music/a.txt")],
+        recent_files: vec![RecentFile {
+            path: PathBuf::from("/music/a.txt"),
+            opened: 1762900000,
+        }],
     }
 }
 
 #[test]
 fn the_defaults_match_the_ui_spec() {
     let settings = Settings::default();
-    assert_eq!(settings.recent_files, Vec::<PathBuf>::new());
+    assert_eq!(settings.recent_files, Vec::<RecentFile>::new());
     assert_eq!(settings.latency_ms, 35);
     assert_eq!(settings.preroll_s, 2.0);
     assert_eq!(settings.tap_speed, 0.5);
@@ -90,7 +93,7 @@ fn a_partial_file_fills_the_rest_with_defaults() {
     assert_eq!(settings.latency_ms, 60);
     assert!(settings.autoplay);
     assert_eq!(settings.health, Settings::default().health);
-    assert_eq!(settings.recent_files, Vec::<PathBuf>::new());
+    assert_eq!(settings.recent_files, Vec::<RecentFile>::new());
 }
 
 #[test]
@@ -106,33 +109,99 @@ fn save_and_load_round_trip_preserves_every_field() {
 fn remember_recent_file_deduplicates_and_caps_at_ten() {
     let mut settings = Settings::default();
     for index in 0..12 {
-        settings.remember_recent_file(Path::new(&format!("/music/song{index}.txt")));
+        settings.remember_recent_file(Path::new(&format!("/music/song{index}.txt")), index);
     }
     assert_eq!(settings.recent_files.len(), 10);
     assert_eq!(
         settings.recent_files[0],
-        PathBuf::from("/music/song11.txt"),
+        RecentFile {
+            path: PathBuf::from("/music/song11.txt"),
+            opened: 11,
+        },
         "the newest file is first"
     );
-    // Re-adding an old entry moves it to the front instead of duplicating.
-    settings.remember_recent_file(Path::new("/music/song5.txt"));
+    // Re-adding an old entry moves it to the front with the new timestamp
+    // instead of duplicating it.
+    settings.remember_recent_file(Path::new("/music/song5.txt"), 50);
     assert_eq!(settings.recent_files.len(), 10);
-    assert_eq!(settings.recent_files[0], PathBuf::from("/music/song5.txt"));
+    assert_eq!(
+        settings.recent_files[0],
+        RecentFile {
+            path: PathBuf::from("/music/song5.txt"),
+            opened: 50,
+        }
+    );
     assert_eq!(
         settings
             .recent_files
             .iter()
-            .filter(|path| path.as_path() == Path::new("/music/song5.txt"))
+            .filter(|recent| recent.path.as_path() == Path::new("/music/song5.txt"))
             .count(),
         1
     );
 }
 
 #[test]
+fn dropping_missing_recent_files_prunes_the_list_and_reports_a_change() {
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let existing = dir.path().join("a.txt");
+    fs::write(&existing, b"x").expect("the existing file is written");
+    let gone = dir.path().join("gone.txt");
+    let mut settings = Settings {
+        recent_files: vec![
+            RecentFile {
+                path: existing.clone(),
+                opened: 1,
+            },
+            RecentFile {
+                path: gone,
+                opened: 2,
+            },
+        ],
+        ..Settings::default()
+    };
+    let dropped = settings.drop_missing_recent_files();
+    assert_eq!(
+        settings.recent_files,
+        vec![RecentFile {
+            path: existing.clone(),
+            opened: 1,
+        }],
+        "missing files are pruned, existing files stay"
+    );
+    assert!(dropped, "a pruned file reports a change");
+
+    let mut all_present = Settings {
+        recent_files: vec![RecentFile {
+            path: existing,
+            opened: 1,
+        }],
+        ..Settings::default()
+    };
+    assert!(!all_present.drop_missing_recent_files());
+
+    let mut only_missing = Settings {
+        recent_files: vec![RecentFile {
+            path: dir.path().join("also-gone.txt"),
+            opened: 1,
+        }],
+        ..Settings::default()
+    };
+    assert!(only_missing.drop_missing_recent_files());
+    assert!(only_missing.recent_files.is_empty());
+}
+
+#[test]
 fn restore_defaults_keeps_recent_files_and_window_size() {
     let mut settings = non_default();
     settings.restore_defaults();
-    assert_eq!(settings.recent_files, vec![PathBuf::from("/music/a.txt")]);
+    assert_eq!(
+        settings.recent_files,
+        vec![RecentFile {
+            path: PathBuf::from("/music/a.txt"),
+            opened: 1762900000,
+        }]
+    );
     assert_eq!(settings.window_size, Some([1024, 768]));
     assert_eq!(settings.latency_ms, 35);
     assert_eq!(settings.health, Settings::default().health);

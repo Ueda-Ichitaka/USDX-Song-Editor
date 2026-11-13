@@ -20,6 +20,14 @@ pub const APP_ID: &str = "io.github.ueda_ichitaka.UsdxSongEditor";
 /// How many songs the recent list keeps (plan section 8.8).
 pub const RECENT_CAPACITY: usize = 10;
 
+/// One entry of the recent songs list: the file and when it was last
+/// opened, as Unix seconds (UI_SPEC 4.1 shows the relative date).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentFile {
+    pub path: PathBuf,
+    pub opened: u64,
+}
+
 /// The audio track the player picks when a song opens (UI_SPEC 4.10).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,7 +97,7 @@ impl Default for AnalysisThresholds {
 #[serde(default)]
 pub struct Settings {
     /// The recently opened songs, newest first.
-    pub recent_files: Vec<PathBuf>,
+    pub recent_files: Vec<RecentFile>,
     /// The tap latency in milliseconds (UI_SPEC 4.10: 0-300).
     pub latency_ms: u32,
     /// Seconds of pre-roll before the first line in tap-along (UI_SPEC 4.10:
@@ -174,12 +182,29 @@ impl Settings {
         toml::to_string(self).unwrap_or_default()
     }
 
-    /// remember_recent_file moves `path` to the front of the recent list,
-    /// adding it when it is not there yet, and caps the list.
-    pub fn remember_recent_file(&mut self, path: &Path) {
-        self.recent_files.retain(|recent| recent != path);
-        self.recent_files.insert(0, path.to_owned());
+    /// remember_recent_file moves `path` to the front of the recent list
+    /// with the `opened` timestamp, adding it when it is not there yet, and
+    /// caps the list.
+    pub fn remember_recent_file(&mut self, path: &Path, opened: u64) {
+        self.recent_files
+            .retain(|recent| recent.path.as_path() != path);
+        self.recent_files.insert(
+            0,
+            RecentFile {
+                path: path.to_owned(),
+                opened,
+            },
+        );
         self.recent_files.truncate(RECENT_CAPACITY);
+    }
+
+    /// drop_missing_recent_files removes entries whose file no longer exists
+    /// (UI_SPEC 4.1: a missing song is removed from the list on the next
+    /// start) and tells whether anything was removed.
+    pub fn drop_missing_recent_files(&mut self) -> bool {
+        let before = self.recent_files.len();
+        self.recent_files.retain(|recent| recent.path.exists());
+        self.recent_files.len() != before
     }
 
     /// restore_defaults resets every preference to its default, keeping the

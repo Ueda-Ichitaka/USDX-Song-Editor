@@ -51,6 +51,70 @@ fn self_test_reports_the_line_count_of_a_song() {
 }
 
 #[test]
+fn self_test_verifies_the_window_title() {
+    // The self-test loads a song and checks that the window title reflects
+    // it (UI_SPEC 2.6): "Artist - Title · USDX Song Editor" through the
+    // windowTitle property of the bridge.
+    let text =
+        "#TITLE:T\n#ARTIST:A\n#BPM:240\nP1\n: 0 4 0 a\n- 4\nE\n";
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "--self-test with a song failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout.contains("title: T - A \u{b7} USDX Song Editor"),
+        "the window title must be verified and reported on stdout, got: {stdout}"
+    );
+}
+
+#[test]
+fn self_test_does_not_touch_the_user_settings() {
+    // The self-test isolates its settings: with the user home redirected to
+    // an empty temporary folder, no settings file may appear there, because
+    // the app points XDG_CONFIG_HOME at a throwaway folder before Qt starts.
+    let home = tempfile::tempdir().expect("the temporary home is created");
+    let text = "#TITLE:T\n#BPM:240\nP1\n: 0 4 0 a\n- 4\nE\n";
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("HOME", home.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    assert!(
+        out.status.success(),
+        "--self-test with a song failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let settings = home
+        .path()
+        .join(".config")
+        .join("io.github.ueda_ichitaka.UsdxSongEditor");
+    assert!(
+        !settings.exists(),
+        "the self-test wrote settings into the redirected home: {}",
+        settings.display()
+    );
+}
+
+#[test]
 fn version_prints_crate_version() {
     // Reference the library so that this test links the full dependency graph;
     // the cxx-qt initializer archives of the package's build script are linked into

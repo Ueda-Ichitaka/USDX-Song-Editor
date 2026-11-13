@@ -1,14 +1,16 @@
 //! About me: module root of the plain-Rust controllers (plan section 8.2).
 //! The controllers hold the application state without any Qt types so that
 //! every user action is testable headlessly; the cxx-qt bridges in
-//! src/bridge forward to them. It starts with the editor controller and the
-//! file fingerprint and grows with the save service, viewport, repair and
-//! tap controllers in later tasks.
+//! src/bridge forward to them. It holds the editor controller, the file
+//! fingerprint, the save service, the settings and the shell state (titles,
+//! enablement, guarded transitions); the viewport, repair and tap controllers
+//! are added in later tasks.
 
 pub mod editor;
 pub mod fingerprint;
 pub mod save;
 pub mod settings;
+pub mod shell;
 
 pub use editor::EditorController;
 pub use fingerprint::FileFingerprint;

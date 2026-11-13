@@ -185,3 +185,31 @@ fn a_save_as_to_a_fresh_path_writes_without_a_backup() {
     );
     assert!(!controller.is_dirty());
 }
+
+#[test]
+fn the_first_save_reports_the_written_backup() {
+    let (_dir, path, mut controller) = opened(SONG);
+    edit(&mut controller);
+    let mut saves = SaveService::new();
+    saves
+        .save(controller.loaded_mut().expect("loaded"), &path)
+        .expect("the save works");
+    let backup = saves.take_last_backup();
+    assert_eq!(
+        backup.as_deref(),
+        Some(path.with_file_name("song.txt.bak").as_path()),
+        "the first save reports its backup"
+    );
+    assert!(
+        backup.is_some_and(|backup| backup.exists()),
+        "the backup file exists"
+    );
+
+    // A following save of the same file writes no backup.
+    let patch_backup = saves.take_last_backup();
+    assert_eq!(patch_backup, None, "take clears the report");
+    saves
+        .save(controller.loaded_mut().expect("loaded"), &path)
+        .expect("the second save works");
+    assert_eq!(saves.take_last_backup(), None);
+}

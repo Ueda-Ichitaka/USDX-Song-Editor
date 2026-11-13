@@ -1,18 +1,28 @@
 // About me: build script of the usdx-song-editor application. It builds the QML
-// module io.github.ueda_ichitaka.UsdxSongEditor (Main.qml is registered under
-// qrc:/qt/qml/io/github/ueda_ichitaka/UsdxSongEditor/qml/Main.qml), runs the cxx-qt
-// code generation for the bridge files, and compiles the small C++ helper for the
-// --self-test root object check, which the cxx-qt-lib bindings do not provide.
+// module io.github.ueda_ichitaka.UsdxSongEditor (the shell QML files, with the
+// shared format.js helper that is not a component and stays out of the qmldir),
+// runs the cxx-qt code generation for the bridge files, and compiles the small
+// C++ helpers: the --self-test helpers and the relative-date formatter for the
+// recent songs list, which the cxx-qt-lib bindings do not provide.
 
 use cxx_qt_build::{CxxQtBuilder, QmlModule};
 
 fn main() {
-    let qml_module =
-        QmlModule::new("io.github.ueda_ichitaka.UsdxSongEditor").qml_files(["qml/Main.qml"]);
+    let qml_module = QmlModule::new("io.github.ueda_ichitaka.UsdxSongEditor").qml_files([
+        "qml/Main.qml",
+        "qml/Metrics.qml",
+        "qml/Palette.qml",
+        "qml/MainMenu.qml",
+        "qml/EditorPage.qml",
+        "qml/LinesPane.qml",
+        "qml/LineHeader.qml",
+        "qml/StatusBar.qml",
+        "qml/format.js",
+    ]);
     unsafe {
         CxxQtBuilder::new_qml_module(qml_module)
             .files(["src/bridge/selftest.rs", "src/bridge/song_document.rs"])
-            .cpp_file("cpp/selftest.cpp")
+            .cpp_files(["cpp/selftest.cpp", "cpp/format.cpp"])
             .cc_builder(|cc| {
                 cc.include("cpp");
             })

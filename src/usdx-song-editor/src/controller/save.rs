@@ -41,6 +41,9 @@ pub enum SaveError {
 #[derive(Debug)]
 pub struct SaveService {
     backups_written: HashSet<PathBuf>,
+    /// The backup the last save wrote, read once by the UI for the
+    /// "backup written" notification.
+    last_backup: Option<PathBuf>,
 }
 
 impl Default for SaveService {
@@ -54,7 +57,15 @@ impl SaveService {
     pub fn new() -> SaveService {
         SaveService {
             backups_written: HashSet::new(),
+            last_backup: None,
         }
+    }
+
+    /// take_last_backup returns and clears the backup the last save wrote,
+    /// `None` when that save wrote none; the UI uses it for the
+    /// "backup written" notification (UI_SPEC 6).
+    pub fn take_last_backup(&mut self) -> Option<PathBuf> {
+        self.last_backup.take()
     }
 
     /// save serializes the loaded document and writes it to `target`. When
@@ -62,6 +73,14 @@ impl SaveService {
     /// refused with `ExternalChange` until the user confirms it.
     pub fn save(&mut self, loaded: &mut LoadedSong, target: &Path) -> Result<(), SaveError> {
         self.save_inner(loaded, target, real_serialize, false)
+    }
+
+    /// changed_on_disk tells whether the file at `target` differs from the
+    /// fingerprint of the load or last save; the shell calls it when the
+    /// window becomes active again (UI_SPEC 5.2). A missing file is not a
+    /// change; an unreadable file is an error.
+    pub fn changed_on_disk(&self, loaded: &LoadedSong, target: &Path) -> Result<bool, SaveError> {
+        self.external_change(loaded, target)
     }
 
     /// save_confirmed skips the external-change check; the bridge calls it
@@ -102,8 +121,10 @@ impl SaveService {
         }
         // The first save of this session backs the current on-disk file up
         // once; a fresh path has nothing to back up.
+        self.last_backup = None;
         if target.exists() && self.backups_written.insert(target.to_owned()) {
             fs::copy(target, backup_path(target))?;
+            self.last_backup = Some(backup_path(target));
         }
         let bytes = produce(&loaded.document)?;
         write_atomic(target, &bytes)?;

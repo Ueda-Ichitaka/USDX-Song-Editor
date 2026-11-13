@@ -1,16 +1,25 @@
 //! About me: the SheetBackground bridge (plan section 8.3), the painted Qt
 //! Quick item behind the note sheet. It paints everything in the sheet that
-//! is not interactive; in task P4-04 that is the waveform lane and the
-//! activity lane at the item's bottom (UI_SPEC 3.1, 3.7), and task P5-02 adds
-//! the ruler, the pitch rows and the lyrics lane to the same item. When the
-//! waveform track or the vocals track changes, it runs the usdx-audio
+//! is not interactive (UI_SPEC section 3): the ruler with its ticks and
+//! song-time labels, the pitch rows with their shading, grid lines and
+//! labels, the lyrics lane with its two-row placement, the waveform lane
+//! and the activity lane at the item's bottom (task P4-04). The draw list
+//! comes from controller::sheet's layout(); paint only replays it, eliding
+//! the lyric labels through the C++ textmetrics helpers (cxx-qt-lib has no
+//! QFontMetrics). The time view lives in the SheetViewport controller
+//! (task P5-01): the bridge converts the document's millisecond view to
+//! beats and fits the viewport only when that range changed, so zoom and
+//! pan survive stepping through short neighbouring lines. The note data of
+//! the current line and its neighbours arrives as properties SongDocument
+//! computes (user decision 2026-11-13: data push instead of a cross-bridge
+//! pointer); the pitch range runs through pitch_rows here. When the
+//! waveform track or the vocals track changes, the item runs the usdx-audio
 //! analysis on worker threads (`impl Threading`, cancelled when no longer
 //! needed) and reports the lane status, the progress and whether the
-//! activity lane has data, so the QML overlays show "Reading the waveform…",
-//! "No audio" and the no-vocals note. The decisions live in
-//! controller::lanes, the column math in controller::waveform; this file
-//! only threads and paints. The theme colours and lane heights come from QML
-//! (Palette.qml, Metrics.qml), so the item follows the theme.
+//! activity lane has data, so the QML overlays show "Reading the
+//! waveform…", "No audio" and the no-vocals note. The theme colours, fonts
+//! and lane heights come from QML (Palette.qml, Metrics.qml, the theme), so
+//! the item follows the theme.
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -29,6 +38,32 @@ pub mod qobject {
 
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+
+        include!("cxx-qt-lib/qvariant.h");
+        type QVariant = cxx_qt_lib::QVariant;
+
+        include!("cxx-qt-lib/qfont.h");
+        type QFont = cxx_qt_lib::QFont;
+
+        include!("cxx-qt-lib/qpen.h");
+        type QPen = cxx_qt_lib::QPen;
+
+        include!("cxx-qt-lib/qlinef.h");
+        type QLineF = cxx_qt_lib::QLineF;
+
+        include!("cxx-qt-lib/qpoint.h");
+        type QPoint = cxx_qt_lib::QPoint;
+
+        include!("cxx-qt-lib/core/qlist/qlist_QVariant.h");
+        type QList_QVariant = cxx_qt_lib::QList<QVariant>;
+
+        include!("textmetrics.h");
+        /// The pixel width of the text in the font.
+        fn usdx_text_width(font: &QFont, text: &QString) -> f64;
+        /// The baseline offset that centres a text line vertically.
+        fn usdx_text_baseline_offset(font: &QFont) -> f64;
+        /// The text elided on the right so it fits the width.
+        fn usdx_elide_text(font: &QFont, text: &QString, max_width: f64) -> QString;
     }
 
     unsafe extern "C++" {
@@ -55,14 +90,54 @@ pub mod qobject {
         #[base = QQuickPaintedItem]
         #[qproperty(f64, start_ms, cxx_name = "startMs")]
         #[qproperty(f64, end_ms, cxx_name = "endMs")]
+        // The song timing the beat axis maps through (UI_SPEC 3.2).
+        #[qproperty(f64, bpm)]
+        #[qproperty(f64, gap_ms, cxx_name = "gapMs")]
+        // The beat view the viewport computed from the millisecond view.
+        #[qproperty(f64, start_beat, cxx_name = "startBeat")]
+        #[qproperty(f64, px_per_beat, cxx_name = "pxPerBeat")]
+        // The pitch rows' range and row height (UI_SPEC 3.3).
+        #[qproperty(f64, pitch_top, cxx_name = "pitchTop")]
+        #[qproperty(f64, px_per_semitone, cxx_name = "pxPerSemitone")]
+        // The lyric notes of the current line and its neighbours, as
+        // parallel lists, and the current line's pitch range (-1 when no
+        // line is current); SongDocument computes them.
+        #[qproperty(QList_QVariant, sheet_note_starts, cxx_name = "sheetNoteStarts")]
+        #[qproperty(QList_QVariant, sheet_note_texts, cxx_name = "sheetNoteTexts")]
+        #[qproperty(QList_QVariant, sheet_note_currents, cxx_name = "sheetNoteCurrents")]
+        #[qproperty(i32, sheet_pitch_low, cxx_name = "sheetPitchLow")]
+        #[qproperty(i32, sheet_pitch_high, cxx_name = "sheetPitchHigh")]
         #[qproperty(QString, audio_path, cxx_name = "audioPath")]
         #[qproperty(QString, vocals_path, cxx_name = "vocalsPath")]
+        // The vertical stack (UI_SPEC 3.1); QML supplies the Metrics values.
+        #[qproperty(f64, gutter_width, cxx_name = "gutterWidth")]
+        #[qproperty(f64, ruler_height, cxx_name = "rulerHeight")]
+        #[qproperty(f64, lyrics_height, cxx_name = "lyricsHeight")]
+        #[qproperty(f64, gap_height, cxx_name = "gapHeight")]
         #[qproperty(f64, waveform_height, cxx_name = "waveformHeight")]
         #[qproperty(f64, activity_height, cxx_name = "activityHeight")]
+        // Repair sheets show the sheet without the lyrics lane; the
+        // overview mode of the repair strip arrives with task P7-08.
+        #[qproperty(bool, show_lyrics_lane, cxx_name = "showLyricsLane")]
+        #[qproperty(bool, overview)]
+        #[qproperty(QString, track_name, cxx_name = "trackName")]
+        // The theme colours (UI_SPEC 2.3), passed from QML.
+        #[qproperty(QColor, view_background_color, cxx_name = "viewBackgroundColor")]
+        #[qproperty(QColor, alternate_color, cxx_name = "alternateColor")]
+        #[qproperty(QColor, header_background_color, cxx_name = "headerBackgroundColor")]
+        #[qproperty(QColor, window_background_color, cxx_name = "windowBackgroundColor")]
+        #[qproperty(QColor, grid_line_color, cxx_name = "gridLineColor")]
+        #[qproperty(QColor, strong_grid_line_color, cxx_name = "strongGridLineColor")]
+        #[qproperty(QColor, text_color, cxx_name = "textColor")]
+        #[qproperty(QColor, disabled_text_color, cxx_name = "disabledTextColor")]
         #[qproperty(QColor, waveform_color, cxx_name = "waveformColor")]
         #[qproperty(QColor, activity_color, cxx_name = "activityColor")]
-        #[qproperty(QColor, lane_color, cxx_name = "laneColor")]
-        #[qproperty(QColor, activity_lane_color, cxx_name = "activityLaneColor")]
+        // The sheet fonts (UI_SPEC 2.2, 3.3, 3.6), complete from QML
+        // (cxx-qt-lib's QFont cannot set point size or weight).
+        #[qproperty(QFont, small_font, cxx_name = "smallFont")]
+        #[qproperty(QFont, small_demi_font, cxx_name = "smallDemiFont")]
+        #[qproperty(QFont, lyrics_font, cxx_name = "lyricsFont")]
+        #[qproperty(QFont, lyrics_neighbour_font, cxx_name = "lyricsNeighbourFont")]
         #[qproperty(i32, lane_status, cxx_name = "laneStatus")]
         #[qproperty(bool, peaks_ready, cxx_name = "peaksReady")]
         #[qproperty(f64, analysis_progress, cxx_name = "analysisProgress")]
@@ -81,6 +156,17 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "holdLoading"]
         fn hold_loading(self: Pin<&mut Self>, fraction: f64);
+
+        /// Convert the millisecond view into beats and fit the viewport
+        /// when the range changed; QML calls it on view and resize changes.
+        #[qinvokable]
+        fn sync_view(self: Pin<&mut Self>);
+
+        /// Take the note data over, compute the pitch rows from the pitch
+        /// area height and repaint; QML calls it when the note data or the
+        /// item's size changes.
+        #[qinvokable]
+        fn sync_lyrics(self: Pin<&mut Self>);
 
         #[inherit]
         fn size(self: &Self) -> QSizeF;
@@ -101,31 +187,75 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QColor, QRectF, QString};
+use cxx_qt_lib::{QColor, QFont, QLineF, QList, QPen, QPoint, QPointF, QRectF, QString, QVariant};
 use usdx_audio::analysis::{Activity, Peaks, analyze};
 
 use crate::controller::lanes::{AnalysisJob, LaneAnalysis, LaneStatus};
-use crate::controller::waveform::{DrawOp, LaneLayout, layout};
+use crate::controller::sheet::{
+    ColorRole, LyricNote, SheetGeometry, SheetInputs, SheetOp, TextFont, layout, pitch_rows,
+};
+use crate::controller::viewport::SheetViewport;
 
 /// The peak bucket length of the analysis (plan section 7.2).
 const BUCKET_MS: f64 = 10.0;
-/// The share of the waveform lane height the loudest bucket uses (UI_SPEC 3.7).
-const LOUDEST_SHARE: f64 = 0.92;
 
-/// The Rust side of the SheetBackground: the property storage, the lane
-/// analysis state and the cancel flags of the running jobs.
+/// The Rust side of the SheetBackground: the property storage, the viewport
+/// with the beat view, the note data of the current line, the lane analysis
+/// state and the cancel flags of the running jobs.
 #[derive(Default)]
 pub struct SheetBackgroundRust {
     start_ms: f64,
     end_ms: f64,
+    bpm: f64,
+    gap_ms: f64,
+    /// The beat view: the viewport holds the real state, the properties
+    /// mirror it for QML (the note delegates of task P5-03 read them).
+    viewport: SheetViewport,
+    /// The millisecond-to-beat view the viewport last fitted; the view
+    /// refits only when the converted range changes.
+    view_beats: (f64, f64),
+    /// The mirrored beat view properties (see viewport).
+    start_beat: f64,
+    px_per_beat: f64,
+    pitch_top: f64,
+    px_per_semitone: f64,
+    /// The mirrored note data properties SongDocument pushed; sync_lyrics
+    /// copies them into notes and line_pitch.
+    sheet_note_starts: QList<QVariant>,
+    sheet_note_texts: QList<QVariant>,
+    sheet_note_currents: QList<QVariant>,
+    sheet_pitch_low: i32,
+    sheet_pitch_high: i32,
+    /// The notes of the current line and its global neighbours, sorted by
+    /// start, as the lyrics lane shows them.
+    notes: Vec<LyricNote>,
+    /// The current line's pitch range, none while no line is current.
+    line_pitch: Option<(i32, i32)>,
     audio_path: QString,
     vocals_path: QString,
+    gutter_width: f64,
+    ruler_height: f64,
+    lyrics_height: f64,
+    gap_height: f64,
     waveform_height: f64,
     activity_height: f64,
+    show_lyrics_lane: bool,
+    overview: bool,
+    track_name: QString,
+    view_background_color: QColor,
+    alternate_color: QColor,
+    header_background_color: QColor,
+    window_background_color: QColor,
+    grid_line_color: QColor,
+    strong_grid_line_color: QColor,
+    text_color: QColor,
+    disabled_text_color: QColor,
     waveform_color: QColor,
     activity_color: QColor,
-    lane_color: QColor,
-    activity_lane_color: QColor,
+    small_font: QFont,
+    small_demi_font: QFont,
+    lyrics_font: QFont,
+    lyrics_neighbour_font: QFont,
     lane_status: i32,
     peaks_ready: bool,
     analysis_progress: f64,
@@ -144,6 +274,98 @@ impl Drop for SheetBackgroundRust {
     }
 }
 
+impl SheetBackgroundRust {
+    /// color_of resolves a draw-list colour role to the theme colour
+    /// property QML supplied (UI_SPEC 2.3).
+    fn color_of(&self, role: ColorRole) -> &QColor {
+        match role {
+            ColorRole::ViewBackground => &self.view_background_color,
+            ColorRole::Alternate => &self.alternate_color,
+            ColorRole::HeaderBackground => &self.header_background_color,
+            ColorRole::WindowBackground => &self.window_background_color,
+            ColorRole::GridLine => &self.grid_line_color,
+            ColorRole::StrongGridLine => &self.strong_grid_line_color,
+            ColorRole::Text => &self.text_color,
+            ColorRole::DisabledText => &self.disabled_text_color,
+            ColorRole::Waveform => &self.waveform_color,
+            ColorRole::Activity => &self.activity_color,
+        }
+    }
+
+    /// font_of resolves a draw-list font role to the font property QML
+    /// supplied (UI_SPEC 2.2).
+    fn font_of(&self, font: TextFont) -> &QFont {
+        match font {
+            TextFont::Small => &self.small_font,
+            TextFont::SmallDemi => &self.small_demi_font,
+            TextFont::Lyrics => &self.lyrics_font,
+            TextFont::LyricsNeighbour => &self.lyrics_neighbour_font,
+        }
+    }
+}
+
+/// replay draws one op of the sheet's draw list; Rect fills, Line strokes
+/// with a 1 px pen and Text draws at its baseline, elided to max_width when
+/// one is given (UI_SPEC 3.6).
+fn replay(mut painter: Pin<&mut qobject::QPainter>, op: &SheetOp, rust: &SheetBackgroundRust) {
+    match op {
+        SheetOp::Rect {
+            x,
+            y,
+            width,
+            height,
+            color,
+        } => painter
+            .as_mut()
+            .fill_rect(&QRectF::new(*x, *y, *width, *height), rust.color_of(*color)),
+        SheetOp::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            color,
+            width,
+        } => {
+            let mut pen = QPen::default();
+            pen.set_color(rust.color_of(*color));
+            pen.set_width((*width).round() as i32);
+            painter.as_mut().set_pen(&pen);
+            painter
+                .as_mut()
+                .draw_linef(&QLineF::new(QPointF::new(*x1, *y1), QPointF::new(*x2, *y2)));
+        }
+        SheetOp::Text {
+            x,
+            y,
+            text,
+            font,
+            color,
+            max_width,
+            opacity,
+        } => {
+            let font = rust.font_of(*font);
+            let shown = if max_width.is_finite() && *max_width > 0.0 {
+                qobject::usdx_elide_text(font, &QString::from(text.as_str()), *max_width)
+            } else if max_width.is_finite() {
+                // No room at all: nothing to show.
+                QString::default()
+            } else {
+                QString::from(text.as_str())
+            };
+            let mut pen = QPen::default();
+            pen.set_color(rust.color_of(*color));
+            painter.as_mut().set_pen(&pen);
+            painter.as_mut().set_font(font);
+            painter.as_mut().set_opacity(*opacity);
+            painter.as_mut().draw_text(
+                &QPoint::new((*x).round() as i32, (*y).round() as i32),
+                &shown,
+            );
+            painter.as_mut().set_opacity(1.0);
+        }
+    }
+}
+
 impl cxx_qt::Initialize for qobject::SheetBackground {
     fn initialize(mut self: Pin<&mut Self>) {
         self.as_mut()
@@ -153,10 +375,55 @@ impl cxx_qt::Initialize for qobject::SheetBackground {
             .on_vocals_path_changed(|item| item.sync_tracks())
             .release();
         self.as_mut()
-            .on_start_ms_changed(|item| item.update())
+            .on_start_ms_changed(|item| item.sync_view())
             .release();
         self.as_mut()
-            .on_end_ms_changed(|item| item.update())
+            .on_end_ms_changed(|item| item.sync_view())
+            .release();
+        self.as_mut()
+            .on_bpm_changed(|item| item.sync_view())
+            .release();
+        self.as_mut()
+            .on_gap_ms_changed(|item| item.sync_view())
+            .release();
+        self.as_mut()
+            .on_sheet_note_starts_changed(|item| item.sync_lyrics())
+            .release();
+        self.as_mut()
+            .on_sheet_note_texts_changed(|item| item.sync_lyrics())
+            .release();
+        self.as_mut()
+            .on_sheet_note_currents_changed(|item| item.sync_lyrics())
+            .release();
+        self.as_mut()
+            .on_sheet_pitch_low_changed(|item| item.sync_lyrics())
+            .release();
+        self.as_mut()
+            .on_sheet_pitch_high_changed(|item| item.sync_lyrics())
+            .release();
+        self.as_mut()
+            .on_view_background_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_alternate_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_header_background_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_window_background_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_grid_line_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_strong_grid_line_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_text_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_disabled_text_color_changed(|item| item.update())
             .release();
         self.as_mut()
             .on_waveform_color_changed(|item| item.update())
@@ -165,19 +432,49 @@ impl cxx_qt::Initialize for qobject::SheetBackground {
             .on_activity_color_changed(|item| item.update())
             .release();
         self.as_mut()
-            .on_lane_color_changed(|item| item.update())
+            .on_small_font_changed(|item| item.update())
             .release();
         self.as_mut()
-            .on_activity_lane_color_changed(|item| item.update())
+            .on_small_demi_font_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_lyrics_font_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_lyrics_neighbour_font_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_gutter_width_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_ruler_height_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_lyrics_height_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_gap_height_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_waveform_height_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_activity_height_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_show_lyrics_lane_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_track_name_changed(|item| item.update())
             .release();
         self.as_mut().publish();
     }
 }
 
 impl qobject::SheetBackground {
-    /// paint fills the waveform lane and the activity lane at the item's
-    /// bottom with their backgrounds, then replays the draw list of the
-    /// visible time range.
+    /// paint replays the sheet's draw list (controller::sheet::layout) over
+    /// the full item: ruler, pitch rows, lyrics lane, gap, waveform and
+    /// activity lanes (UI_SPEC section 3).
     ///
     /// # Safety
     ///
@@ -193,39 +490,138 @@ impl qobject::SheetBackground {
         let size = self.as_ref().size();
         let (width, height) = (size.width(), size.height());
         let rust = self.rust();
-        let waveform_top = height - rust.activity_height - rust.waveform_height;
-        let activity_top = waveform_top + rust.waveform_height;
-        painter.as_mut().fill_rect(
-            &QRectF::new(0.0, waveform_top, width, rust.waveform_height),
-            &rust.lane_color,
-        );
-        painter.as_mut().fill_rect(
-            &QRectF::new(0.0, activity_top, width, rust.activity_height),
-            &rust.activity_lane_color,
-        );
-        let Some(peaks) = rust.lanes.peaks() else {
+        // Without a song (no BPM) or size there is nothing to place.
+        if width <= 0.0 || height <= 0.0 || rust.bpm <= 0.0 || rust.viewport.px_per_beat <= 0.0 {
             return;
-        };
-        let lane = LaneLayout {
+        }
+        let track_name = String::from(&rust.track_name);
+        let geometry = SheetGeometry {
             width,
+            height,
+            gutter_width: rust.gutter_width,
+            ruler_height: rust.ruler_height,
+            lyrics_height: rust.lyrics_height,
+            gap_height: rust.gap_height,
             waveform_height: rust.waveform_height,
             activity_height: rust.activity_height,
-            start_ms: rust.start_ms,
-            end_ms: rust.end_ms,
-            scale: LOUDEST_SHARE,
+            show_lyrics_lane: rust.show_lyrics_lane,
+            start_beat: rust.viewport.start_beat,
+            px_per_beat: rust.viewport.px_per_beat,
+            top_pitch: rust.viewport.top_pitch.round() as i32,
+            px_per_semitone: rust.viewport.px_per_semitone,
+            bpm: rust.bpm,
+            gap_ms: rust.gap_ms,
         };
-        for op in layout(&lane, peaks, rust.lanes.activity()) {
-            match op {
-                DrawOp::Waveform { x, top, bottom } => painter.as_mut().fill_rect(
-                    &QRectF::new(x, waveform_top + top, 1.0, bottom - top),
-                    &rust.waveform_color,
-                ),
-                DrawOp::Activity { x } => painter.as_mut().fill_rect(
-                    &QRectF::new(x, activity_top, 1.0, rust.activity_height),
-                    &rust.activity_color,
-                ),
+        let measure = |font: TextFont, text: &str| {
+            qobject::usdx_text_width(rust.font_of(font), &QString::from(text))
+        };
+        let baseline_offset =
+            |font: TextFont| qobject::usdx_text_baseline_offset(rust.font_of(font));
+        let inputs = SheetInputs {
+            peaks: rust.lanes.peaks(),
+            activity: rust.lanes.activity(),
+            notes: &rust.notes,
+            track_name: &track_name,
+            line_pitch: rust.line_pitch,
+            measure: &measure,
+            baseline_offset: &baseline_offset,
+        };
+        for op in layout(&geometry, &inputs) {
+            replay(painter.as_mut(), &op, rust);
+        }
+    }
+
+    /// sync_view converts the millisecond view into beats and fits the
+    /// viewport when the converted range changed (UI_SPEC 3.2): zoom and
+    /// pan survive unchanged ranges and resizes.
+    pub fn sync_view(mut self: Pin<&mut Self>) {
+        let bpm = *self.bpm();
+        if bpm <= 0.0 {
+            return;
+        }
+        let size = self.as_ref().size();
+        // One beat is 15000 / bpm ms (the USDX timing), so a duration in
+        // ms maps to beats with bpm / 15000.
+        let start_beat = (*self.start_ms() - *self.gap_ms()) * bpm / 15000.0;
+        let end_beat = (*self.end_ms() - *self.gap_ms()) * bpm / 15000.0;
+        let mut rust = self.as_mut().rust_mut();
+        rust.viewport.set_size(size.width(), size.height());
+        if start_beat != rust.view_beats.0 || end_beat != rust.view_beats.1 {
+            rust.view_beats = (start_beat, end_beat);
+            rust.viewport.fit_range(start_beat, end_beat);
+        }
+        let (start, px_per_beat) = (rust.viewport.start_beat, rust.viewport.px_per_beat);
+        self.as_mut().set_start_beat(start);
+        self.as_mut().set_px_per_beat(px_per_beat);
+        self.as_mut().update();
+    }
+
+    /// sync_lyrics takes the note data over, computes the pitch rows from
+    /// the pitch area's height (UI_SPEC 3.3) and repaints.
+    pub fn sync_lyrics(mut self: Pin<&mut Self>) {
+        let starts = self.sheet_note_starts();
+        let texts = self.sheet_note_texts();
+        let currents = self.sheet_note_currents();
+        let count = starts.len().min(texts.len()).min(currents.len());
+        let mut notes = Vec::with_capacity(count.max(0) as usize);
+        for index in 0..count {
+            notes.push(LyricNote {
+                start_beat: starts
+                    .get(index)
+                    .and_then(QVariant::value::<f64>)
+                    .unwrap_or(0.0),
+                text: texts
+                    .get(index)
+                    .and_then(QVariant::value::<QString>)
+                    .map(|text| String::from(&text))
+                    .unwrap_or_default(),
+                current: currents
+                    .get(index)
+                    .and_then(QVariant::value::<bool>)
+                    .unwrap_or(false),
+            });
+        }
+        let low = *self.sheet_pitch_low();
+        let high = *self.sheet_pitch_high();
+        eprintln!(
+            "DBG sync_lyrics notes={} low={low} high={high} size={}x{} ruler={} lyrics={} gap={} wave={} act={} showl={}",
+            starts.len(),
+            self.as_ref().size().width(),
+            self.as_ref().size().height(),
+            self.ruler_height(),
+            self.lyrics_height(),
+            self.gap_height(),
+            self.waveform_height(),
+            self.activity_height(),
+            self.show_lyrics_lane(),
+        );
+        let pitch = (low >= 0 && high >= 0).then_some((low, high));
+        if let Some((low, high)) = pitch {
+            let size = self.as_ref().size();
+            let pitch_height = (size.height()
+                - *self.ruler_height()
+                - if *self.show_lyrics_lane() {
+                    *self.lyrics_height() + *self.gap_height()
+                } else {
+                    0.0
+                }
+                - *self.waveform_height()
+                - *self.activity_height())
+            .max(0.0);
+            if pitch_height > 0.0 {
+                let (top, row_height) = pitch_rows(low, high, pitch_height);
+                let mut rust = self.as_mut().rust_mut();
+                rust.viewport.top_pitch = f64::from(top);
+                rust.viewport.px_per_semitone = row_height;
             }
         }
+        let mut rust = self.as_mut().rust_mut();
+        rust.notes = notes;
+        rust.line_pitch = pitch;
+        let (top, row_height) = (rust.viewport.top_pitch, rust.viewport.px_per_semitone);
+        self.as_mut().set_pitch_top(top);
+        self.as_mut().set_px_per_semitone(row_height);
+        self.as_mut().update();
     }
 
     /// hold_loading pins the lane at the fraction and stops the analyses.

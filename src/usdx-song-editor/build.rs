@@ -4,8 +4,9 @@
 // runs the cxx-qt code generation for the bridge files (including the painted
 // SheetBackground item, a QQuickPaintedItem from the Quick module), and compiles the small
 // C++ helpers: the --self-test helpers, the relative-date formatter for the
-// recent songs list, and the screenshot harness helpers (UI_SPEC 8.1), which
-// the cxx-qt-lib bindings do not provide.
+// recent songs list, the screenshot harness helpers (UI_SPEC 8.1) and the
+// text measuring helpers of the note sheet, which the cxx-qt-lib bindings
+// do not provide.
 
 use cxx_qt_build::{CxxQtBuilder, QmlModule};
 
@@ -32,7 +33,12 @@ fn main() {
                 "src/bridge/screenshot.rs",
                 "src/bridge/sheet_background.rs",
             ])
-            .cpp_files(["cpp/selftest.cpp", "cpp/format.cpp", "cpp/screenshot.cpp"])
+            .cpp_files([
+                "cpp/selftest.cpp",
+                "cpp/format.cpp",
+                "cpp/screenshot.cpp",
+                "cpp/textmetrics.cpp",
+            ])
             .cc_builder(|cc| {
                 cc.include("cpp");
             })

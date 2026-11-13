@@ -25,13 +25,19 @@ use cxx_qt_lib::{
 };
 use usdx_format::headers::{Headers, Version};
 use usdx_format::rows::{NoteType, RowKind};
+use usdx_format::song::Line;
 
 use crate::bridge::player::PlayerCore;
 use crate::controller::save::SaveError;
 use crate::controller::settings::{Settings, settings_path};
+use crate::controller::sheet::{LineNotes, line_notes};
 use crate::controller::shell;
 use crate::controller::view::{TimeView, follow_line};
 use crate::controller::{EditorController, SaveService};
+
+/// The QVariantList (QList<QVariant>) the sheet note properties use; the
+/// bridge declares the same cxx-qt-lib type.
+type QVariantList = cxx_qt_lib::QList<QVariant>;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -63,6 +69,9 @@ pub mod qobject {
         include!("cxx-qt-lib/qbytearray.h");
         /// QByteArray from cxx_qt_lib
         type QByteArray = cxx_qt_lib::QByteArray;
+        include!("cxx-qt-lib/core/qlist/qlist_QVariant.h");
+        /// A QVariantList (QList<QVariant>) from cxx_qt_lib.
+        type QList_QVariant = cxx_qt_lib::QList<QVariant>;
         include!("format.h");
         /// Relative-date text ("today", "yesterday", "10 Nov 2026") for the
         /// recent songs list (UI_SPEC 4.1).
@@ -293,6 +302,15 @@ pub mod qobject {
             cxx_name = "currentLineHealthReason"
         )]
         #[qproperty(QString, current_line_type, cxx_name = "currentLineType")]
+        // The lyric notes of the current line and its global neighbours for
+        // the sheet's lyrics lane (UI_SPEC 3.6, task P5-02), as parallel
+        // lists of start beats, texts and current flags; the pitch range of
+        // the current line as low and high, -1 when no line is current.
+        #[qproperty(QList_QVariant, sheet_note_starts, cxx_name = "sheetNoteStarts")]
+        #[qproperty(QList_QVariant, sheet_note_texts, cxx_name = "sheetNoteTexts")]
+        #[qproperty(QList_QVariant, sheet_note_currents, cxx_name = "sheetNoteCurrents")]
+        #[qproperty(i32, sheet_pitch_low, cxx_name = "sheetPitchLow")]
+        #[qproperty(i32, sheet_pitch_high, cxx_name = "sheetPitchHigh")]
         #[qproperty(i32, window_width, cxx_name = "windowWidth")]
         #[qproperty(i32, window_height, cxx_name = "windowHeight")]
         #[qproperty(i32, recent_count, cxx_name = "recentCount")]
@@ -707,6 +725,11 @@ pub struct SongDocumentRust {
     current_line_health: i32,
     current_line_health_reason: QString,
     current_line_type: QString,
+    sheet_note_starts: QVariantList,
+    sheet_note_texts: QVariantList,
+    sheet_note_currents: QVariantList,
+    sheet_pitch_low: i32,
+    sheet_pitch_high: i32,
     window_width: i32,
     window_height: i32,
     recent_count: i32,
@@ -776,6 +799,11 @@ impl Default for SongDocumentRust {
             current_line_health: snapshot.current_line_health,
             current_line_health_reason: snapshot.current_line_health_reason,
             current_line_type: snapshot.current_line_type,
+            sheet_note_starts: QVariantList::default(),
+            sheet_note_texts: QVariantList::default(),
+            sheet_note_currents: QVariantList::default(),
+            sheet_pitch_low: -1,
+            sheet_pitch_high: -1,
             window_width: width,
             window_height: height,
             recent_count: snapshot.recent_count,
@@ -1298,6 +1326,7 @@ impl qobject::SongDocument {
             snapshot.current_line_start_ms,
             snapshot.current_line_end_ms,
         );
+        self.as_mut().sync_sheet_notes(snapshot.is_loaded);
         self.as_mut()
             .set_current_line_note_count(snapshot.current_line_note_count);
         self.as_mut()
@@ -1309,6 +1338,53 @@ impl qobject::SongDocument {
         self.as_mut()
             .set_current_line_type(snapshot.current_line_type);
         self.as_mut().set_recent_count(snapshot.recent_count);
+    }
+
+    /// sync_sheet_notes copies the lyric notes of the current line and its
+    /// global neighbours (user decision 2026-11-13) and the current line's
+    /// pitch range into the sheet properties; without a song the lists are
+    /// empty and the pitch range is -1.
+    fn sync_sheet_notes(mut self: Pin<&mut Self>, loaded: bool) {
+        let data = match loaded {
+            true => {
+                let editor = self.rust().editor();
+                let current = editor.current_line();
+                let mut lines: Vec<&Line> = Vec::new();
+                let mut current_index = 0;
+                if let Some(previous) = current
+                    .checked_sub(1)
+                    .and_then(|index| editor.line_data(index))
+                {
+                    lines.push(previous);
+                    current_index += 1;
+                }
+                if let Some(current_line) = editor.line_data(current) {
+                    lines.push(current_line);
+                }
+                if let Some(next) = editor.line_data(current + 1) {
+                    lines.push(next);
+                }
+                match editor.loaded() {
+                    Some(song) => line_notes(&song.document, &song.song, &lines, current_index),
+                    None => LineNotes::default(),
+                }
+            }
+            false => LineNotes::default(),
+        };
+        let mut starts = QVariantList::default();
+        let mut texts = QVariantList::default();
+        let mut currents = QVariantList::default();
+        for note in &data.notes {
+            starts.append(QVariant::from(&note.start_beat));
+            texts.append(QVariant::from(&QString::from(note.text.as_str())));
+            currents.append(QVariant::from(&note.current));
+        }
+        let (low, high) = data.pitch.unwrap_or((-1, -1));
+        self.as_mut().set_sheet_note_starts(starts);
+        self.as_mut().set_sheet_note_texts(texts);
+        self.as_mut().set_sheet_note_currents(currents);
+        self.as_mut().set_sheet_pitch_low(low);
+        self.as_mut().set_sheet_pitch_high(high);
     }
 
     /// rebuild_recents_if_stale rebuilds the recent songs model when the

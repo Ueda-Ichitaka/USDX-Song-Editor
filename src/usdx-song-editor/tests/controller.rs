@@ -177,3 +177,21 @@ fn an_undecodable_file_is_refused_with_the_exact_text() {
     );
     drop(dir);
 }
+
+#[test]
+fn line_data_returns_the_line_at_a_global_index() {
+    let (_dir, path) = fixture(TWO_VOICES);
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    // Voice 1 has two lines, voice 2 one: global index 2 is voice 2's line.
+    let line = controller.line_data(2).expect("the line exists");
+    assert_eq!(line.index, 0, "voice 2's first line");
+    assert!(controller.line_data(3).is_none(), "past the last line");
+    assert!(controller.line_data(0).is_some());
+}
+
+#[test]
+fn line_data_is_none_without_a_song() {
+    let controller = EditorController::new();
+    assert!(controller.line_data(0).is_none());
+}

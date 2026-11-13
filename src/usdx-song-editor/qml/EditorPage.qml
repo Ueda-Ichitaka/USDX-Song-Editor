@@ -549,10 +549,12 @@ Kirigami.Page {
                     document: root.document
                 }
 
-                // The note sheet area (UI_SPEC 3): view background; the
-                // waveform and activity lanes sit at its bottom behind the
-                // gutter. The ruler, pitch rows, notes and lyrics lane above
-                // them arrive with the note sheet tasks (P5).
+                // The note sheet area (UI_SPEC 3): the painted background
+                // fills it with the ruler, the pitch rows, the lyrics lane,
+                // the gap and the waveform and activity lanes including the
+                // gutter (the lane labels are painted, not QML elements).
+                // The note delegates, the ruler interaction and the phrase
+                // ends arrive with the P5 tasks.
                 Rectangle {
                     id: sheetArea
 
@@ -562,7 +564,8 @@ Kirigami.Page {
                     Kirigami.Theme.inherit: false
                     color: Kirigami.Theme.backgroundColor
 
-                    // The window colour set, for the lane backgrounds.
+                    // The window and header colour sets, for the lane and
+                    // ruler backgrounds (UI_SPEC 2.3).
                     Item {
                         id: windowColors
 
@@ -570,27 +573,38 @@ Kirigami.Page {
                         Kirigami.Theme.inherit: false
                     }
 
-                    // The gutter label of the waveform lane: the track name.
-                    QQC2.Label {
-                        x: metrics.sheetGutterLabelMargin
-                        width: metrics.sheetGutterWidth - metrics.sheetGutterLabelMargin
-                        y: lanes.y
-                        height: metrics.waveformLaneHeight
-                        verticalAlignment: Text.AlignVCenter
-                        text: [qsTr("Mix"), qsTr("Vocals"), qsTr("Instr.")][root.player ? root.player.track : 0]
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        color: Kirigami.Theme.disabledTextColor
+                    Item {
+                        id: headerColors
+
+                        Kirigami.Theme.colorSet: Kirigami.Theme.Header
+                        Kirigami.Theme.inherit: false
                     }
 
                     Usdx.SheetBackground {
-                        id: lanes
+                        id: sheet
 
                         objectName: "sheetBackground"
-                        anchors.left: parent.left
-                        anchors.leftMargin: metrics.sheetGutterWidth
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: metrics.waveformLaneHeight + metrics.activityLaneHeight
+                        anchors.fill: parent
+                        // The song timing the beat axis maps through.
+                        bpm: root.document ? root.document.bpm : 0
+                        gapMs: root.document ? root.document.gapMs : 0
+                        // The note data of the current line and its global
+                        // neighbours, which SongDocument computes.
+                        sheetNoteStarts: root.document ? root.document.sheetNoteStarts : []
+                        sheetNoteTexts: root.document ? root.document.sheetNoteTexts : []
+                        sheetNoteCurrents: root.document ? root.document.sheetNoteCurrents : []
+                        sheetPitchLow: root.document ? root.document.sheetPitchLow : -1
+                        sheetPitchHigh: root.document ? root.document.sheetPitchHigh : -1
+                        // A resize recomputes the pitch rows and the view
+                        // mapping from the new item size.
+                        onWidthChanged: {
+                            sheet.syncView();
+                            sheet.syncLyrics();
+                        }
+                        onHeightChanged: {
+                            sheet.syncView();
+                            sheet.syncLyrics();
+                        }
                         startMs: root.document ? root.document.viewStartMs : 0
                         endMs: root.document ? root.document.viewEndMs : 0
                         // The selected track draws the waveform, the vocals
@@ -600,25 +614,64 @@ Kirigami.Page {
                                    ? root.document.audioPath(root.player ? root.player.track : 0) : ""
                         vocalsPath: root.songOpen && root.document.filePath.length > 0
                                     ? root.document.audioPath(1) : ""
+                        // The lane stack and the gutter (UI_SPEC 3.1).
+                        gutterWidth: metrics.sheetGutterWidth
+                        rulerHeight: metrics.sheetRulerHeight
+                        lyricsHeight: metrics.sheetLyricsHeight
+                        gapHeight: metrics.sheetGapHeight
                         waveformHeight: metrics.waveformLaneHeight
                         activityHeight: metrics.activityLaneHeight
+                        showLyricsLane: true
+                        trackName: [qsTr("Mix"), qsTr("Vocals"), qsTr("Instr.")][root.player ? root.player.track : 0]
+                        // The theme colours (UI_SPEC 2.3); the grid lines
+                        // interpolate between the view background and text.
+                        viewBackgroundColor: sheetArea.Kirigami.Theme.backgroundColor
+                        alternateColor: sheetArea.Kirigami.Theme.alternateBackgroundColor
+                        headerBackgroundColor: headerColors.Kirigami.Theme.backgroundColor
+                        windowBackgroundColor: windowColors.Kirigami.Theme.backgroundColor
+                        gridLineColor: Kirigami.ColorUtils.linearInterpolation(
+                            sheetArea.Kirigami.Theme.backgroundColor,
+                            sheetArea.Kirigami.Theme.textColor, 0.10)
+                        strongGridLineColor: Kirigami.ColorUtils.linearInterpolation(
+                            sheetArea.Kirigami.Theme.backgroundColor,
+                            sheetArea.Kirigami.Theme.textColor, 0.20)
+                        textColor: sheetArea.Kirigami.Theme.textColor
+                        disabledTextColor: sheetArea.Kirigami.Theme.disabledTextColor
                         waveformColor: appPalette.waveform
                         activityColor: appPalette.vocalActivity
-                        laneColor: windowColors.Kirigami.Theme.backgroundColor
-                        activityLaneColor: Kirigami.Theme.backgroundColor
+                        // The sheet fonts (UI_SPEC 2.2, 3.3, 3.6), complete
+                        // because the bridge cannot change size or weight.
+                        smallFont: Kirigami.Theme.smallFont
+                        smallDemiFont: Qt.font({
+                            family: Kirigami.Theme.smallFont.family,
+                            pointSize: Kirigami.Theme.smallFont.pointSize,
+                            weight: Font.DemiBold
+                        })
+                        lyricsFont: Qt.font({
+                            family: Kirigami.Theme.defaultFont.family,
+                            pointSize: 9,
+                            weight: Font.DemiBold
+                        })
+                        lyricsNeighbourFont: Qt.font({
+                            family: Kirigami.Theme.defaultFont.family,
+                            pointSize: 9
+                        })
 
-                        // "Reading the waveform… 42 %" with its progress bar.
+                        // "Reading the waveform… 42 %" with its progress bar,
+                        // over the waveform lane at the sheet's bottom.
                         ColumnLayout {
                             objectName: "waveformLoading"
                             anchors.horizontalCenter: parent.horizontalCenter
-                            y: (metrics.waveformLaneHeight - height) / 2
-                            visible: lanes.laneStatus === Usdx.SheetBackground.LaneStatus.Loading
+                            y: parent.height - metrics.activityLaneHeight
+                               - metrics.waveformLaneHeight
+                               + (metrics.waveformLaneHeight - height) / 2
+                            visible: sheet.laneStatus === Usdx.SheetBackground.LaneStatus.Loading
                             spacing: Kirigami.Units.smallSpacing
 
                             QQC2.Label {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: qsTr("Reading the waveform… %1 %").arg(Math.round(lanes.analysisProgress * 100))
-                                color: Kirigami.Theme.disabledTextColor
+                                text: qsTr("Reading the waveform… %1 %").arg(Math.round(sheet.analysisProgress * 100))
+                                color: sheetArea.Kirigami.Theme.disabledTextColor
                             }
 
                             // The Breeze bar draws its 6 px track centred
@@ -628,28 +681,70 @@ Kirigami.Page {
                                 Layout.preferredWidth: metrics.waveformProgressWidth
                                 from: 0
                                 to: 1
-                                value: lanes.analysisProgress
+                                value: sheet.analysisProgress
                             }
                         }
 
                         QQC2.Label {
                             objectName: "waveformNoAudio"
                             anchors.horizontalCenter: parent.horizontalCenter
-                            y: (metrics.waveformLaneHeight - height) / 2
-                            visible: lanes.laneStatus === Usdx.SheetBackground.LaneStatus.NoAudio
+                            y: parent.height - metrics.activityLaneHeight
+                               - metrics.waveformLaneHeight
+                               + (metrics.waveformLaneHeight - height) / 2
+                            visible: sheet.laneStatus === Usdx.SheetBackground.LaneStatus.NoAudio
                             text: qsTr("No audio")
-                            color: Kirigami.Theme.disabledTextColor
+                            color: sheetArea.Kirigami.Theme.disabledTextColor
                         }
 
                         QQC2.Label {
                             objectName: "waveformNoVocals"
                             anchors.horizontalCenter: parent.horizontalCenter
-                            y: metrics.waveformLaneHeight - height
-                            visible: lanes.laneStatus === Usdx.SheetBackground.LaneStatus.Ready
-                                     && !lanes.showActivity
+                            y: parent.height - metrics.activityLaneHeight - height
+                            visible: sheet.laneStatus === Usdx.SheetBackground.LaneStatus.Ready
+                                     && !sheet.showActivity
                             text: qsTr("No vocals track: vocal activity and the coverage check are off. Vocals is disabled in the track list.")
                             font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            color: Kirigami.Theme.disabledTextColor
+                            color: sheetArea.Kirigami.Theme.disabledTextColor
+                        }
+                    }
+
+                    // The playhead (UI_SPEC 3.5): a 2 px line in the negative
+                    // colour from the ruler top to the activity lane's
+                    // bottom, with a downward triangle at the ruler top. Its
+                    // x follows the player's position mapped through the
+                    // beat axis the sheet shows.
+                    Item {
+                        objectName: "playhead"
+                        visible: root.songOpen && root.player !== null
+                                 && root.document !== null && root.document.bpm > 0
+                        x: root.player !== null
+                           ? ((root.player.positionMs - root.document.gapMs) * 15
+                              / root.document.bpm - sheet.startBeat) * sheet.pxPerBeat - 1
+                           : -1
+                        y: 0
+                        width: 2
+                        height: parent.height
+
+                        Rectangle {
+                            width: 2
+                            height: parent.height
+                            color: sheetArea.Kirigami.Theme.negativeTextColor
+                        }
+
+                        Canvas {
+                            x: -5
+                            width: 12
+                            height: 8
+                            onPaint: {
+                                const context = getContext("2d");
+                                context.fillStyle = sheetArea.Kirigami.Theme.negativeTextColor;
+                                context.beginPath();
+                                context.moveTo(0, 0);
+                                context.lineTo(12, 0);
+                                context.lineTo(6, 8);
+                                context.closePath();
+                                context.fill();
+                            }
                         }
                     }
                 }

@@ -213,21 +213,21 @@ impl EditorController {
 
     /// current_line_data returns the song's line at the global index.
     pub fn current_line_data(&self) -> Option<&Line> {
-        let loaded = self.loaded.as_ref()?;
-        let voice_index = self.current_voice_index()?;
-        loaded.song.voices[voice_index]
-            .lines
-            .get(self.current_line - self.line_offset(voice_index)?)
+        self.line_data(self.current_line)
     }
 
-    /// line_offset returns the global index of a voice's first line.
-    fn line_offset(&self, voice_index: usize) -> Option<usize> {
-        self.loaded.as_ref().map(|loaded| {
-            loaded.song.voices[..voice_index]
-                .iter()
-                .map(|voice| voice.lines.len())
-                .sum()
-        })
+    /// line_data returns the song's line at a global index across all
+    /// voices, or `None` past the ends or without a song.
+    pub fn line_data(&self, index: usize) -> Option<&Line> {
+        let loaded = self.loaded.as_ref()?;
+        let mut offset = 0;
+        for voice in &loaded.song.voices {
+            if let Some(line) = voice.lines.get(index - offset) {
+                return Some(line);
+            }
+            offset += voice.lines.len();
+        }
+        None
     }
 }
 

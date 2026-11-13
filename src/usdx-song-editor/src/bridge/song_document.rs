@@ -30,6 +30,7 @@ use crate::bridge::player::PlayerCore;
 use crate::controller::save::SaveError;
 use crate::controller::settings::{Settings, settings_path};
 use crate::controller::shell;
+use crate::controller::view::{TimeView, follow_line};
 use crate::controller::{EditorController, SaveService};
 
 #[cxx_qt::bridge]
@@ -279,6 +280,10 @@ pub mod qobject {
         #[qproperty(bool, can_export_anchors, cxx_name = "canExportAnchors")]
         #[qproperty(f64, current_line_start_ms, cxx_name = "currentLineStartMs")]
         #[qproperty(f64, current_line_end_ms, cxx_name = "currentLineEndMs")]
+        // The time range the note sheet shows for the current line
+        // (UI_SPEC 3.2), until the SheetViewport of P5-01 takes it over.
+        #[qproperty(f64, view_start_ms, cxx_name = "viewStartMs")]
+        #[qproperty(f64, view_end_ms, cxx_name = "viewEndMs")]
         #[qproperty(i32, current_line_note_count, cxx_name = "currentLineNoteCount")]
         #[qproperty(f64, current_line_rate, cxx_name = "currentLineRate")]
         #[qproperty(i32, current_line_health, cxx_name = "currentLineHealth")]
@@ -651,6 +656,9 @@ pub struct RecentSongsModelRust {
 /// settings and the Q_PROPERTY storage.
 pub struct SongDocumentRust {
     controller: EditorController,
+    /// The sheet's time view and the song it belongs to; a different song
+    /// starts a fresh view.
+    view: Option<(std::path::PathBuf, TimeView)>,
     saves: SaveService,
     settings: Settings,
     /// Set when the recent list changed and the model must rebuild on the
@@ -692,6 +700,8 @@ pub struct SongDocumentRust {
     can_export_anchors: bool,
     current_line_start_ms: f64,
     current_line_end_ms: f64,
+    view_start_ms: f64,
+    view_end_ms: f64,
     current_line_note_count: i32,
     current_line_rate: f64,
     current_line_health: i32,
@@ -758,6 +768,9 @@ impl Default for SongDocumentRust {
             can_export_anchors: snapshot.can_export_anchors,
             current_line_start_ms: snapshot.current_line_start_ms,
             current_line_end_ms: snapshot.current_line_end_ms,
+            view_start_ms: 0.0,
+            view_end_ms: 0.0,
+            view: None,
             current_line_note_count: snapshot.current_line_note_count,
             current_line_rate: snapshot.current_line_rate,
             current_line_health: snapshot.current_line_health,
@@ -1219,6 +1232,25 @@ impl qobject::SongDocument {
         self.as_mut().rebuild_recents_if_stale();
     }
 
+    /// follow_current_line moves the sheet's time view to the current line
+    /// by the rule of UI_SPEC 3.2; another song starts a fresh view.
+    fn follow_current_line(mut self: Pin<&mut Self>, loaded: bool, start_ms: f64, end_ms: f64) {
+        let song = self.controller.path().map(|path| path.to_owned());
+        let (Some(song), true) = (song, loaded) else {
+            self.as_mut().rust_mut().view = None;
+            return;
+        };
+        let previous = self
+            .view
+            .as_ref()
+            .filter(|(path, _)| *path == song)
+            .map(|(_, view)| *view);
+        let view = follow_line(previous, start_ms, end_ms);
+        self.as_mut().rust_mut().view = Some((song, view));
+        self.as_mut().set_view_start_ms(view.start_ms);
+        self.as_mut().set_view_end_ms(view.end_ms);
+    }
+
     /// sync copies the controller state into the Q_PROPERTY storage.
     fn sync(mut self: Pin<&mut Self>) {
         let snapshot = build_snapshot(&self.controller, &self.settings);
@@ -1261,6 +1293,11 @@ impl qobject::SongDocument {
             .set_current_line_start_ms(snapshot.current_line_start_ms);
         self.as_mut()
             .set_current_line_end_ms(snapshot.current_line_end_ms);
+        self.as_mut().follow_current_line(
+            snapshot.is_loaded,
+            snapshot.current_line_start_ms,
+            snapshot.current_line_end_ms,
+        );
         self.as_mut()
             .set_current_line_note_count(snapshot.current_line_note_count);
         self.as_mut()

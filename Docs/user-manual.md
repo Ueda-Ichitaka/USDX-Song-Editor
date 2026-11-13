@@ -128,8 +128,19 @@ dialog.
 
 The sheet shows the notes of the current line on their pitch rows, with the ruler, the
 lyrics lane and the waveform lane, all drag- and keyboard-editable. This is the heart of
-the editor and arrives with the note sheet phase; until then the area shows the view
-background.
+the editor and arrives with the note sheet phase.
+
+The waveform lanes at the bottom of the sheet are already there. They show the current line
+with at least 1.5 s around it (half the line's length for long lines), and stay put while you
+step through lines that are already visible:
+
+- the waveform of the selected track (the gutter names it: Mix, Vocals or Instr.), scaled so
+  the loudest moment of the song fills the lane;
+- below it a thin green lane where the `#VOCALS` track is singing.
+
+While a song's audio is read the first time, the lane shows "Reading the waveform... N %";
+later openings are instant because the result is cached. Without an audio file it says "No
+audio", and without a vocals track a note explains that vocal activity is off.
 
 ### 4.5 Status bar (bottom)
 

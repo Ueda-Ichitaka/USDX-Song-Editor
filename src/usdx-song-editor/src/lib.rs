@@ -151,14 +151,16 @@ fn parse_size(value: &str) -> Option<(i32, i32)> {
     (width > 0 && height > 0).then_some((width, height))
 }
 
-/// Copies the song into a temporary folder and symlinks the audio files it
-/// names beside the copy, so the original file and its media stay untouched
-/// and later demo states still find the audio (UI_SPEC 8.1: a copy in a temp
-/// folder, never the original). Returns the copy's path and the folder to
-/// remove when the run ends.
+/// Copies the song into a temporary folder and, with `link_audio`, symlinks
+/// the audio files it names beside the copy, so the original file and its
+/// media stay untouched and the demo states still find the audio (UI_SPEC
+/// 8.1: a copy in a temp folder, never the original); the
+/// audio-states-missing state copies the song alone. Returns the copy's path
+/// and the folder to remove when the run ends.
 #[cfg(debug_assertions)]
 fn copy_song_with_audio(
     path: &std::path::Path,
+    link_audio: bool,
 ) -> std::io::Result<(std::path::PathBuf, std::path::PathBuf)> {
     let folder = std::env::temp_dir().join(format!(
         "usdx-screenshot-song-{}-{}",
@@ -176,6 +178,9 @@ fn copy_song_with_audio(
         )
     })?);
     std::fs::copy(path, &copy)?;
+    if !link_audio {
+        return Ok((copy, folder));
+    }
     // The audio headers the format defines for the track selector; each one
     // names a file relative to the song folder.
     if let Ok(bytes) = std::fs::read(path)
@@ -210,17 +215,60 @@ fn copy_song_with_audio(
     Ok((copy, folder))
 }
 
-/// Applies the named demo state to the loaded window (UI_SPEC 8.1). The
-/// states of screens that later tasks build are added by those tasks; every
-/// unknown name is a clear failure instead of a wrong screenshot.
+/// The demo states the harness knows (UI_SPEC 8.1); later tasks add theirs.
 #[cfg(debug_assertions)]
-fn apply_demo_state(state: &str) -> Result<(), String> {
-    match state {
-        "start-screen" => Ok(()),
-        other => Err(format!(
-            "unknown demo state \"{other}\"; available: start-screen"
-        )),
+const DEMO_STATES: [&str; 4] = [
+    "start-screen",
+    "audio-states-missing",
+    "audio-states-loading",
+    "audio-states-no-vocals",
+];
+
+/// How long a demo state waits for the waveform analysis of its song.
+#[cfg(debug_assertions)]
+const LANE_SETTLE_MS: i32 = 60_000;
+
+/// Checks the demo state name and its song before the window loads: every
+/// unknown name and an audio state without `--song` is a clear failure
+/// instead of a wrong screenshot.
+#[cfg(debug_assertions)]
+fn check_demo_state(state: &str, has_song: bool) -> Result<(), String> {
+    if !DEMO_STATES.contains(&state) {
+        return Err(format!(
+            "unknown demo state \"{state}\"; available: {}",
+            DEMO_STATES.join(", ")
+        ));
     }
+    if state.starts_with("audio-states-") && !has_song {
+        return Err(format!("the demo state \"{state}\" needs --song"));
+    }
+    Ok(())
+}
+
+/// Applies the named demo state to the loaded window (UI_SPEC 8.1) and
+/// prints what the waveform lane shows when a song is open: the loading
+/// state pins the lane at 42 % (the reference image), every other state
+/// waits for the analysis so the screenshot shows the finished lane.
+#[cfg(debug_assertions)]
+fn apply_demo_state(
+    state: &str,
+    engine: &QQmlApplicationEngine,
+    has_song: bool,
+) -> Result<(), String> {
+    if !has_song {
+        return Ok(());
+    }
+    let settle_ms = if state == "audio-states-loading" {
+        if !bridge::screenshot::usdx_hold_lane_loading(engine, 0.42) {
+            return Err(String::from("the waveform lane was not found"));
+        }
+        0
+    } else {
+        LANE_SETTLE_MS
+    };
+    let lanes = bridge::screenshot::usdx_settle_lanes(engine, settle_ms).to_string();
+    println!("lane status: {lanes}");
+    Ok(())
 }
 
 /// Runs the screenshot harness: applies the fixed offscreen environment,
@@ -249,10 +297,15 @@ fn run_screenshot(screenshot: ScreenshotArgs) -> i32 {
         }
     }
 
+    if let Err(message) = check_demo_state(&state, song.is_some()) {
+        eprintln!("screenshot failed: {message}");
+        return 1;
+    }
+
     // The song opens from a copy, so the screenshot can never modify the
     // original file (UI_SPEC 8.1).
     let song_copy = match &song {
-        Some(path) => match copy_song_with_audio(path) {
+        Some(path) => match copy_song_with_audio(path, state != "audio-states-missing") {
             Ok(copy) => Some(copy),
             Err(error) => {
                 eprintln!("screenshot failed: the song copy could not be made: {error}");
@@ -290,7 +343,7 @@ fn run_screenshot(screenshot: ScreenshotArgs) -> i32 {
         return 1;
     }
 
-    if let Err(message) = apply_demo_state(&state) {
+    if let Err(message) = apply_demo_state(&state, engine_ref, song_copy.is_some()) {
         eprintln!("screenshot failed: {message}");
         return 1;
     }

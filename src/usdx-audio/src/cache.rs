@@ -14,8 +14,10 @@ use crate::analysis::{Activity, Peaks};
 
 /// The magic bytes of a cache file.
 const MAGIC: &[u8; 8] = b"USDXPEAK";
-/// The cache layout version; a file with another version is ignored.
-const VERSION: u32 = 1;
+/// The cache version: the layout and the analysis that filled it (version 2
+/// places every sample in the bucket of its own time); a file with another
+/// version is ignored and rewritten.
+const VERSION: u32 = 2;
 /// The cache directory of the app below the user's cache directory.
 const APP_DIR: &str = "io.github.ueda_ichitaka.UsdxSongEditor";
 /// The FNV-1a 64 bit offset basis and prime.

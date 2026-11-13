@@ -3,14 +3,17 @@
 //! every user action is testable headlessly; the cxx-qt bridges in
 //! src/bridge forward to them. It holds the editor controller, the file
 //! fingerprint, the save service, the settings and the shell state (titles,
-//! enablement, guarded transitions); the viewport, repair and tap controllers
-//! are added in later tasks.
+//! enablement, guarded transitions), the default time view of the sheet, the
+//! analysis state and the column layout of the waveform lanes; the viewport,
+//! repair and tap controllers are added in later tasks.
 
 pub mod editor;
 pub mod fingerprint;
+pub mod lanes;
 pub mod save;
 pub mod settings;
 pub mod shell;
+pub mod view;
 pub mod waveform;
 
 pub use editor::EditorController;

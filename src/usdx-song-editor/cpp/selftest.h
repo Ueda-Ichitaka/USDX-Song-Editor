@@ -42,7 +42,10 @@ bool usdx_qml_click_child(const QQmlApplicationEngine &engine, const QString &ob
 // Drives the QML paths a user reaches after opening a song: renders the window
 // (lines pane delegates, Open Recent entries), checks that the editor shows
 // every playback control and no start-screen status, that the player rate
-// behind the Speed combo starts at 1x, prints "player track: N" (the track
+// behind the Speed combo starts at 1x, prints "sheet view: START END" (the
+// time range the sheet shows), "lane colour: #aarrggbb" (the waveform colour
+// from the app palette), "lane status: no audio|loading|ready" (the
+// waveform lane after its analysis, waiting up to 15 s) and "player track: N" (the track
 // chosen when the song opened), runs the activation check,
 // triggers the Discard and Cancel choices of the Save changes? dialog and the
 // Reload choice of the Song changed on disk dialog, and requests quit through

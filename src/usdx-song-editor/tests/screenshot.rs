@@ -7,7 +7,11 @@
 //! window background of the theme: #eff0f1 in Breeze Light, #202326 in
 //! Breeze Dark. It also pins the harness contract: an unknown demo state
 //! fails with a clear message, a `--song` screenshot opens a copy and never
-//! modifies the original file, and `--size` resizes the window.
+//! modifies the original file, and `--size` resizes the window. The audio
+//! demo states (UI_SPEC 4.4, 3.7) run on generated fixtures: the missing
+//! state leaves the audio out of the copy, the loading state pins the lane at
+//! 42 %, the no-vocals state waits for the waveform; the run reports the lane
+//! status on stdout, and the audio states refuse to run without a song.
 
 use cxx_qt_lib::QString;
 use std::fs;
@@ -199,6 +203,108 @@ fn an_unknown_demo_state_fails_with_a_clear_message() {
     let status = status.expect_or_timeout();
     assert!(!status.success(), "an unknown demo state must fail");
     assert!(!png.exists(), "no PNG is written for an unknown demo state");
+}
+
+/// Runs the command like run_with_timeout and also returns its stdout.
+fn run_capturing(mut command: Command, limit: Duration) -> (std::process::ExitStatus, String) {
+    use std::io::Read;
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().expect("the binary was built and spawns");
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("the child status is readable") {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the screenshot run was killed by the test timeout: it never exited by itself");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_string(&mut stdout);
+    }
+    (status, stdout)
+}
+
+/// audio_fixture writes a song beside a generated tone; `vocals` adds the
+/// tone as the #VOCALS track too.
+fn audio_fixture(vocals: bool) -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().expect("the song directory is created");
+    usdx_audio::testmedia::tone_opus(&dir.path().join("tone.opus"))
+        .expect("the test tone is generated");
+    let vocals_header = if vocals { "#VOCALS:tone.opus\n" } else { "" };
+    let song = format!(
+        "#TITLE:T\n#ARTIST:A\n#MP3:tone.opus\n{vocals_header}#BPM:240\n: 0 4 0 la\n- 8\n: 8 4 2 lo\nE\n"
+    );
+    let path = dir.path().join("song.txt");
+    fs::write(&path, song).expect("the song is written");
+    let path = path.to_str().expect("the path is valid unicode").to_owned();
+    (dir, path)
+}
+
+/// audio_state_run renders one audio demo state of the fixture and returns
+/// the exit status and stdout; the analysis cache goes to a temporary folder.
+fn audio_state_run(state: &str, song: Option<&str>) -> (std::process::ExitStatus, String, bool) {
+    let (_config_dir, config_home) = theme_config_home(LIGHT_SCHEME);
+    let cache = tempfile::tempdir().expect("the temporary cache is created");
+    let out_dir = tempfile::tempdir().expect("the output directory is created");
+    let png = out_dir.path().join("state.png");
+    let mut args = vec!["--demo-state", state];
+    if let Some(song) = song {
+        args.extend(["--song", song]);
+    }
+    let mut command = screenshot_command(&config_home, &png, &args);
+    command.env("XDG_CACHE_HOME", cache.path());
+    let (status, stdout) = run_capturing(command, Duration::from_secs(60));
+    (status, stdout, png.exists())
+}
+
+#[test]
+fn the_missing_audio_state_leaves_the_audio_out_of_the_copy() {
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("audio-states-missing", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(stdout.contains("lane status: no audio"), "got: {stdout}");
+}
+
+#[test]
+fn the_loading_state_pins_the_lane_at_42_percent() {
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("audio-states-loading", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(
+        stdout.contains("lane status: loading 42 %"),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn the_no_vocals_state_waits_for_the_waveform() {
+    let (_dir, song) = audio_fixture(false);
+    let (status, stdout, written) = audio_state_run("audio-states-no-vocals", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(
+        stdout.contains("lane status: ready, no vocals"),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn the_audio_states_need_a_song() {
+    for state in [
+        "audio-states-missing",
+        "audio-states-loading",
+        "audio-states-no-vocals",
+    ] {
+        let (status, _stdout, written) = audio_state_run(state, None);
+        assert!(
+            !status.success() && !written,
+            "{state} must refuse to run without --song"
+        );
+    }
 }
 
 /// Small helper on the Option the timeout guard produces: a killed run is a

@@ -2,10 +2,12 @@
 // note type chip colours, the chip text colour, the anchor colour and the
 // waveform lane colours (2.3: theme colours at 55 % opacity). The dark
 // variants follow the brightness of the theme background, so the colours
-// work in both Breeze themes. The file is an invisible Item because the
-// Kirigami theme attached properties need an item; every QML file that
-// draws chips instantiates `Palette {}` (the contents are derived
-// constants, so one instance per file needs no state).
+// work in both Breeze themes. The file is a zero-size Item because the
+// Kirigami theme attached properties need an item, and a visible one:
+// Kirigami does not resolve the theme colours of a hidden item, so they
+// would stay black. Every QML file that draws app colours instantiates
+// `Palette {}` (the contents are derived constants, so one instance per
+// file needs no state).
 
 import QtQuick
 import org.kde.kirigami as Kirigami
@@ -13,7 +15,8 @@ import org.kde.kirigami as Kirigami
 Item {
     id: root
 
-    visible: false
+    // Visible on purpose (see above); the zero size draws nothing.
+    visible: true
     width: 0
     height: 0
 

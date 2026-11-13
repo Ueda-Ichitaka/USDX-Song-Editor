@@ -3,7 +3,8 @@
 // grabToImage on the window's content item (which carries the page header
 // and every child) and spins a local event loop until the result is ready,
 // because grabToImage is asynchronous and the screenshot mode does not run
-// the application event loop.
+// the application event loop. The lane helpers reach the sheet background
+// by its object name and spin the same kind of bounded local loop.
 
 #include "screenshot.h"
 
@@ -43,10 +44,12 @@ bool usdx_screenshot_window(const QQmlApplicationEngine &engine, const QString &
         return false;
     }
     // Let bindings, layout and any pending animations of the demo state
-    // settle before the grab; the screenshot mode does not run the
-    // application event loop, so this is a bounded pump.
+    // settle before the grab: 1 s covers the show animations of Kirigami's
+    // inline messages, which a shorter pump catches half faded in. The
+    // screenshot mode does not run the application event loop, so this is a
+    // bounded pump.
     QEventLoop settle;
-    QTimer::singleShot(200, &settle, &QEventLoop::quit);
+    QTimer::singleShot(1000, &settle, &QEventLoop::quit);
     settle.exec();
     QQuickItem *content = window->contentItem();
     if (content == nullptr) {
@@ -83,4 +86,51 @@ QString usdx_png_pixel(const QString &path, int x, int y) {
         return QString();
     }
     return image.pixelColor(x, y).name(QColor::HexRgb);
+}
+
+namespace {
+
+// Returns the sheet background item of the loaded scene, or nullptr.
+QObject *lane_item(const QQmlApplicationEngine &engine) {
+    if (engine.rootObjects().isEmpty()) {
+        return nullptr;
+    }
+    return engine.rootObjects().first()->findChild<QObject *>(QStringLiteral("sheetBackground"));
+}
+
+// The laneStatus values of the SheetBackground bridge.
+constexpr int kLaneNoAudio = 0;
+constexpr int kLaneLoading = 1;
+
+} // namespace
+
+bool usdx_hold_lane_loading(const QQmlApplicationEngine &engine, double fraction) {
+    QObject *const lanes = lane_item(engine);
+    if (lanes == nullptr) {
+        return false;
+    }
+    return QMetaObject::invokeMethod(lanes, "holdLoading", Q_ARG(double, fraction));
+}
+
+QString usdx_settle_lanes(const QQmlApplicationEngine &engine, int timeoutMs) {
+    QObject *const lanes = lane_item(engine);
+    if (lanes == nullptr) {
+        return QString();
+    }
+    for (int waited = 0; waited < timeoutMs && lanes->property("laneStatus").toInt() == kLaneLoading;
+         waited += 50) {
+        QEventLoop loop;
+        QTimer::singleShot(50, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+    const int status = lanes->property("laneStatus").toInt();
+    if (status == kLaneNoAudio) {
+        return QStringLiteral("no audio");
+    }
+    if (status == kLaneLoading) {
+        const int percent = qRound(lanes->property("analysisProgress").toDouble() * 100.0);
+        return QStringLiteral("loading %1 %").arg(percent);
+    }
+    return lanes->property("showActivity").toBool() ? QStringLiteral("ready")
+                                                    : QStringLiteral("ready, no vocals");
 }

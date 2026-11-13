@@ -45,6 +45,17 @@ QtObject {
     property real pillPaddingHorizontal: 7
     property real pillPaddingVertical: 1
 
+    // Note sheet (UI_SPEC 3.1): the left gutter, the gap above the waveform
+    // lane, the waveform and activity lane heights, and the progress bar
+    // width of the "Reading the waveform" state (UI_SPEC 3.7; the Breeze bar
+    // brings its own 6 px track).
+    property real sheetGutterWidth: 46
+    property real sheetGutterLabelMargin: 4
+    property real laneGap: 8
+    property real waveformLaneHeight: 54
+    property real activityLaneHeight: 6
+    property real waveformProgressWidth: 260
+
     // Status bar: height, side padding and label spacing.
     property real statusBarHeight: 24
     property real statusBarPadding: 10

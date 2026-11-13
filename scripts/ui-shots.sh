@@ -9,6 +9,10 @@
 # never touch the user's desktop or settings. The start-screen state seeds the
 # recent list with songs from the approved USDX Song Factory test folders
 # (plan section 9.5); without those folders it renders the empty start screen.
+# The audio states open their reference songs (read-only; the app opens a copy):
+# audio-states-missing and audio-states-loading the aequitaS - Realize The Real
+# Lies sample of the karaoke dashboard, audio-states-no-vocals a corpus song
+# without a #VOCALS track; a missing song skips that state with a message.
 # Usage: scripts/ui-shots.sh [state ...]  (no arguments: every known state).
 
 set -euo pipefail
@@ -29,7 +33,21 @@ readonly SIZE="1280x800"
 
 # The demo states that exist so far; the task that builds a screen adds its
 # state here (UI_SPEC 8.1).
-readonly STATES=("start-screen")
+readonly STATES=("start-screen" "audio-states-missing" "audio-states-loading" "audio-states-no-vocals")
+
+# The reference songs of the audio states (user decisions recorded in
+# Plan/PROGRESS.md, task P4-04).
+readonly REALIZE_SONG="/home/ueda/workspace/karaoke-dashboard/songs-sample/aequitaS - Realize The Real Lies/aequitaS - Realize The Real Lies.txt"
+readonly NO_VOCALS_SONG="/home/ueda/workspace/USDX-Song-Factory/stack/output/new/Laserkraft 3D - Nein Mann/song.txt"
+
+# song_for prints the song a demo state opens, empty for states without one.
+song_for() {
+  case "$1" in
+    audio-states-missing|audio-states-loading) echo "$REALIZE_SONG" ;;
+    audio-states-no-vocals) echo "$NO_VOCALS_SONG" ;;
+    *) echo "" ;;
+  esac
+}
 
 # The approved real-song folders for the recent list (plan section 9.5).
 readonly CORPUS_FOLDERS=(
@@ -118,11 +136,20 @@ render_one() {
     mapfile -t songs < <(find_recent_songs 3)
     seed_settings "$conf" "${songs[@]}"
   fi
+  local song song_args=()
+  song="$(song_for "$state")"
+  if [[ -n "$song" ]]; then
+    if [[ ! -f "$song" ]]; then
+      echo "ui-shots: skipped $state: its song is missing: $song" >&2
+      return 1
+    fi
+    song_args=(--song "$song")
+  fi
   env XDG_CONFIG_HOME="$conf" \
       QT_QPA_PLATFORM=offscreen \
       QT_QUICK_CONTROLS_STYLE=org.kde.desktop \
       QT_QPA_PLATFORMTHEME=kde \
-      "$BIN" --screenshot "$out" --demo-state "$state" --size "$SIZE"
+      "$BIN" --screenshot "$out" --demo-state "$state" "${song_args[@]}" --size "$SIZE"
 }
 
 # The guard functions need the environment overrides only for their own tests;

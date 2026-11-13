@@ -3,7 +3,7 @@
 //! without QML: layout() folds the analysis peaks and the vocal activity of
 //! usdx-audio into one draw op per pixel column, scaled so the loudest
 //! bucket of the whole song uses 92 % of the lane height (UI_SPEC 2.3 gives
-//! the colours). The WaveformLane bridge paints the list; the sheet task
+//! the colours). The SheetBackground bridge paints the list; the sheet task
 //! P5-02 extends the same design to the full note sheet.
 
 use usdx_audio::analysis::{Activity, Peaks};

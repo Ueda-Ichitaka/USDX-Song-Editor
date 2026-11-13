@@ -126,6 +126,18 @@ fn self_test_drives_the_ui_paths_without_qt_warnings() {
         stdout.contains("ui paths: ok"),
         "the UI paths must be driven and reported on stdout, got: {stdout}"
     );
+    // The app palette resolves the theme: the waveform is the highlight
+    // colour at 55 % (UI_SPEC 2.3), never black from an unresolved theme.
+    assert!(
+        stdout.contains("lane colour: #8c") && !stdout.contains("lane colour: #8c000000"),
+        "the waveform colour must come from the theme, got: {stdout}"
+    );
+    // Line 1 spans beats 0 to 8 at 240 BPM, 0 to 500 ms; the sheet shows it
+    // with 1.5 s on both sides (UI_SPEC 3.2).
+    assert!(
+        stdout.contains("sheet view: -1500 2000"),
+        "the sheet view of the current line must be reported, got: {stdout}"
+    );
     assert!(
         !stderr.contains("qt warning") && !stderr.contains("qt critical"),
         "the self-test printed Qt warnings:\n{stderr}"
@@ -165,6 +177,58 @@ fn self_test_reports_the_track_chosen_when_the_song_opens() {
             "{name}: expected \"{expected}\" on stdout, got: {stdout}"
         );
     }
+}
+
+#[test]
+fn self_test_reads_the_waveform_of_the_song_audio() {
+    // A generated tone as the song audio: the lane analyses it on a worker
+    // thread and ends ready (UI_SPEC 3.7); the analysis cache goes to a
+    // temporary folder.
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let cache = tempfile::tempdir().expect("the temporary cache is created");
+    usdx_audio::testmedia::tone_opus(&dir.path().join("tone.opus"))
+        .expect("the test tone is generated");
+    let path = dir.path().join("song.txt");
+    std::fs::write(
+        &path,
+        "#TITLE:T\n#ARTIST:A\n#MP3:tone.opus\n#BPM:240\n: 0 4 0 a\n- 8\n: 8 4 2 b\nE\n",
+    )
+    .expect("the fixture is written");
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("XDG_CACHE_HOME", cache.path())
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "--self-test failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout.contains("lane status: ready"),
+        "the waveform lane must end ready, got: {stdout}"
+    );
+}
+
+#[test]
+fn self_test_shows_no_audio_without_an_audio_file() {
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, "#TITLE:T\n#BPM:240\n: 0 4 0 a\nE\n").expect("the fixture is written");
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("lane status: no audio"),
+        "the waveform lane must say no audio, got: {stdout}"
+    );
 }
 
 #[test]

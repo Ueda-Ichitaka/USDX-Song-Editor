@@ -7,7 +7,10 @@
 // the current line, and the shortcuts Space, P, L, V, [ and ] follow the
 // plan's key table (8.6) as Shortcut elements (they move into the
 // Kirigami.Actions of the menus when those arrive). The note sheet area
-// stays an empty view background until P4, the inspector arrives with P5.
+// shows the waveform and activity lanes of the painted SheetBackground for
+// the current line's time view, with the loading, no-audio and no-vocals
+// states of UI_SPEC 3.7; the ruler, pitch rows, notes and the inspector
+// arrive with P5.
 
 import QtQuick
 import QtQuick.Controls
@@ -546,12 +549,109 @@ Kirigami.Page {
                     document: root.document
                 }
 
+                // The note sheet area (UI_SPEC 3): view background; the
+                // waveform and activity lanes sit at its bottom behind the
+                // gutter. The ruler, pitch rows, notes and lyrics lane above
+                // them arrive with the note sheet tasks (P5).
                 Rectangle {
-                    // The note sheet area: the sheet, ruler and lanes arrive
-                    // with the viewport task P4.
+                    id: sheetArea
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Kirigami.Theme.colorSet: Kirigami.Theme.View
+                    Kirigami.Theme.inherit: false
                     color: Kirigami.Theme.backgroundColor
+
+                    // The window colour set, for the lane backgrounds.
+                    Item {
+                        id: windowColors
+
+                        Kirigami.Theme.colorSet: Kirigami.Theme.Window
+                        Kirigami.Theme.inherit: false
+                    }
+
+                    // The gutter label of the waveform lane: the track name.
+                    QQC2.Label {
+                        x: metrics.sheetGutterLabelMargin
+                        width: metrics.sheetGutterWidth - metrics.sheetGutterLabelMargin
+                        y: lanes.y
+                        height: metrics.waveformLaneHeight
+                        verticalAlignment: Text.AlignVCenter
+                        text: [qsTr("Mix"), qsTr("Vocals"), qsTr("Instr.")][root.player ? root.player.track : 0]
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+
+                    Usdx.SheetBackground {
+                        id: lanes
+
+                        objectName: "sheetBackground"
+                        anchors.left: parent.left
+                        anchors.leftMargin: metrics.sheetGutterWidth
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: metrics.waveformLaneHeight + metrics.activityLaneHeight
+                        startMs: root.document ? root.document.viewStartMs : 0
+                        endMs: root.document ? root.document.viewEndMs : 0
+                        // The selected track draws the waveform, the vocals
+                        // track the activity (UI_SPEC 3.7). filePath takes
+                        // part so a new song re-reads the paths.
+                        audioPath: root.songOpen && root.document.filePath.length > 0
+                                   ? root.document.audioPath(root.player ? root.player.track : 0) : ""
+                        vocalsPath: root.songOpen && root.document.filePath.length > 0
+                                    ? root.document.audioPath(1) : ""
+                        waveformHeight: metrics.waveformLaneHeight
+                        activityHeight: metrics.activityLaneHeight
+                        waveformColor: appPalette.waveform
+                        activityColor: appPalette.vocalActivity
+                        laneColor: windowColors.Kirigami.Theme.backgroundColor
+                        activityLaneColor: Kirigami.Theme.backgroundColor
+
+                        // "Reading the waveform… 42 %" with its progress bar.
+                        ColumnLayout {
+                            objectName: "waveformLoading"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (metrics.waveformLaneHeight - height) / 2
+                            visible: lanes.laneStatus === Usdx.SheetBackground.LaneStatus.Loading
+                            spacing: Kirigami.Units.smallSpacing
+
+                            QQC2.Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: qsTr("Reading the waveform… %1 %").arg(Math.round(lanes.analysisProgress * 100))
+                                color: Kirigami.Theme.disabledTextColor
+                            }
+
+                            // The Breeze bar draws its 6 px track centred
+                            // in its own implicit height; a forced 6 px
+                            // item height would draw nothing.
+                            QQC2.ProgressBar {
+                                Layout.preferredWidth: metrics.waveformProgressWidth
+                                from: 0
+                                to: 1
+                                value: lanes.analysisProgress
+                            }
+                        }
+
+                        QQC2.Label {
+                            objectName: "waveformNoAudio"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (metrics.waveformLaneHeight - height) / 2
+                            visible: lanes.laneStatus === Usdx.SheetBackground.LaneStatus.NoAudio
+                            text: qsTr("No audio")
+                            color: Kirigami.Theme.disabledTextColor
+                        }
+
+                        QQC2.Label {
+                            objectName: "waveformNoVocals"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: metrics.waveformLaneHeight - height
+                            visible: lanes.laneStatus === Usdx.SheetBackground.LaneStatus.Ready
+                                     && !lanes.showActivity
+                            text: qsTr("No vocals track: vocal activity and the coverage check are off. Vocals is disabled in the track list.")
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            color: Kirigami.Theme.disabledTextColor
+                        }
+                    }
                 }
             }
         }
@@ -559,5 +659,9 @@ Kirigami.Page {
 
     Usdx.Metrics {
         id: metrics
+    }
+
+    Usdx.Palette {
+        id: appPalette
     }
 }

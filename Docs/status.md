@@ -26,7 +26,7 @@ Version 0.1.0, development build (13 November 2026).
 | Settings persistence (recent songs, window size, the full 4.10 field set) | settings file |
 | About page with version and licence | menu |
 | Playback: Play, Play line (0.3 s padding), Loop of the current line, Track (Mix, Vocals, Instrumental, chosen per song from the settings), Speed (0.5x, 0.75x, 1x, pitch kept), playhead time and beat in the status bar | toolbar, Space / P / L / V / [ / ] |
-| Audio analysis (waveform peaks and vocal activity) with an on-disk cache, used by the waveform lane once it is drawn | background |
+| Waveform lane (selected track) and vocal activity lane (#VOCALS) under the note sheet, for the current line's time view; "Reading the waveform... N %", "No audio" and the no-vocals note; analysis in the background with an on-disk cache | editor |
 | Offscreen self-test (`--self-test [SONG]`) that opens the song through the window's open guard, drives the dialogs, the recent menu and quit, and fails on any Qt warning | command line |
 | Screenshot harness (`--screenshot`, `--demo-state`, debug builds) for the UI acceptance check | command line, `scripts/ui-shots.sh` |
 
@@ -37,7 +37,6 @@ USDX Song Factory output round trip byte-identically.
 
 | Feature | Planned phase |
 |---|---|
-| Waveform and vocal activity lanes drawn under the sheet, audio-state screens | P4 (P4-04, in progress) |
 | Note sheet: viewport, background, notes on pitch rows, ruler, lyrics lane | P5 |
 | Note editing with mouse and keyboard: select, drag, resize, split, merge, insert, delete, type keys | P5 |
 | Line text and syllable editing dialogs, inspector | P5 / P6 |
@@ -50,4 +49,5 @@ USDX Song Factory output round trip byte-identically.
 | Packaging (PKGBUILD), documentation polish | P8 |
 
 Until the note sheet lands, the repair and song properties controls show their final
-enablement but do not act, and the note sheet area shows the view background.
+enablement but do not act, and the note sheet area shows only the waveform lanes at its
+bottom.

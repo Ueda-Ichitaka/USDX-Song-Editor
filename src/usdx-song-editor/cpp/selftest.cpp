@@ -13,6 +13,7 @@
 #include "selftest.h"
 
 #include <QAbstractItemModel>
+#include <QColor>
 #include <QEventLoop>
 #include <QTimer>
 #include <QUrl>
@@ -249,6 +250,29 @@ bool usdx_selftest_ui_paths(const QQmlApplicationEngine &engine) {
         std::cerr << "self-test failed: the player rate starts at " << rate << ", not 1\n";
         return false;
     }
+    // The time range the sheet shows for the current line (UI_SPEC 3.2).
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    std::cout << "sheet view: " << document->property("viewStartMs").toDouble() << " "
+              << document->property("viewEndMs").toDouble() << std::endl;
+    // The waveform lane analyses the song audio on worker threads; wait
+    // (bounded) while it loads, then report what it shows (UI_SPEC 3.7).
+    QObject *const lanes = root->findChild<QObject *>(QStringLiteral("sheetBackground"));
+    if (lanes == nullptr) {
+        std::cerr << "self-test failed: the sheet background was not found\n";
+        return false;
+    }
+    constexpr int kLaneLoading = 1;
+    for (int waited = 0; waited < 15000 && lanes->property("laneStatus").toInt() == kLaneLoading;
+         waited += 50) {
+        pump_events(50);
+    }
+    std::cout << "lane colour: "
+              << lanes->property("waveformColor").value<QColor>().name(QColor::HexArgb).toStdString()
+              << std::endl;
+    const int laneStatus = lanes->property("laneStatus").toInt();
+    std::cout << "lane status: "
+              << (laneStatus == 0 ? "no audio" : laneStatus == kLaneLoading ? "loading" : "ready")
+              << std::endl;
     // The Track combo shows the track chosen when the song opened.
     std::cout << "player track: " << player->property("track").toInt() << std::endl;
     // The activation check runs when the window becomes active again.

@@ -313,11 +313,18 @@ pub fn analyze(
                         "the analysis received a sample without a buffer",
                     ))
                 })?;
-                let position_ms = buffer.pts().map(|time| time.mseconds() as f64);
+                // The buffer's timestamp is the time of its first sample;
+                // each further sample lies one sample period later, so a
+                // buffer longer than a bucket spreads over its buckets.
+                let start_ms = buffer
+                    .pts()
+                    .map(|time| time.nseconds() as f64 / 1_000_000.0);
                 let map = buffer.map_readable().map_err(|error| {
                     AudioError::Gst(format!("the analysis cannot read a buffer: {error}"))
                 })?;
-                for chunk in map.as_slice().as_chunks::<4>().0 {
+                let sample_ms = 1000.0 / f64::from(ANALYSIS_RATE);
+                for (index, chunk) in map.as_slice().as_chunks::<4>().0.iter().enumerate() {
+                    let position_ms = start_ms.map(|start| start + index as f64 * sample_ms);
                     fold.push(f32::from_le_bytes(*chunk), position_ms);
                 }
                 if let Some(duration) = duration_ms
@@ -412,6 +419,28 @@ mod tests {
                 "one activity window spans two peak buckets"
             );
             assert_eq!(activity.bucket_ms, 2.0 * peaks.bucket_ms);
+        }
+    }
+
+    /// Every bucket inside the first tone (0.2 s to 1.8 s, away from the
+    /// codec's start and the silence) carries signal: each sample lands in
+    /// the bucket of its own time, not in the bucket of its buffer's start,
+    /// so decoder buffers longer than a bucket leave no silent gaps.
+    #[test]
+    fn every_bucket_of_a_continuous_tone_carries_signal() {
+        for (path, _dir) in tone_in_both_formats() {
+            let cancel = AtomicBool::new(false);
+            let (peaks, _) = analyze(&path, 10.0, &cancel, &|_| {}).expect("the analysis succeeds");
+            let silent: Vec<usize> = (20..180)
+                .filter(|&index| peaks.max[index] <= peaks.min[index])
+                .collect();
+            assert!(
+                silent.is_empty(),
+                "{}: {} of 160 tone buckets are silent, first {:?}",
+                path.display(),
+                silent.len(),
+                silent.iter().take(5).collect::<Vec<_>>()
+            );
         }
     }
 

@@ -94,10 +94,8 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
     QGuiApplication::set_desktop_file_name(&DESKTOP_FILE_NAME.into());
 
     let mut engine = QQmlApplicationEngine::new();
-    eprintln!("DEBUG engine non-null: {}", !engine.is_null());
     if let Some(engine) = engine.as_mut() {
-
-        eprintln!("DEBUG load returned");
+        engine.load(&QUrl::from(QML_MAIN_URL));
     }
 
     if self_test {

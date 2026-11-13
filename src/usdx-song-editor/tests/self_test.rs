@@ -55,8 +55,7 @@ fn self_test_verifies_the_window_title() {
     // The self-test loads a song and checks that the window title reflects
     // it (UI_SPEC 2.6): "Artist - Title · USDX Song Editor" through the
     // windowTitle property of the bridge.
-    let text =
-        "#TITLE:T\n#ARTIST:A\n#BPM:240\nP1\n: 0 4 0 a\n- 4\nE\n";
+    let text = "#TITLE:T\n#ARTIST:A\n#BPM:240\nP1\n: 0 4 0 a\n- 4\nE\n";
     let dir = tempfile::tempdir().expect("the temporary directory is created");
     let path = dir.path().join("song.txt");
     std::fs::write(&path, text).expect("the fixture is written");

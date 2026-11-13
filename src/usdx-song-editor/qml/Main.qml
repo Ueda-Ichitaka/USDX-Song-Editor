@@ -12,6 +12,7 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Dialogs as FileDialogs
+import QtQuick.Layouts
 import QtCore
 import org.kde.kirigami as Kirigami
 import io.github.ueda_ichitaka.UsdxSongEditor as Usdx
@@ -114,6 +115,21 @@ Kirigami.ApplicationWindow {
     }
 
     function openFileDialog() {
+        // Start in the folder of the current song, else of the most recent
+        // song, else the home folder (UI_SPEC 5.3); the FileDialog has no
+        // opened signal, so the folder is set right before it opens.
+        const document = root.songDocument;
+        let folder = "";
+        if (document.isLoaded) {
+            folder = Time.folderUrlOf(document.filePath);
+        } else if (document.recentCount > 0) {
+            folder = Time.folderUrlOf(document.recentModel.entry(0).pathUrl);
+        }
+        if (folder.length === 0) {
+            folder = StandardPaths.writableLocation(
+                StandardPaths.HomeLocation).toString();
+        }
+        openDialog.currentFolder = folder;
         openDialog.open();
     }
 
@@ -215,22 +231,6 @@ Kirigami.ApplicationWindow {
         title: qsTr("Open song")
         nameFilters: [qsTr("UltraStar songs (*.txt)"), qsTr("All files (*)")]
         fileMode: FileDialogs.FileDialog.OpenFile
-        onOpened: {
-            // Start in the folder of the current song, else of the most
-            // recent song, else the home folder (UI_SPEC 5.3).
-            const document = root.songDocument;
-            let folder = "";
-            if (document.isLoaded) {
-                folder = Time.folderUrlOf(document.filePath);
-            } else if (document.recentCount > 0) {
-                folder = Time.folderUrlOf(document.recentModel.entry(0).pathUrl);
-            }
-            if (folder.length === 0) {
-                folder = StandardPaths.writableLocation(
-                    StandardPaths.HomeLocation).toString();
-            }
-            openDialog.currentFolder = folder;
-        }
         onAccepted: root.requestOpen(selectedFile)
     }
 

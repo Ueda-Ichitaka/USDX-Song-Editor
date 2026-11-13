@@ -6,6 +6,7 @@
 // positive with no reason until the analysis of P7 fills the roles.
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
@@ -71,7 +72,9 @@ ColumnLayout {
             required property int index
             required property int lineNumber
             required property real startMs
-            required property string text
+            // The lyrics role is named "text" in the model; the delegate
+            // cannot redeclare it because ItemDelegate.text is final, so the
+            // children read it through the model object.
             required property string typeSummary
             required property int health
             required property string healthReason
@@ -154,7 +157,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: row.typeSummary !== ":"
                                        ? metrics.lineColumnGap : 0
-                    text: row.text
+                    text: model.text
                     elide: Text.ElideRight
                     color: row.isCurrent
                            ? Kirigami.Theme.highlightedTextColor

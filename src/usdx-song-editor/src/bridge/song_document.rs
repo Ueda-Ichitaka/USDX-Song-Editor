@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cxx_qt_lib::{
-    QByteArray, QHash, QHashPair_i32_QByteArray, QHashPair_QString_QVariant, QModelIndex,
-    QString, QUrl, QVariant,
+    QByteArray, QHash, QHashPair_QString_QVariant, QHashPair_i32_QByteArray, QModelIndex, QString,
+    QUrl, QVariant,
 };
 use usdx_format::bytes::decode;
 use usdx_format::headers::{Headers, Version};
@@ -428,8 +428,8 @@ use core::pin::Pin;
 use cxx_qt::CxxQtType;
 
 use crate::bridge::song_document::qobject::{
-    ActivationKind, ChangedOnDiskKind, LinesModel, RecentRoles, RecentSongsModel,
-    SaveChangesKind, Roles, SongDocument, TransitionKind, usdx_relative_date_text,
+    ActivationKind, ChangedOnDiskKind, LinesModel, RecentRoles, RecentSongsModel, Roles,
+    SaveChangesKind, SongDocument, TransitionKind, usdx_relative_date_text,
 };
 
 /// One row of the lines pane model (plan section 8.3).
@@ -626,28 +626,16 @@ impl qobject::LinesModel {
     /// role_names returns the role numbers of the lines pane rows.
     pub fn role_names(&self) -> QHash<QHashPair_i32_QByteArray> {
         let mut roles = QHash::<QHashPair_i32_QByteArray>::default();
-        roles.insert(
-            Roles::LineNumber.repr,
-            QByteArray::from("lineNumber"),
-        );
+        roles.insert(Roles::LineNumber.repr, QByteArray::from("lineNumber"));
         roles.insert(Roles::StartMs.repr, QByteArray::from("startMs"));
         roles.insert(Roles::EndMs.repr, QByteArray::from("endMs"));
         roles.insert(Roles::Text.repr, QByteArray::from("text"));
-        roles.insert(
-            Roles::TypeSummary.repr,
-            QByteArray::from("typeSummary"),
-        );
+        roles.insert(Roles::TypeSummary.repr, QByteArray::from("typeSummary"));
         roles.insert(Roles::NoteCount.repr, QByteArray::from("noteCount"));
         roles.insert(Roles::Health.repr, QByteArray::from("health"));
-        roles.insert(
-            Roles::HealthReason.repr,
-            QByteArray::from("healthReason"),
-        );
+        roles.insert(Roles::HealthReason.repr, QByteArray::from("healthReason"));
         roles.insert(Roles::Anchor.repr, QByteArray::from("anchor"));
-        roles.insert(
-            Roles::IsCurrent.repr,
-            QByteArray::from("isCurrent"),
-        );
+        roles.insert(Roles::IsCurrent.repr, QByteArray::from("isCurrent"));
         roles
     }
 
@@ -714,10 +702,7 @@ impl qobject::RecentSongsModel {
             QByteArray::from("displayPath"),
         );
         roles.insert(RecentRoles::Exists.repr, QByteArray::from("exists"));
-        roles.insert(
-            RecentRoles::OpenedText.repr,
-            QByteArray::from("openedText"),
-        );
+        roles.insert(RecentRoles::OpenedText.repr, QByteArray::from("openedText"));
         roles
     }
 
@@ -753,10 +738,7 @@ impl qobject::RecentSongsModel {
             QVariant::from(&row.display_path),
         );
         hash.insert(QString::from("exists"), QVariant::from(&row.exists));
-        hash.insert(
-            QString::from("opened"),
-            QVariant::from(&row.opened_text),
-        );
+        hash.insert(QString::from("opened"), QVariant::from(&row.opened_text));
         QVariant::from(&hash)
     }
 }
@@ -852,9 +834,7 @@ impl qobject::SongDocument {
             let rust = self.as_mut().rust_mut().get_mut();
             shell::transition_save_changes(&mut rust.controller, &mut rust.saves, choice)
         };
-        if choice == shell::SaveChangesChoice::Save
-            && transition == shell::Transition::Continue
-        {
+        if choice == shell::SaveChangesChoice::Save && transition == shell::Transition::Continue {
             self.as_mut().set_save_error(QString::default());
         }
         self.as_mut().route_save_transition(transition)
@@ -919,12 +899,7 @@ impl qobject::SongDocument {
                 // error dialog.
                 let path = self.controller.path().map(|path| path.to_owned());
                 if let Some(path) = path {
-                    let result = self
-                        .as_mut()
-                        .rust_mut()
-                        .get_mut()
-                        .controller
-                        .open(&path);
+                    let result = self.as_mut().rust_mut().get_mut().controller.open(&path);
                     match result {
                         Ok(()) => {
                             self.as_mut().refresh();
@@ -935,9 +910,7 @@ impl qobject::SongDocument {
                 }
                 ActivationKind::ReloadSilently
             }
-            shell::ActivationChange::AskChangedOnDisk => {
-                ActivationKind::AskChangedOnDisk
-            }
+            shell::ActivationChange::AskChangedOnDisk => ActivationKind::AskChangedOnDisk,
         }
     }
 
@@ -1044,7 +1017,8 @@ impl qobject::SongDocument {
                 false
             }
             Err(error) => {
-                self.as_mut().report_save_failure(QString::from(error.to_string()));
+                self.as_mut()
+                    .report_save_failure(QString::from(error.to_string()));
                 false
             }
         }
@@ -1086,7 +1060,8 @@ impl qobject::SongDocument {
         self.as_mut().set_audio_present(snapshot.audio_present);
         self.as_mut().set_audio_file_name(snapshot.audio_file_name);
         self.as_mut().set_has_vocals(snapshot.has_vocals);
-        self.as_mut().set_has_instrumental(snapshot.has_instrumental);
+        self.as_mut()
+            .set_has_instrumental(snapshot.has_instrumental);
         self.as_mut().set_can_save(snapshot.can_save);
         self.as_mut().set_can_save_as(snapshot.can_save_as);
         self.as_mut().set_can_play(snapshot.can_play);
@@ -1096,19 +1071,22 @@ impl qobject::SongDocument {
         self.as_mut().set_can_speed(snapshot.can_speed);
         self.as_mut().set_can_repair(snapshot.can_repair);
         self.as_mut().set_can_properties(snapshot.can_properties);
-        self.as_mut().set_can_export_anchors(snapshot.can_export_anchors);
+        self.as_mut()
+            .set_can_export_anchors(snapshot.can_export_anchors);
         self.as_mut()
             .set_current_line_start_ms(snapshot.current_line_start_ms);
         self.as_mut()
             .set_current_line_end_ms(snapshot.current_line_end_ms);
         self.as_mut()
             .set_current_line_note_count(snapshot.current_line_note_count);
-        self.as_mut().set_current_line_rate(snapshot.current_line_rate);
+        self.as_mut()
+            .set_current_line_rate(snapshot.current_line_rate);
         self.as_mut()
             .set_current_line_health(snapshot.current_line_health);
         self.as_mut()
             .set_current_line_health_reason(snapshot.current_line_health_reason);
-        self.as_mut().set_current_line_type(snapshot.current_line_type);
+        self.as_mut()
+            .set_current_line_type(snapshot.current_line_type);
         self.as_mut().set_recent_count(snapshot.recent_count);
     }
 
@@ -1371,14 +1349,12 @@ fn recent_rows(settings: &Settings) -> Vec<RecentRow> {
         .map(|recent| RecentRow {
             title: QString::from(recent_title(&recent.path)),
             path_url: QString::from(
-                QUrl::from_local_file(&QString::from(
-                    recent.path.to_string_lossy().into_owned(),
-                ))
-                .to_string(),
+                QUrl::from_local_file(&QString::from(recent.path.to_string_lossy().into_owned()))
+                    .to_string(),
             ),
             display_path: QString::from(display_path(&recent.path)),
             exists: recent.path.exists(),
-            opened_text: QString::from(usdx_relative_date_text(recent.opened as i64)),
+            opened_text: usdx_relative_date_text(recent.opened as i64),
         })
         .collect()
 }
@@ -1389,7 +1365,7 @@ fn recent_title(path: &Path) -> String {
     let title = fs::read(path)
         .ok()
         .and_then(|bytes| decode(&bytes).ok())
-        .map(|decoded| usdx_format::rows::classify(decoded))
+        .map(usdx_format::rows::classify)
         .map(|document| Headers::from_document(&document))
         .map(|headers| {
             [headers.get("TITLE"), headers.get("ARTIST")]
@@ -1479,5 +1455,3 @@ fn qurl_to_path(url: &QUrl) -> PathBuf {
     };
     PathBuf::from(text)
 }
-
-

@@ -18,6 +18,26 @@ Kirigami.GlobalDrawer {
     // page stack.
     property QtObject shell
 
+    // One Open Recent entry: created for each recent song when the submenu
+    // rebuilds (an inline component, so createObject works on it).
+    component RecentAction: Kirigami.Action {
+        required property var entry
+
+        objectName: "recentSongAction"
+        text: entry.title
+        icon.name: "audio-x-generic"
+        enabled: entry.exists
+        onTriggered: drawer.shell.openSong(entry.pathUrl)
+    }
+
+    // The submenu refills whenever the recent list changes.
+    Connections {
+        target: drawer.shell ? drawer.shell.songDocument : null
+        function onRecentCountChanged() {
+            openRecentAction.rebuild();
+        }
+    }
+
     isMenu: true
 
     actions: [
@@ -52,9 +72,8 @@ Kirigami.GlobalDrawer {
                 const count = drawer.shell.songDocument.recentCount;
                 for (let index = 0; index < count; index++) {
                     const entry = model.entry(index);
-                    const action = recentActionComponent.createObject(
-                        drawer, { entry: entry });
-                    children.push(action);
+                    children.push(
+                        RecentAction.createObject(drawer, { entry: entry }));
                 }
             }
 
@@ -66,27 +85,6 @@ Kirigami.GlobalDrawer {
                 icon.name: "edit-delete"
                 text: qsTr("Clear List")
                 onTriggered: drawer.shell.songDocument.clearRecentList()
-            }
-
-            Component {
-                id: recentActionComponent
-
-                Kirigami.Action {
-                    required property var entry
-
-                    objectName: "recentSongAction"
-                    text: entry.title
-                    icon.name: "audio-x-generic"
-                    enabled: entry.exists
-                    onTriggered: drawer.shell.openSong(entry.pathUrl)
-                }
-            }
-
-            Connections {
-                target: drawer.shell ? drawer.shell.songDocument : null
-                function onRecentCountChanged() {
-                    openRecentAction.rebuild();
-                }
             }
         },
         Kirigami.Action {

@@ -11,10 +11,13 @@
 //! feed back into lands here, so the flows behave the same no matter which
 //! control triggered them.
 
+use std::fs;
 use std::io;
 use std::path::Path;
 
+use usdx_format::bytes::decode;
 use usdx_format::headers::Headers;
+use usdx_format::rows::classify;
 
 use crate::controller::save::SaveError;
 use crate::controller::{EditorController, SaveService};
@@ -161,6 +164,31 @@ pub fn page_title(page: &str, with_song: bool, controller: &EditorController) ->
         .filter(|_| with_song)
         .map(|title| format!("{page} - {title} \u{b7} {APP_TITLE}"));
     title.unwrap_or_else(|| format!("{page} \u{b7} {APP_TITLE}"))
+}
+
+/// recent_title reads a song file's headers for the "Artist - Title" line
+/// of the recent songs (UI_SPEC 4.1); a missing part is left out, and a file
+/// that cannot be read or has neither header falls back to its name.
+pub fn recent_title(path: &Path) -> String {
+    let title = fs::read(path)
+        .ok()
+        .and_then(|bytes| decode(&bytes).ok())
+        .map(classify)
+        .map(|document| Headers::from_document(&document))
+        .map(|headers| {
+            [headers.get("ARTIST"), headers.get("TITLE")]
+                .into_iter()
+                .flatten()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<&str>>()
+                .join(" - ")
+        })
+        .filter(|title| !title.is_empty());
+    title.unwrap_or_else(|| {
+        path.file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned())
+    })
 }
 
 /// song_title_and_artist joins the #TITLE and #ARTIST header values that are

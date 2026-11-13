@@ -26,8 +26,10 @@ ColumnLayout {
         id: metrics
     }
 
+    // Not named "palette": inside a Control that name resolves to the
+    // control's own Qt palette property.
     Usdx.Palette {
-        id: palette
+        id: appPalette
     }
 
     Kirigami.SearchField {
@@ -74,7 +76,8 @@ ColumnLayout {
             required property real startMs
             // The lyrics role is named "text" in the model; the delegate
             // cannot redeclare it because ItemDelegate.text is final, so the
-            // children read it through the model object.
+            // children read it through the required model object.
+            required property var model
             required property string typeSummary
             required property int health
             required property string healthReason
@@ -132,11 +135,11 @@ ColumnLayout {
                     visible: row.typeSummary !== ":"
                     Layout.alignment: Qt.AlignVCenter
                     radius: metrics.chipRadius
-                    color: row.typeSummary === "mixed" ? palette.noteMixed
-                           : row.typeSummary === "*" ? palette.noteGolden
-                           : row.typeSummary === "F" ? palette.noteFreestyle
-                           : row.typeSummary === "R" ? palette.noteRap
-                           : palette.noteRapGolden
+                    color: row.typeSummary === "mixed" ? appPalette.noteMixed
+                           : row.typeSummary === "*" ? appPalette.noteGolden
+                           : row.typeSummary === "F" ? appPalette.noteFreestyle
+                           : row.typeSummary === "R" ? appPalette.noteRap
+                           : appPalette.noteRapGolden
                     implicitWidth: typeChipLabel.implicitWidth
                         + 2 * metrics.chipPaddingHorizontal
                     implicitHeight: typeChipLabel.implicitHeight
@@ -149,7 +152,7 @@ ColumnLayout {
                         text: row.typeSummary
                         font.pointSize: Kirigami.Theme.smallFont.pointSize
                         font.bold: true
-                        color: palette.chipText
+                        color: appPalette.chipText
                     }
                 }
 
@@ -157,7 +160,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: row.typeSummary !== ":"
                                        ? metrics.lineColumnGap : 0
-                    text: model.text
+                    text: row.model.text
                     elide: Text.ElideRight
                     color: row.isCurrent
                            ? Kirigami.Theme.highlightedTextColor

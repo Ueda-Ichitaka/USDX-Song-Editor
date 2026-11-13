@@ -120,10 +120,13 @@ impl SaveService {
             return Err(SaveError::ExternalChange);
         }
         // The first save of this session backs the current on-disk file up
-        // once; a fresh path has nothing to back up.
+        // once; a fresh path has nothing to back up. A backup that fails
+        // stops the save and counts as not written, so the next save tries
+        // it again.
         self.last_backup = None;
-        if target.exists() && self.backups_written.insert(target.to_owned()) {
+        if target.exists() && !self.backups_written.contains(target) {
             fs::copy(target, backup_path(target))?;
+            self.backups_written.insert(target.to_owned());
             self.last_backup = Some(backup_path(target));
         }
         let bytes = produce(&loaded.document)?;

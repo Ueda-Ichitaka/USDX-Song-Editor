@@ -4,13 +4,20 @@
 // usdx_selftest_load_song builds on it, printing the line count and the
 // window title and checking that the lines model and the title match;
 // usdx_qml_root_property_bool and usdx_qml_click_child serve the G-08 drawer
-// probe in tests/g08_drawer_probe.rs.
+// probe in tests/g08_drawer_probe.rs. The self-test opens its song through the
+// window's requestOpen() guard, the way the Open button and drag and drop do,
+// and usdx_selftest_ui_paths drives the rest of the QML paths a user reaches.
+// The installed message handler counts every Qt warning, so the self-test can
+// fail on QML binding and script errors, which QML reports only as warnings.
 
 #include "selftest.h"
 
 #include <QAbstractItemModel>
+#include <QEventLoop>
+#include <QTimer>
 #include <QUrl>
 #include <QVariant>
+#include <initializer_list>
 #include <cstdio>
 #include <iostream>
 
@@ -29,8 +36,80 @@ QObject *selftest_root(const QQmlApplicationEngine &engine) {
     return roots.first();
 }
 
+// The number of warnings, criticals and fatals the message handler saw.
+int g_qt_warning_count = 0;
+
+// Runs the event loop for the given time, so bindings settle, the window
+// renders and lazily created delegates exist; the self-test does not run the
+// application event loop.
+void pump_events(int milliseconds) {
+    QEventLoop loop;
+    QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
+// Invokes a parameterless QML function of the window root object.
+bool invoke_root_function(QObject *root, const char *name) {
+    QVariant ignored;
+    if (!QMetaObject::invokeMethod(root, name, Q_RETURN_ARG(QVariant, ignored))) {
+        std::cerr << "self-test failed: the window function " << name << "() was not found\n";
+        return false;
+    }
+    return true;
+}
+
+// Triggers the Kirigami.Action with the object name, the way a click on its
+// dialog button does.
+bool trigger_action(QObject *root, const char *objectName) {
+    QObject *const action = root->findChild<QObject *>(QLatin1String(objectName));
+    if (action == nullptr) {
+        std::cerr << "self-test failed: the action " << objectName << " was not found\n";
+        return false;
+    }
+    if (!QMetaObject::invokeMethod(action, "trigger")) {
+        std::cerr << "self-test failed: the action " << objectName << " could not be triggered\n";
+        return false;
+    }
+    return true;
+}
+
+// The toolbar controls the start screen hides and the editor shows (UI_SPEC
+// 4.1, 4.3), by object name.
+constexpr const char *kSongOnlyControls[] = {"playLineButton", "loopButton", "trackLabel",
+                                             "trackCombo", "speedLabel", "speedCombo"};
+
+// Checks that every named control is shown (or hidden) as wanted.
+bool check_visible(QObject *root, std::initializer_list<const char *> names, bool wanted,
+                   const char *screen) {
+    for (const char *name : names) {
+        QObject *const item = root->findChild<QObject *>(QLatin1String(name));
+        if (item == nullptr) {
+            std::cerr << "self-test failed: the control " << name << " was not found\n";
+            return false;
+        }
+        if (item->property("visible").toBool() != wanted) {
+            std::cerr << "self-test failed: the " << screen << " " << (wanted ? "hides" : "shows")
+                      << " " << name << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool check_song_only_controls(QObject *root, bool wanted, const char *screen) {
+    for (const char *name : kSongOnlyControls) {
+        if (!check_visible(root, {name}, wanted, screen)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void usdx_message_handler(QtMsgType type, const QMessageLogContext &,
                           const QString &message) {
+    if (type == QtWarningMsg || type == QtCriticalMsg || type == QtFatalMsg) {
+        ++g_qt_warning_count;
+    }
     const char *level = type == QtDebugMsg        ? "debug"
                         : type == QtInfoMsg       ? "info"
                         : type == QtWarningMsg    ? "warning"
@@ -44,6 +123,10 @@ void usdx_message_handler(QtMsgType type, const QMessageLogContext &,
 
 void usdx_install_message_handler() {
     qInstallMessageHandler(usdx_message_handler);
+}
+
+int usdx_qt_warning_count() {
+    return g_qt_warning_count;
 }
 
 bool usdx_qml_root_object_exists(const QQmlApplicationEngine &engine) {
@@ -74,11 +157,14 @@ bool usdx_open_song(const QQmlApplicationEngine &engine, const QString &path) {
 }
 
 bool usdx_selftest_load_song(const QQmlApplicationEngine &engine, const QString &path) {
-    if (!usdx_open_song(engine, path)) {
-        return false;
-    }
     QObject *const root = selftest_root(engine);
     if (root == nullptr) {
+        return false;
+    }
+    QVariant ignored;
+    if (!QMetaObject::invokeMethod(root, "requestOpen", Q_RETURN_ARG(QVariant, ignored),
+                                   Q_ARG(QVariant, QVariant(QUrl::fromLocalFile(path))))) {
+        std::cerr << "self-test failed: the window function requestOpen() was not found\n";
         return false;
     }
     QObject *const document = root->property("songDocument").value<QObject *>();
@@ -89,6 +175,10 @@ bool usdx_selftest_load_song(const QQmlApplicationEngine &engine, const QString 
         return false;
     }
 
+    if (!document->property("isLoaded").toBool()) {
+        std::cerr << "self-test failed: requestOpen() did not open the song\n";
+        return false;
+    }
     const int lineCount = document->property("lineCount").toInt();
     const auto *const abstractModel = qobject_cast<const QAbstractItemModel *>(model);
     const int modelCount = abstractModel != nullptr ? abstractModel->rowCount() : -1;
@@ -126,4 +216,78 @@ bool usdx_qml_click_child(const QQmlApplicationEngine &engine, const QString &ob
         return false;
     }
     return QMetaObject::invokeMethod(child, "click");
+}
+
+bool usdx_selftest_ui_paths(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    // Render the loaded song: the lines pane delegates and the recent songs
+    // menu entries are created only now.
+    pump_events(300);
+    const auto recentEntries = root->findChildren<QObject *>(QStringLiteral("recentSongAction"));
+    if (recentEntries.isEmpty()) {
+        std::cerr << "self-test failed: the Open Recent menu has no entry for the opened song\n";
+        return false;
+    }
+    // The editor shows every playback control and the song facts instead of
+    // the start screen's status text.
+    if (!check_song_only_controls(root, true, "editor") ||
+        !check_visible(root, {"noSongStatus"}, false, "editor")) {
+        return false;
+    }
+    // The toolbar's Speed combo shows the player's rate, which is 1x until
+    // the user picks another speed.
+    QObject *const player = root->findChild<QObject *>(QStringLiteral("player"));
+    if (player == nullptr) {
+        std::cerr << "self-test failed: the player object was not found\n";
+        return false;
+    }
+    const double rate = player->property("rate").toDouble();
+    if (rate != 1.0) {
+        std::cerr << "self-test failed: the player rate starts at " << rate << ", not 1\n";
+        return false;
+    }
+    // The Track combo shows the track chosen when the song opened.
+    std::cout << "player track: " << player->property("track").toInt() << std::endl;
+    // The activation check runs when the window becomes active again.
+    if (!invoke_root_function(root, "checkActivationNow")) {
+        return false;
+    }
+    // The dialog choices that never write the song: each evaluates its
+    // choice and the transition result the way a button click does.
+    for (const char *name : {"saveChangesDiscard", "saveChangesCancel", "changedOnDiskReload"}) {
+        if (!trigger_action(root, name)) {
+            return false;
+        }
+    }
+    pump_events(100);
+    // Quit goes through the same unsaved-changes guard as closing the window.
+    bool quitRequested = false;
+    QObject::connect(&engine, &QQmlEngine::quit, [&quitRequested] { quitRequested = true; });
+    if (!invoke_root_function(root, "requestQuit")) {
+        return false;
+    }
+    pump_events(100);
+    if (!quitRequested) {
+        std::cerr << "self-test failed: requestQuit() did not quit\n";
+        return false;
+    }
+    std::cout << "ui paths: ok" << std::endl;
+    return true;
+}
+
+bool usdx_selftest_start_screen(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    pump_events(200);
+    if (!check_song_only_controls(root, false, "start screen") ||
+        !check_visible(root, {"noSongStatus"}, true, "start screen")) {
+        return false;
+    }
+    std::cout << "start screen: ok" << std::endl;
+    return true;
 }

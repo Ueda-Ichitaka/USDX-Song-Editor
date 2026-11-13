@@ -2,7 +2,11 @@
 //! binary with `--self-test` under `QT_QPA_PLATFORM=offscreen` and expects exit 0
 //! when the QML module loads and the window root object exists, and checks that
 //! `--version` prints the crate version, so the cxx-qt and Kirigami skeleton is
-//! proven to start without a real display.
+//! proven to start without a real display. With a song, the self-test also
+//! drives the QML paths a user reaches (open through the unsaved-changes
+//! guard, the rendered lines pane and recent-songs menu, the activation
+//! check, the dialog choices, quit) and fails on any Qt warning, because QML
+//! reports binding and script errors only as warnings.
 
 use std::process::Command;
 
@@ -21,6 +25,27 @@ fn self_test_starts_offscreen() {
         out.status.success(),
         "--self-test failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn self_test_checks_the_start_screen() {
+    // Without a song the toolbar keeps only Play of the playback controls
+    // and the status bar says "No song open" (UI_SPEC 4.1).
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "--self-test failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout.contains("start screen: ok"),
+        "the start screen must be checked and reported on stdout, got: {stdout}"
     );
 }
 
@@ -76,6 +101,70 @@ fn self_test_verifies_the_window_title() {
         stdout.contains("title: T - A \u{b7} USDX Song Editor"),
         "the window title must be verified and reported on stdout, got: {stdout}"
     );
+}
+
+#[test]
+fn self_test_drives_the_ui_paths_without_qt_warnings() {
+    let text = "#TITLE:T\n#ARTIST:A\n#BPM:240\n: 0 4 0 a\n: 4 4 1 b\n- 8\n: 8 4 2 c\nE\n";
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "--self-test with a song failed:\n{stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("ui paths: ok"),
+        "the UI paths must be driven and reported on stdout, got: {stdout}"
+    );
+    assert!(
+        !stderr.contains("qt warning") && !stderr.contains("qt critical"),
+        "the self-test printed Qt warnings:\n{stderr}"
+    );
+}
+
+#[test]
+fn self_test_reports_the_track_chosen_when_the_song_opens() {
+    // The default setting picks Vocals when the song has a vocals file
+    // (UI_SPEC 4.10), right when the song opens, before any playback.
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let with_vocals =
+        "#TITLE:T\n#ARTIST:A\n#MP3:song.opus\n#VOCALS:vocals.opus\n#BPM:240\n: 0 4 0 a\nE\n";
+    let without_vocals = "#TITLE:T\n#ARTIST:A\n#MP3:song.opus\n#BPM:240\n: 0 4 0 a\nE\n";
+    std::fs::write(dir.path().join("song.opus"), b"").expect("the mix file is written");
+    std::fs::write(dir.path().join("vocals.opus"), b"").expect("the vocals file is written");
+    for (name, text, expected) in [
+        ("vocals.txt", with_vocals, "player track: 1"),
+        ("mix.txt", without_vocals, "player track: 0"),
+    ] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).expect("the fixture is written");
+        let out = binary()
+            .env("QT_QPA_PLATFORM", "offscreen")
+            .arg("--self-test")
+            .arg(&path)
+            .output()
+            .expect("the binary was built and --self-test could run");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success(),
+            "--self-test with {name} failed:\n{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            stdout.contains(expected),
+            "{name}: expected \"{expected}\" on stdout, got: {stdout}"
+        );
+    }
 }
 
 #[test]

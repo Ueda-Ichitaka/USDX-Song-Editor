@@ -14,7 +14,8 @@ function timeText(ms, decimals) {
         whole += 1;
         frac -= scale;
     }
-    const fraction = frac > 0 ? "." + String(frac).padStart(decimals, "0") : "";
+    // Every decimal is shown, zeros included, so the times line up.
+    const fraction = "." + String(frac).padStart(decimals, "0");
     return Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0") + fraction;
 }
 

@@ -40,6 +40,15 @@ Kirigami.ApplicationWindow {
         document: root.songDocument
     }
 
+    // The player follows every opened song, so the Track combo shows the
+    // track chosen for it before any playback.
+    Connections {
+        target: root.songDocument
+        function onSongLoaded() {
+            root.player.followDocument();
+        }
+    }
+
     // The action waiting behind a Save changes? or Song changed on disk
     // dialog; null while no transition is pending.
     property var pendingAction: null
@@ -80,9 +89,9 @@ Kirigami.ApplicationWindow {
     // pending action, a changed-on-disk ask opens that dialog and keeps the
     // pending action, a stop drops it.
     function continueTransition(kind) {
-        if (kind === Usdx.TransitionKind.Continue) {
+        if (kind === Usdx.SongDocument.TransitionKind.Continue) {
             root.runPending();
-        } else if (kind === Usdx.TransitionKind.AskChangedOnDisk) {
+        } else if (kind === Usdx.SongDocument.TransitionKind.AskChangedOnDisk) {
             changedOnDiskDialog.open();
         } else {
             root.pendingAction = null;
@@ -93,9 +102,9 @@ Kirigami.ApplicationWindow {
     // the song has unsaved changes (UI_SPEC 5.1).
     function requestTransition(action) {
         const kind = root.songDocument.transitionStart();
-        if (kind === Usdx.TransitionKind.Continue) {
+        if (kind === Usdx.SongDocument.TransitionKind.Continue) {
             action();
-        } else if (kind === Usdx.TransitionKind.AskSaveChanges) {
+        } else if (kind === Usdx.SongDocument.TransitionKind.AskSaveChanges) {
             root.pendingAction = action;
             saveChangesDialog.open();
         }
@@ -192,14 +201,20 @@ Kirigami.ApplicationWindow {
     }
 
     onActiveChanged: {
-        if (!active) {
-            return;
+        if (active) {
+            root.checkActivationNow();
         }
+    }
+
+    // checkActivationNow runs the activation check of UI_SPEC 5.2: a file
+    // that changed on disk reloads silently without unsaved changes and asks
+    // with the Song changed on disk dialog otherwise.
+    function checkActivationNow() {
         const kind = root.songDocument.checkActivation();
-        if (kind === Usdx.ActivationKind.ReloadSilently) {
+        if (kind === Usdx.SongDocument.ActivationKind.ReloadSilently) {
             root.showPassiveNotification(
                 qsTr("Reloaded: the file changed on disk."), 4000);
-        } else if (kind === Usdx.ActivationKind.AskChangedOnDisk) {
+        } else if (kind === Usdx.SongDocument.ActivationKind.AskChangedOnDisk) {
             changedOnDiskDialog.open();
         }
     }
@@ -275,26 +290,28 @@ Kirigami.ApplicationWindow {
                 onTriggered: {
                     saveChangesDialog.close();
                     const kind = root.songDocument.transitionSaveChanges(
-                        Usdx.SaveChangesKind.Save);
+                        Usdx.SongDocument.SaveChangesKind.Save);
                     root.continueTransition(kind);
                 }
             },
             Kirigami.Action {
+                objectName: "saveChangesDiscard"
                 icon.name: "edit-delete"
                 text: qsTr("Discard")
                 onTriggered: {
                     saveChangesDialog.close();
                     const kind = root.songDocument.transitionSaveChanges(
-                        Usdx.SaveChangesKind.Discard);
+                        Usdx.SongDocument.SaveChangesKind.Discard);
                     root.continueTransition(kind);
                 }
             },
             Kirigami.Action {
+                objectName: "saveChangesCancel"
                 text: qsTr("Cancel")
                 onTriggered: {
                     saveChangesDialog.close();
                     const kind = root.songDocument.transitionSaveChanges(
-                        Usdx.SaveChangesKind.Cancel);
+                        Usdx.SongDocument.SaveChangesKind.Cancel);
                     root.continueTransition(kind);
                 }
             }
@@ -341,12 +358,13 @@ Kirigami.ApplicationWindow {
                 }
             },
             Kirigami.Action {
+                objectName: "changedOnDiskReload"
                 icon.name: "view-refresh"
                 text: qsTr("Reload")
                 onTriggered: {
                     changedOnDiskDialog.close();
                     const kind = root.songDocument.transitionChangedOnDisk(
-                        Usdx.ChangedOnDiskKind.Reload);
+                        Usdx.SongDocument.ChangedOnDiskKind.Reload);
                     root.continueTransition(kind);
                 }
             },

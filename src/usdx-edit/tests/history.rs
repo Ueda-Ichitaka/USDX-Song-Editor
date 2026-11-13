@@ -186,6 +186,41 @@ fn the_saved_position_drives_is_dirty() {
 }
 
 #[test]
+fn a_new_edit_after_undoing_past_the_saved_step_stays_dirty() {
+    let mut d = doc(": 0 4 0 la\nE\n");
+    let mut history = History::new();
+    let patch = replace_patch(&d, "first");
+    history.commit(&mut d, patch).expect("applies");
+    history.mark_saved();
+
+    // Undo the saved step, then edit differently: the stack has the saved
+    // length again, but the document is not the saved file.
+    history.undo(&mut d);
+    let patch = replace_patch(&d, "other");
+    history.commit(&mut d, patch).expect("applies");
+    assert!(
+        history.is_dirty(),
+        "the new branch differs from the saved file"
+    );
+    assert_eq!(
+        history.unsaved_steps(),
+        2,
+        "one undone step plus one new step"
+    );
+
+    // Undoing the new edit reaches the branch point, still not the saved file.
+    history.undo(&mut d);
+    assert!(history.is_dirty());
+    assert_eq!(history.unsaved_steps(), 1);
+
+    // Saving again makes the current position the saved one.
+    history.redo(&mut d);
+    history.mark_saved();
+    assert!(!history.is_dirty());
+    assert_eq!(history.unsaved_steps(), 0);
+}
+
+#[test]
 fn unsaved_steps_counts_the_edits_between_here_and_the_saved_file() {
     let mut d = doc(": 0 4 0 la\nE\n");
     let mut history = History::new();

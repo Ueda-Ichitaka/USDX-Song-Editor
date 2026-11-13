@@ -5,8 +5,9 @@
 //! that a serialization failure (injected) leaves the original file intact
 //! and removes the temp file, that an external change of the same file size
 //! is detected through the content hash and needs a confirmed save, that a
-//! read-only song refuses to save, and that a save-as to a fresh path needs
-//! no backup.
+//! read-only song refuses to save, that a save-as to a fresh path needs
+//! no backup, and that a backup that could not be written is tried again on
+//! the next save.
 
 use std::fs;
 use std::path::PathBuf;
@@ -73,6 +74,32 @@ fn save_writes_the_document_and_clears_the_dirty_flag() {
     saves
         .save(controller.loaded_mut().expect("loaded"), &path)
         .expect("the second save works");
+}
+
+#[test]
+fn a_failed_backup_is_tried_again_on_the_next_save() {
+    let (_dir, path, mut controller) = opened(SONG);
+    edit(&mut controller);
+    let backup = path.with_file_name("song.txt.bak");
+    // A folder in the backup's place makes the copy fail.
+    fs::create_dir(&backup).expect("the blocking folder is created");
+    let mut saves = SaveService::new();
+    saves
+        .save(controller.loaded_mut().expect("loaded"), &path)
+        .expect_err("the backup cannot be written");
+    assert_eq!(
+        fs::read(&path).expect("the file is read"),
+        SONG.as_bytes(),
+        "a failed backup leaves the song untouched"
+    );
+    fs::remove_dir(&backup).expect("the blocking folder is removed");
+    saves
+        .save(controller.loaded_mut().expect("loaded"), &path)
+        .expect("the second save works");
+    assert_eq!(
+        fs::read(&backup).expect("the backup is written now"),
+        SONG.as_bytes()
+    );
 }
 
 #[test]

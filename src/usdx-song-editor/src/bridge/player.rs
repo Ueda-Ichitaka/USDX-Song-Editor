@@ -4,9 +4,10 @@
 //! state: the pure event application (`apply_event`, unit-testable without
 //! GStreamer, the same pattern the P5-02 sheet layout follows) and the
 //! `PlayerCore` that wraps the usdx-audio player. The QObject impls here
-//! mirror the core state into the QML properties after every invokable and
-//! run the blocking track switch on a worker thread (`impl Threading`), so
-//! the UI never stalls and Vocals and Instrumental resume where Mix stood.
+//! mirror the core state into the QML properties after every invokable,
+//! pick the track for each newly opened song (`followDocument`) and run the
+//! blocking track switch on a worker thread (`impl Threading`), so the UI
+//! never stalls and Vocals and Instrumental resume where Mix stood.
 
 use crate::controller::settings::TrackDefault;
 use crate::controller::shell::{self, TrackKind};
@@ -495,6 +496,21 @@ impl qobject::Player {
                 qobject.switch_finished(outcome, player, track, old_track, was_playing, song_path);
             });
         });
+        self.as_mut().publish();
+    }
+
+    /// follow_document follows a newly opened song: a song change drops the
+    /// old playback, the track the settings choose for the new song is
+    /// resolved at once, so the Track combo shows it before any playback,
+    /// and the properties are published.
+    pub fn follow_document(mut self: Pin<&mut Self>) {
+        self.as_mut().sync_document();
+        if self
+            .song_document()
+            .is_some_and(|document| document.rust().editor().is_loaded())
+        {
+            self.as_mut().resolve_initial_track();
+        }
         self.as_mut().publish();
     }
 

@@ -1,7 +1,8 @@
 // About me: the status bar of the editor page (UI_SPEC 4.3). It shows the
 // song facts BPM, GAP and the format version, the playhead position with
 // its beat, and the state pills for unsaved changes, read-only and missing
-// audio.
+// audio; without a song it says "No song open" (UI_SPEC 4.1). A 1 px line
+// separates it from the page above.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -24,6 +25,12 @@ Rectangle {
 
     Usdx.Metrics {
         id: metrics
+    }
+
+    Kirigami.Separator {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
     }
 
     component FactLabel: RowLayout {
@@ -79,6 +86,14 @@ Rectangle {
         anchors.rightMargin: metrics.statusBarPadding
         spacing: metrics.statusBarSpacing
 
+        QQC2.Label {
+            objectName: "noSongStatus"
+            visible: !document || !document.isLoaded
+            text: qsTr("No song open")
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
+        }
+
         FactLabel {
             label: qsTr("BPM")
             value: document && document.isLoaded
@@ -121,7 +136,8 @@ Rectangle {
         StatePill {
             text: document && document.unsavedSteps > 0
                   ? qsTr("%n unsaved change(s)", "", document.unsavedSteps) : ""
-            textColor: Kirigami.Theme.highlightedTextColor
+            // The highlight colour on the highlight colour at 20 % (UI_SPEC 4.3).
+            textColor: Kirigami.Theme.highlightColor
             fillColor: Qt.alpha(Kirigami.Theme.highlightColor, 0.2)
         }
 

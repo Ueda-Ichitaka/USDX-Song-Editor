@@ -4,7 +4,9 @@
 //! and the saved position. A commit applies the patch and pushes it onto the
 //! undo stack; undo applies the patch's inverse and moves it to the redo
 //! stack; redo applies it again. The saved position is the undo stack length
-//! at `mark_saved`, so `is_dirty` compares the current history position
+//! at `mark_saved`; a commit made after undoing past it moves the saved file
+//! off the current branch and remembers how many steps away it lies, so
+//! `is_dirty` and `unsaved_steps` compare the current history position
 //! against the saved file. It exists so the UI's undo and redo commands and
 //! the unsaved-changes guard work on patches instead of document snapshots.
 
@@ -20,8 +22,15 @@ pub struct History {
     /// The undone patches; the last one is the next redo. Emptied by a new
     /// commit.
     redo_stack: Vec<Patch>,
-    /// The undo stack length when the document was last saved.
+    /// Where the saved file lies relative to the current branch: the undo
+    /// stack length of the last state the current branch shares with the
+    /// saved file.
     saved: usize,
+    /// The steps from that shared state to the saved file along a branch the
+    /// history no longer holds; 0 while the saved file is on the current
+    /// branch. A commit after undoing past the saved step discards that
+    /// branch, so the saved file stays this many steps away.
+    saved_detour: usize,
 }
 
 impl History {
@@ -36,6 +45,13 @@ impl History {
     /// the one the user saw.
     pub fn commit(&mut self, doc: &mut Document, patch: Patch) -> Result<(), EditError> {
         patch.apply(doc)?;
+        // Below the saved position the commit starts a new branch: the saved
+        // file moves off the current branch to the steps between here and it.
+        let position = self.undo_stack.len();
+        if position < self.saved {
+            self.saved_detour += self.saved - position;
+            self.saved = position;
+        }
         self.undo_stack.push(patch);
         self.redo_stack.clear();
         Ok(())
@@ -81,20 +97,22 @@ impl History {
     /// mark_saved records the current history position as the saved file.
     pub fn mark_saved(&mut self) {
         self.saved = self.undo_stack.len();
+        self.saved_detour = 0;
     }
 
     /// is_dirty tells whether the current history position differs from the
     /// saved one; undoing past the saved step dirties the document again,
-    /// because it no longer matches the saved file.
+    /// because it no longer matches the saved file, and so does any position
+    /// after a new edit made there.
     pub fn is_dirty(&self) -> bool {
-        self.undo_stack.len() != self.saved
+        self.unsaved_steps() != 0
     }
 
     /// unsaved_steps returns how many edit steps the current history
     /// position is away from the saved one; the UI uses it for the "N
     /// unsaved changes" pill and dialog texts.
     pub fn unsaved_steps(&self) -> usize {
-        self.undo_stack.len().abs_diff(self.saved)
+        self.undo_stack.len().abs_diff(self.saved) + self.saved_detour
     }
 
     /// undo_label returns the label of the step `undo` would perform.

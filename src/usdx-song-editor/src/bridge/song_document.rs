@@ -16,7 +16,6 @@
 //! later tasks (P5-03 to P6-02); the health and anchor roles stay neutral
 //! (0, empty) until the analysis (P7) and repair (P6.3) phases fill them.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +23,6 @@ use cxx_qt_lib::{
     QByteArray, QHash, QHashPair_QString_QVariant, QHashPair_i32_QByteArray, QModelIndex, QString,
     QUrl, QVariant,
 };
-use usdx_format::bytes::decode;
 use usdx_format::headers::{Headers, Version};
 use usdx_format::rows::{NoteType, RowKind};
 
@@ -517,6 +515,13 @@ pub mod qobject {
         /// playhead; the FrameAnimation calls it every frame while playing.
         #[qinvokable]
         fn tick(self: Pin<&mut Player>);
+
+        /// Follow a newly opened song: drop the old song's playback, pick
+        /// the track the settings choose for the new song and publish the
+        /// track availability; QML calls it on the document's songLoaded.
+        #[qinvokable]
+        #[cxx_name = "followDocument"]
+        fn follow_document(self: Pin<&mut Player>);
     }
 
     impl cxx_qt::Threading for Player {}
@@ -533,7 +538,6 @@ use crate::bridge::song_document::qobject::{
 
 /// The Rust side of the Player: the playback core plus the Q_PROPERTY
 /// storage. The logic lives in the impls in bridge/player.rs.
-#[derive(Default)]
 pub struct PlayerRust {
     pub(crate) core: PlayerCore,
     /// The document the playback follows; QML sets it once on startup.
@@ -560,6 +564,30 @@ pub struct PlayerRust {
     pub(crate) track: i32,
     pub(crate) has_vocals: bool,
     pub(crate) has_instrumental: bool,
+}
+
+impl Default for PlayerRust {
+    /// The property storage starts with the core's values, so QML reads the
+    /// core's 1x rate and track before the first publish.
+    fn default() -> Self {
+        let core = PlayerCore::new();
+        Self {
+            position_ms: core.position_ms(),
+            duration_ms: core.duration_ms(),
+            playing: core.playing(),
+            rate: core.rate(),
+            track: core.track(),
+            has_vocals: false,
+            has_instrumental: false,
+            document: std::ptr::null_mut(),
+            loading: false,
+            play_requested: false,
+            pending_range: None,
+            track_resolved: false,
+            loaded_song_path: String::new(),
+            core,
+        }
+    }
 }
 
 impl SongDocumentRust {
@@ -1503,7 +1531,7 @@ fn recent_rows(settings: &Settings) -> Vec<RecentRow> {
         .recent_files
         .iter()
         .map(|recent| RecentRow {
-            title: QString::from(recent_title(&recent.path)),
+            title: QString::from(shell::recent_title(&recent.path)),
             path_url: QString::from(
                 QUrl::from_local_file(&QString::from(recent.path.to_string_lossy().into_owned()))
                     .to_string(),
@@ -1513,30 +1541,6 @@ fn recent_rows(settings: &Settings) -> Vec<RecentRow> {
             opened_text: usdx_relative_date_text(recent.opened as i64),
         })
         .collect()
-}
-
-/// recent_title reads the song headers for the "Artist - Title" line; a file
-/// that cannot be read or parsed falls back to its name.
-fn recent_title(path: &Path) -> String {
-    let title = fs::read(path)
-        .ok()
-        .and_then(|bytes| decode(&bytes).ok())
-        .map(usdx_format::rows::classify)
-        .map(|document| Headers::from_document(&document))
-        .map(|headers| {
-            [headers.get("TITLE"), headers.get("ARTIST")]
-                .into_iter()
-                .flatten()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<&str>>()
-                .join(" - ")
-        })
-        .filter(|title| !title.is_empty());
-    title.unwrap_or_else(|| {
-        path.file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string_lossy().into_owned())
-    })
 }
 
 /// display_path renders a path with `~` for the home folder (UI_SPEC 4.1).

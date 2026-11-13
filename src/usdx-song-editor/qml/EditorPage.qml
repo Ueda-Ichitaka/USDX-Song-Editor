@@ -36,6 +36,10 @@ Kirigami.Page {
     // Settings bridge arrives with P8-03.
     readonly property int linePaddingMs: 300
 
+    // The start screen's toolbar keeps only Play of the playback controls
+    // (UI_SPEC 4.1); the editor shows them all (UI_SPEC 4.3).
+    readonly property bool songOpen: root.document !== null && root.document.isLoaded
+
     title: ""
     padding: 0
 
@@ -121,6 +125,8 @@ Kirigami.Page {
             }
 
             QQC2.ToolButton {
+                objectName: "playLineButton"
+                visible: root.songOpen
                 icon.name: "view-media-lyrics"
                 text: qsTr("Play line")
                 display: QQC2.AbstractButton.TextBesideIcon
@@ -133,6 +139,8 @@ Kirigami.Page {
             QQC2.ToolButton {
                 id: loopButton
 
+                objectName: "loopButton"
+                visible: root.songOpen
                 icon.name: "media-playlist-repeat"
                 text: qsTr("Loop")
                 display: QQC2.AbstractButton.TextBesideIcon
@@ -145,6 +153,8 @@ Kirigami.Page {
             }
 
             QQC2.Label {
+                objectName: "trackLabel"
+                visible: root.songOpen
                 text: qsTr("Track")
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 color: Kirigami.Theme.disabledTextColor
@@ -153,6 +163,8 @@ Kirigami.Page {
             QQC2.ComboBox {
                 id: trackCombo
 
+                objectName: "trackCombo"
+                visible: root.songOpen
                 // Every track is listed; the ones whose file is missing are
                 // disabled (UI_SPEC 4.3). The choice drives the player.
                 textRole: "label"
@@ -181,6 +193,8 @@ Kirigami.Page {
             }
 
             QQC2.Label {
+                objectName: "speedLabel"
+                visible: root.songOpen
                 text: qsTr("Speed")
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 color: Kirigami.Theme.disabledTextColor
@@ -189,6 +203,8 @@ Kirigami.Page {
             QQC2.ComboBox {
                 id: speedCombo
 
+                objectName: "speedCombo"
+                visible: root.songOpen
                 model: ["0.5x", "0.75x", "1x"]
                 enabled: root.document && root.document.canSpeed
                 currentIndex: root.player

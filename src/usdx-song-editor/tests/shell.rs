@@ -8,7 +8,7 @@
 //! and 5.2: save then continue, failed save stops, external change asks,
 //! overwrite / reload / cancel choices, discard, and the activation check
 //! that reloads silently when the file changed on disk without unsaved
-//! changes.
+//! changes, and the "Artist - Title" text of a recent song (UI_SPEC 4.1).
 
 use std::fs;
 use std::io;
@@ -19,9 +19,9 @@ use usdx_edit::ops::move_notes;
 use usdx_song_editor::controller::save::SaveError;
 use usdx_song_editor::controller::shell::{
     ActivationChange, AudioState, ChangedOnDiskChoice, SaveChangesChoice, TrackKind, Transition,
-    activation_change, audio_state, enablement, has_track, page_title, save_failure_reason,
-    track_path, transition_changed_on_disk, transition_reload, transition_save_changes,
-    transition_start, window_title,
+    activation_change, audio_state, enablement, has_track, page_title, recent_title,
+    save_failure_reason, track_path, transition_changed_on_disk, transition_reload,
+    transition_save_changes, transition_start, window_title,
 };
 use usdx_song_editor::controller::{EditorController, SaveService};
 
@@ -80,6 +80,24 @@ fn edit(controller: &mut EditorController) {
 }
 
 // --- Title text (UI_SPEC 2.6) ---
+
+#[test]
+fn a_recent_song_reads_artist_then_title() {
+    let (_dir, path) = fixture(SONG);
+    assert_eq!(recent_title(&path), "The Artist - Song Title");
+}
+
+#[test]
+fn a_recent_song_without_an_artist_reads_its_title() {
+    let (_dir, path) = fixture("#TITLE:Song Title\n#BPM:240\n: 0 4 0 la\nE\n");
+    assert_eq!(recent_title(&path), "Song Title");
+}
+
+#[test]
+fn an_unreadable_recent_song_reads_its_file_name() {
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    assert_eq!(recent_title(&dir.path().join("gone.txt")), "gone");
+}
 
 #[test]
 fn the_window_title_without_a_song_is_the_app_name() {

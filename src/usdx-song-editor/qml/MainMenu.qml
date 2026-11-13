@@ -18,8 +18,9 @@ Kirigami.GlobalDrawer {
     // page stack.
     property QtObject shell
 
-    // One Open Recent entry: created for each recent song when the submenu
-    // rebuilds (an inline component, so createObject works on it).
+    // One Open Recent entry, created for each recent song when the submenu
+    // rebuilds; an inline component is a type, so the entries are created
+    // through recentActionComponent below.
     component RecentAction: Kirigami.Action {
         required property var entry
 
@@ -30,10 +31,17 @@ Kirigami.GlobalDrawer {
         onTriggered: drawer.shell.openSong(entry.pathUrl)
     }
 
-    // The submenu refills whenever the recent list changes.
+    Component {
+        id: recentActionComponent
+
+        RecentAction {}
+    }
+
+    // The submenu refills whenever the recent list changes; a reset also
+    // covers a reordered list of the same length.
     Connections {
-        target: drawer.shell ? drawer.shell.songDocument : null
-        function onRecentCountChanged() {
+        target: drawer.shell ? drawer.shell.songDocument.recentModel : null
+        function onModelReset() {
             openRecentAction.rebuild();
         }
     }
@@ -73,7 +81,7 @@ Kirigami.GlobalDrawer {
                 for (let index = 0; index < count; index++) {
                     const entry = model.entry(index);
                     children.push(
-                        RecentAction.createObject(drawer, { entry: entry }));
+                        recentActionComponent.createObject(drawer, { entry: entry }));
                 }
             }
 

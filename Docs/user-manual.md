@@ -92,13 +92,15 @@ Left to right:
 | Play | plays the song from the current position (Space) |
 | Play line | plays the current line with 0.3 s padding before and after (P) |
 | Loop | repeats the current line or selection (L) |
-| Track | picks Mix, Vocals or Instrumental; missing tracks are greyed out (V) |
+| Track | picks Mix, Vocals or Instrumental; missing tracks are greyed out (V). A newly opened song starts on the track the settings choose (Vocals when the song has a vocals file) |
 | Speed | 0.5x, 0.75x or 1x ([ and ]) |
 | Repair timing | opens the repair mode (Ctrl+R) |
 | Song properties | opens the song properties page |
 
-Playback and repair arrive with the later phases; in the current build these controls show
-their final enablement but do not act yet (see `Docs/status.md`).
+Without a song the toolbar keeps only Play of the playback controls. In the current build
+Play, Play line, Loop, Track and Speed act; Loop repeats the current line. Repair timing and
+Song properties arrive with the later phases and show a notice until then (see
+`Docs/status.md`).
 
 ### 4.2 The lines pane (left)
 
@@ -132,7 +134,9 @@ background.
 ### 4.5 Status bar (bottom)
 
 The song facts on the left: **BPM** (two decimals), **GAP** (whole milliseconds),
-**Format** (the `#VERSION` value, or "unversioned"). On the right the state pills:
+**Playhead** (the playback position in m:ss.ss and its beat), **Format** (the `#VERSION`
+value, or "unversioned"); without a song it says "No song open". On the right the state
+pills:
 
 - `N unsaved changes` - blue while the song differs from its file
 - `read-only` - red; the song cannot be saved

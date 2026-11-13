@@ -8,15 +8,17 @@
 //! About the startup: it applies the Breeze desktop style, associates the window
 //! with the installed desktop file, loads Main.qml from the compiled-in QML module
 //! and runs the event loop. --version prints the version line and --self-test
-//! verifies offscreen that the QML loads and the window root object exists
-//! (plan section 8.1); with a song path it opens the song through the
-//! SongDocument bridge and reports the line count and window title on stdout
-//! (plan section 8.3, task P3-04). The self-test redirects XDG_CONFIG_HOME to
-//! a throwaway folder so it never touches the user's settings. In debug
-//! builds, --screenshot renders a demo state of the UI_SPEC 8.1 harness to a
-//! PNG: --demo-state names the state, --song opens a copy of a song and
-//! --size resizes the window; the fixed offscreen environment is applied for
-//! values the caller did not set.
+//! verifies offscreen that the QML loads, the window root object exists and
+//! the start screen matches UI_SPEC 4.1 (plan section 8.1); with a song path
+//! it opens the song through the window's requestOpen() guard, reports the
+//! line count and window title on stdout (plan section 8.3, task P3-04) and
+//! drives the QML paths a user reaches (render, activation check, dialog
+//! choices, quit). Any Qt warning fails the self-test. It redirects
+//! XDG_CONFIG_HOME to a throwaway folder so it never touches the user's
+//! settings. In debug builds, --screenshot renders a demo state of the
+//! UI_SPEC 8.1 harness to a PNG: --demo-state names the state, --song opens a
+//! copy of a song and --size resizes the window; the fixed offscreen
+//! environment is applied for values the caller did not set.
 
 pub mod bridge;
 pub mod controller;
@@ -349,7 +351,7 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
 
     let self_test = args.iter().any(|arg| arg == "--self-test");
     // The positional argument is the song path: `usdx-song-editor [SONG.txt]`,
-    // and `--self-test SONG.txt` loads it through the bridge (task P3-04).
+    // and `--self-test SONG.txt` loads it through the window's open guard.
     let positional: Vec<&String> = args.iter().filter(|arg| !arg.starts_with('-')).collect();
 
     // The self-test must not touch the user's settings: the config folder is
@@ -385,6 +387,7 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
         let code = if let Some(path) = positional.first() {
             let ok = engine.as_ref().is_some_and(|engine| {
                 bridge::selftest::usdx_selftest_load_song(engine, &QString::from(path.as_str()))
+                    && bridge::selftest::usdx_selftest_ui_paths(engine)
             });
             if !ok {
                 eprintln!("self-test failed: the song did not load through the bridge");
@@ -393,15 +396,25 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                 0
             }
         } else {
-            let ok = engine
-                .as_ref()
-                .is_some_and(bridge::selftest::usdx_qml_root_object_exists);
+            let ok = engine.as_ref().is_some_and(|engine| {
+                bridge::selftest::usdx_qml_root_object_exists(engine)
+                    && bridge::selftest::usdx_selftest_start_screen(engine)
+            });
             if !ok {
-                eprintln!("self-test failed: the window root object was not created");
+                eprintln!("self-test failed: the window or its start screen is not as expected");
                 1
             } else {
                 0
             }
+        };
+        // QML reports binding and script errors only as warnings, so any
+        // warning fails the self-test.
+        let warnings = bridge::selftest::usdx_qt_warning_count();
+        let code = if code == 0 && warnings > 0 {
+            eprintln!("self-test failed: Qt printed {warnings} warning(s)");
+            1
+        } else {
+            code
         };
         if let Some(config_home) = config_home {
             let _ = std::fs::remove_dir_all(config_home);

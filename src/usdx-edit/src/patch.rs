@@ -81,10 +81,20 @@ pub struct Patch {
 
 impl Patch {
     /// apply runs the operations in order on the document. When an operation
-    /// does not fit, the document is left unchanged and the error tells why.
+    /// does not fit, the operations applied before it are rolled back with
+    /// their exact inverses in reverse order, so the document is left
+    /// unchanged, and the error tells why.
     pub fn apply(&self, doc: &mut Document) -> Result<(), EditError> {
-        for op in &self.ops {
-            apply_op(op, doc)?;
+        for (index, op) in self.ops.iter().enumerate() {
+            if let Err(error) = apply_op(op, doc) {
+                for done in self.ops[..index].iter().rev() {
+                    // The inverse of an op that just applied always fits the
+                    // state it left behind.
+                    apply_op(&inverse_op(done), doc)
+                        .expect("the inverse of an applied op fits the document");
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }

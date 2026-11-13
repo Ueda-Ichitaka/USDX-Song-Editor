@@ -388,6 +388,64 @@ fn two_ops_undo_in_reverse_order() {
     assert_eq!(copy, d);
 }
 
+// ---- A refused patch is all or nothing ----
+
+#[test]
+fn a_refused_later_op_rolls_the_earlier_ops_back() {
+    let d = doc(": 0 4 0 la\n: 4 4 1 la\nE\n");
+    let patch = Patch {
+        label: "two".to_owned(),
+        ops: vec![
+            RowOp::Replace {
+                id: RowId(0),
+                before: d.rows[0].clone(),
+                after: changed_row(&d, 0),
+            },
+            RowOp::Replace {
+                id: RowId(1),
+                before: row(1, note_row(9, 0, "other"), ": 9 4 0 other"),
+                after: changed_row(&d, 1),
+            },
+        ],
+    };
+    let mut copy = d.clone();
+    let error = patch
+        .apply(&mut copy)
+        .expect_err("the stale second op is refused");
+    assert!(matches!(error, EditError::StalePatch(_)));
+    assert_eq!(copy, d, "the first op is rolled back");
+}
+
+#[test]
+fn a_refused_op_after_an_insert_and_a_remove_restores_the_rows_and_ids() {
+    let d = doc("#TITLE:T\n: 0 4 0 la\n: 4 4 1 la\nE\n");
+    let patch = Patch {
+        label: "three".to_owned(),
+        ops: vec![
+            RowOp::Insert {
+                after: Some(RowId(2)),
+                row: row(3, note_row(8, 2, "new"), ": 8 4 2 new"),
+            },
+            RowOp::Remove {
+                id: RowId(1),
+                row: d.rows[1].clone(),
+                after: Some(RowId(0)),
+            },
+            RowOp::Replace {
+                id: RowId(7),
+                before: row(7, note_row(9, 0, "other"), ": 9 4 0 other"),
+                after: row(7, note_row(9, 1, "other"), ": 9 4 1 other"),
+            },
+        ],
+    };
+    let mut copy = d.clone();
+    let error = patch
+        .apply(&mut copy)
+        .expect_err("the third op names an unknown row");
+    assert_eq!(error, EditError::UnknownRow(RowId(7)));
+    assert_eq!(copy, d, "the insert and the remove are rolled back");
+}
+
 // ---- Property test: apply/inverse identity ----
 
 /// text_strategy generates line texts without CR and LF.

@@ -4,5 +4,6 @@
 //! SongDocument and LinesModel bridges; the player, sheet and repair bridges are
 //! added in later tasks.
 
+pub mod screenshot;
 pub mod selftest;
 pub mod song_document;

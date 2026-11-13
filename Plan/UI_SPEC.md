@@ -737,6 +737,11 @@ usdx-song-editor --screenshot <out.png> --demo-state <name> [--song <file.txt>] 
   `BreezeDark.colors`. (Verified: this switches `Kirigami.Theme` between `#eff0f1` and
   `#202326` window backgrounds without touching the user's desktop settings.) The temp
   `XDG_CONFIG_HOME` also isolates the app settings, which is wanted.
+- Pixel check (P3-06, measured correction of the original assumption): the page header
+  toolbar covers the top edge of the window, so the pixel at (5, 5) is the toolbar
+  background (`#dee0e2` light, `#292c30` dark) and the window background of the theme
+  (`#eff0f1` light, `#202326` dark) shows at every point below it, for example (5, 60).
+  The test asserts both pixels.
 - Demo states reproduce the reference images: `editor` (aequitaS - Realize The Real Lies from
   the test songs, line 3 current, note 3 selected, playhead at beat 181, track Vocals, two
   committed edits), `repair-anchor` and `repair-block` (lines 15-22 compressed to 1:06.18 -

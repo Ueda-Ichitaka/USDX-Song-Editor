@@ -2,8 +2,9 @@
 // module io.github.ueda_ichitaka.UsdxSongEditor (the shell QML files, with the
 // shared format.js helper that is not a component and stays out of the qmldir),
 // runs the cxx-qt code generation for the bridge files, and compiles the small
-// C++ helpers: the --self-test helpers and the relative-date formatter for the
-// recent songs list, which the cxx-qt-lib bindings do not provide.
+// C++ helpers: the --self-test helpers, the relative-date formatter for the
+// recent songs list, and the screenshot harness helpers (UI_SPEC 8.1), which
+// the cxx-qt-lib bindings do not provide.
 
 use cxx_qt_build::{CxxQtBuilder, QmlModule};
 
@@ -21,8 +22,15 @@ fn main() {
     ]);
     unsafe {
         CxxQtBuilder::new_qml_module(qml_module)
-            .files(["src/bridge/selftest.rs", "src/bridge/song_document.rs"])
-            .cpp_files(["cpp/selftest.cpp", "cpp/format.cpp"])
+            // The screenshot helpers use QQuickWindow and QQuickItemGrabResult,
+            // which live in the Quick module.
+            .qt_module("Quick")
+            .files([
+                "src/bridge/selftest.rs",
+                "src/bridge/song_document.rs",
+                "src/bridge/screenshot.rs",
+            ])
+            .cpp_files(["cpp/selftest.cpp", "cpp/format.cpp", "cpp/screenshot.cpp"])
             .cc_builder(|cc| {
                 cc.include("cpp");
             })

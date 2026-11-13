@@ -8,3 +8,10 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+
+# The GStreamer dependency lives under dev-dependencies while only the test
+# media helper (a cfg(test) module) uses it; task P4-02 moves it to
+# [dependencies] when the player lands.
+[dev-dependencies]
+gstreamer = "0.25.4"
+tempfile = "3.27.0"

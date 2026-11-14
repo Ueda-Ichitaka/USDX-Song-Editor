@@ -496,9 +496,14 @@ pub mod qobject {
         #[qproperty(*mut PhraseEndsModel, phrase_ends_model, cxx_name = "phraseEndsModel")]
         // The inspector contents of the current selection (UI_SPEC 4.3,
         // task P5-05): a QVariant hash with the keys label, editable,
-        // single, count, typeCode, start, length, pitch, pitchCommon,
-        // pitchName, text and pitchEditable.
+        // single, count, noteId, typeCode, start, length, pitch,
+        // pitchCommon, pitchName, text and pitchEditable.
         #[qproperty(QVariant, inspector)]
+        // Whether autoplay is on (the Shift+A key, plan 8.6, task P5-06).
+        #[qproperty(bool, autoplay)]
+        // Whether the selection is exactly every note of the current line;
+        // the header says "Whole line selected" then (UI_SPEC 4.3).
+        #[qproperty(bool, whole_line_selected, cxx_name = "wholeLineSelected")]
         type SongDocument = super::SongDocumentRust;
     }
 
@@ -525,6 +530,13 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "editRefused"]
         fn edit_refused(self: Pin<&mut SongDocument>, message: QString);
+
+        /// Emitted when a line was reached while autoplay is on (plan 8.6,
+        /// task P5-06): the padded play range of the line; the editor page
+        /// hands it to the player's playRange.
+        #[qsignal]
+        #[cxx_name = "autoPlayRange"]
+        fn autoplay_range(self: Pin<&mut SongDocument>, start_ms: f64, end_ms: f64);
     }
 
     extern "RustQt" {
@@ -691,6 +703,30 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "transposeSelection"]
         fn transpose_selection(self: Pin<&mut SongDocument>, semitones: i64) -> bool;
+
+        /// Select the note after the selection's focus in the current line
+        /// (the Right key, plan 8.6); the steps stay in the line.
+        #[qinvokable]
+        #[cxx_name = "selectNextNote"]
+        fn select_next_note(self: Pin<&mut SongDocument>);
+
+        /// Select the note before the selection's focus in the current line
+        /// (the Left key); Left at the first note selects the whole line.
+        #[qinvokable]
+        #[cxx_name = "selectPreviousNote"]
+        fn select_previous_note(self: Pin<&mut SongDocument>);
+
+        /// Change the length of every selected note by the beats (the
+        /// Alt+Left/Right keys).
+        #[qinvokable]
+        #[cxx_name = "resizeSelectionEnd"]
+        fn resize_selection_end(self: Pin<&mut SongDocument>, d_beat: i64) -> bool;
+
+        /// Turn autoplay on or off (the Shift+A key); switching it on
+        /// emits autoPlayRange for the current line at once.
+        #[qinvokable]
+        #[cxx_name = "toggleAutoplay"]
+        fn toggle_autoplay(self: Pin<&mut SongDocument>);
 
         /// Jump to the global line index, clamped into range.
         #[qinvokable]
@@ -1091,6 +1127,11 @@ pub struct SongDocumentRust {
     /// The inspector contents of the current selection (a QVariant hash,
     /// task P5-05).
     inspector: QVariant,
+    /// Whether autoplay is on (task P5-06).
+    autoplay: bool,
+    /// Whether the selection is exactly the current line's notes (the
+    /// header says "Whole line selected" then, task P5-06).
+    whole_line_selected: bool,
 }
 
 impl Default for SongDocumentRust {
@@ -1142,6 +1183,8 @@ impl Default for SongDocumentRust {
             can_repair: snapshot.can_repair,
             can_properties: snapshot.can_properties,
             can_export_anchors: snapshot.can_export_anchors,
+            autoplay: snapshot.autoplay,
+            whole_line_selected: snapshot.whole_line_selected,
             current_line_start_ms: snapshot.current_line_start_ms,
             current_line_end_ms: snapshot.current_line_end_ms,
             view_start_ms: 0.0,
@@ -1888,6 +1931,53 @@ impl qobject::SongDocument {
         self.as_mut().finish_edit(result)
     }
 
+    /// select_next_note applies the Right key (task P5-06).
+    pub fn select_next_note(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().controller.navigate_right();
+        self.as_mut().refresh();
+    }
+
+    /// select_previous_note applies the Left key.
+    pub fn select_previous_note(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().controller.navigate_left();
+        self.as_mut().refresh();
+    }
+
+    /// resize_selection_end changes the length of every selected note.
+    pub fn resize_selection_end(mut self: Pin<&mut Self>, d_beat: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .resize_selection_end(d_beat);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// toggle_autoplay turns autoplay on or off and hands the current
+    /// line's padded play range to the player when it switched on.
+    pub fn toggle_autoplay(mut self: Pin<&mut Self>) {
+        let on = !self.rust().controller.autoplay();
+        self.as_mut().rust_mut().controller.set_autoplay(on);
+        self.as_mut().emit_pending_play_range();
+        self.as_mut().refresh();
+    }
+
+    /// emit_pending_play_range takes the controller's pending play range
+    /// and emits it as the autoPlayRange signal.
+    fn emit_pending_play_range(mut self: Pin<&mut Self>) {
+        let range = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .take_pending_play_range();
+        if let Some((start, end)) = range {
+            self.as_mut().autoplay_range(start, end);
+        }
+    }
+
     /// publish_inspector copies the inspector state of the current
     /// selection into the inspector property (task P5-05). The hash keys
     /// are label, editable, single, count, typeCode, start, length,
@@ -2000,18 +2090,21 @@ impl qobject::SongDocument {
                 .controller
                 .go_to_line(index as usize);
         }
+        self.as_mut().emit_pending_play_range();
         self.as_mut().refresh();
     }
 
     /// next_line moves to the following line.
     pub fn next_line(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().controller.next_line();
+        self.as_mut().emit_pending_play_range();
         self.as_mut().refresh();
     }
 
     /// previous_line moves to the preceding line.
     pub fn previous_line(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().controller.previous_line();
+        self.as_mut().emit_pending_play_range();
         self.as_mut().refresh();
     }
 
@@ -2314,6 +2407,9 @@ impl qobject::SongDocument {
         self.as_mut().set_can_properties(snapshot.can_properties);
         self.as_mut()
             .set_can_export_anchors(snapshot.can_export_anchors);
+        self.as_mut().set_autoplay(snapshot.autoplay);
+        self.as_mut()
+            .set_whole_line_selected(snapshot.whole_line_selected);
         self.as_mut()
             .set_current_line_start_ms(snapshot.current_line_start_ms);
         self.as_mut()
@@ -2469,6 +2565,8 @@ struct Snapshot {
     can_repair: bool,
     can_properties: bool,
     can_export_anchors: bool,
+    autoplay: bool,
+    whole_line_selected: bool,
     current_line_start_ms: f64,
     current_line_end_ms: f64,
     current_line_note_count: i32,
@@ -2516,6 +2614,8 @@ fn build_snapshot(controller: &EditorController, settings: &Settings) -> Snapsho
     let Some(loaded) = controller.loaded() else {
         return snapshot;
     };
+    snapshot.autoplay = controller.autoplay();
+    snapshot.whole_line_selected = controller.whole_line_selected();
     let headers = Headers::from_document(&loaded.document);
     let history = &loaded.history;
     snapshot.file_path = QString::from(loaded.path.to_string_lossy().into_owned());

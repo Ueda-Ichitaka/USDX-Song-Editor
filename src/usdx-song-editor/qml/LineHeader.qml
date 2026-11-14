@@ -1,9 +1,11 @@
 // About me: the line header of the editor column (UI_SPEC 4.3, item 1). It
-// shows the line position, the time span with duration, note count and
-// syllable rate, the timing health pill and the line type combo with the
-// Edit text button. The health stays "timing ok" (the analysis arrives with
-// P7) and the line type selection is a no-op until the line operations of
-// P6 exist; both render their final texts and enablement already.
+// shows the line position, the time span with duration (or "Whole line
+// selected" while the selection is exactly the current line's notes, task
+// P5-06), note count and syllable rate, the timing health pill and the line
+// type combo with the Edit text button. The health stays "timing ok" (the
+// analysis arrives with P7) and the line type selection is a no-op until
+// the line operations of P6 exist; both render their final texts and
+// enablement already.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -43,16 +45,19 @@ Rectangle {
         }
 
         QQC2.Label {
-            // The times say "Whole line selected" while the whole line is
-            // selected (UI_SPEC 4.3); the selection arrives with P5, so the
-            // times always show.
+            // The times say "Whole line selected" while the selection is
+            // exactly the current line's notes (UI_SPEC 4.3, task P5-06);
+            // the note count and the rate stay.
             text: {
                 if (!document || !document.isLoaded) {
                     return "";
                 }
-                return Time.longTime(document.currentLineStartMs)
-                    + " - " + Time.longTime(document.currentLineEndMs)
-                    + " \u00B7 " + Time.durationText(document.currentLineEndMs - document.currentLineStartMs)
+                const times = document.wholeLineSelected
+                    ? qsTr("Whole line selected")
+                    : Time.longTime(document.currentLineStartMs)
+                      + " - " + Time.longTime(document.currentLineEndMs)
+                      + " \u00B7 " + Time.durationText(document.currentLineEndMs - document.currentLineStartMs);
+                return times
                     + " \u00B7 " + document.currentLineNoteCount
                     + " " + (document.currentLineNoteCount === 1 ? qsTr("note") : qsTr("notes"))
                     + " \u00B7 " + Time.rateText(document.currentLineRate);

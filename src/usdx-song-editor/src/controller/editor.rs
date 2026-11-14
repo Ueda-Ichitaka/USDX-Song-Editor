@@ -23,6 +23,10 @@ use usdx_format::song::{Line, Song};
 
 use crate::controller::fingerprint::FileFingerprint;
 
+/// The line padding of the autoplay play range in ms (plan 8.6: 0.3 s,
+/// the same padding the Play line button uses).
+pub const PLAY_PADDING_MS: f64 = 300.0;
+
 /// The song a session has loaded: the document, its views, the undo history
 /// and the file facts the save service needs.
 pub struct LoadedSong {
@@ -52,6 +56,13 @@ pub struct EditorController {
     /// The anchor of a Shift-extend selection: the last note a click or a
     /// rubber band selected (task P5-04).
     pub(crate) anchor: Option<RowId>,
+    /// Whether autoplay is on: every line reached is handed to the player
+    /// as a padded play range (the Shift+A key, plan 8.6, task P5-06).
+    autoplay: bool,
+    /// The play range the next bridge refresh hands to the player, set
+    /// when autoplay is switched on and whenever the line changes while it
+    /// is on. Taken once.
+    pending_play_range: Option<(f64, f64)>,
 }
 
 impl Default for EditorController {
@@ -68,6 +79,8 @@ impl EditorController {
             current_line: 0,
             selection: BTreeSet::new(),
             anchor: None,
+            autoplay: false,
+            pending_play_range: None,
         }
     }
 
@@ -117,6 +130,8 @@ impl EditorController {
         self.current_line = 0;
         self.selection.clear();
         self.anchor = None;
+        self.autoplay = false;
+        self.pending_play_range = None;
         Ok(())
     }
 
@@ -184,23 +199,83 @@ impl EditorController {
 
     /// next_line moves to the following line and clamps at the last one.
     pub fn next_line(&mut self) {
-        let count = self.line_count();
-        if count > 0 {
-            self.current_line = (self.current_line + 1).min(count - 1);
-        }
+        self.go_to_line(self.current_line + 1);
     }
 
     /// previous_line moves to the preceding line and clamps at the first one.
     pub fn previous_line(&mut self) {
-        self.current_line = self.current_line.saturating_sub(1);
+        self.go_to_line(self.current_line.saturating_sub(1));
     }
 
-    /// go_to_line jumps to a global line index and clamps into range.
+    /// go_to_line jumps to a global line index and clamps into range. The
+    /// selection keeps across line changes (user decision 2026-11-14);
+    /// reaching a different line with autoplay on hands its padded play
+    /// range to the player.
     pub fn go_to_line(&mut self, index: usize) {
         let count = self.line_count();
         if count > 0 {
-            self.current_line = index.min(count - 1);
+            let next = index.min(count - 1);
+            if next != self.current_line {
+                self.current_line = next;
+                self.arm_autoplay();
+            }
         }
+    }
+
+    /// autoplay tells whether autoplay is on.
+    pub fn autoplay(&self) -> bool {
+        self.autoplay
+    }
+
+    /// set_autoplay turns autoplay on or off (the Shift+A key). Switching
+    /// it on plays the current line at once (user decision 2026-11-14);
+    /// switching it off drops a still pending range.
+    pub fn set_autoplay(&mut self, on: bool) {
+        self.autoplay = on;
+        if on {
+            self.arm_autoplay();
+        } else {
+            self.pending_play_range = None;
+        }
+    }
+
+    /// take_pending_play_range takes the play range a line change (or the
+    /// autoplay switch itself) handed out, or `None`; the bridge emits it
+    /// as the autoPlayRange signal for the player.
+    pub fn take_pending_play_range(&mut self) -> Option<(f64, f64)> {
+        self.pending_play_range.take()
+    }
+
+    /// arm_autoplay stores the padded play range of the current line while
+    /// autoplay is on.
+    fn arm_autoplay(&mut self) {
+        if self.autoplay {
+            self.pending_play_range = self.line_play_range();
+        }
+    }
+
+    /// line_play_range computes the padded play range of the current line:
+    /// the first note's start to the phrase end (or the last note's end),
+    /// each widened by the 0.3 s line padding.
+    fn line_play_range(&self) -> Option<(f64, f64)> {
+        let loaded = self.loaded.as_ref()?;
+        let to_ms = |beat: f64| {
+            loaded
+                .song
+                .timing
+                .map(|value| value.beat_to_ms(beat))
+                .unwrap_or(beat)
+        };
+        let line = self.current_line_data()?;
+        let first = loaded.song.note(&loaded.document, *line.notes.first()?)?;
+        let end_beat = line
+            .end
+            .and_then(|id| loaded.song.phrase_end_beat(&loaded.document, id))
+            .unwrap_or(first.start + first.length as f64);
+        Some((
+            to_ms(first.start) - PLAY_PADDING_MS,
+            to_ms(end_beat) + PLAY_PADDING_MS,
+        ))
     }
 
     /// read_only tells whether the loaded song may be shown but not changed.

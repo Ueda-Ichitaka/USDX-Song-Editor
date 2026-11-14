@@ -1,5 +1,6 @@
 //! The mouse-editing controller: selection and drag commits (plan 8.3,
-//! 8.4, task P5-04).
+//! 8.4, task P5-04), the note actions (P5-05) and the keyboard navigation
+//! (P5-06).
 //!
 //! About me: this module holds the selection commands the note sheet's
 //! delegates call (click selects, Ctrl adds, Shift extends from the anchor
@@ -10,8 +11,12 @@
 //! neighbour's edge when the edge lands within 8 px of it (Alt turns the
 //! snapping off); they exist so the ghost preview and the committed delta
 //! agree, and because the notes sit on integer beats the rounding of the
-//! committed delta happens after the snap. The methods live on the
-//! EditorController because they own its selection and history state.
+//! committed delta happens after the snap. It also holds the note actions
+//! (insert, delete, split, merge, type keys, text, phrase ends,
+//! transposition) and the Left/Right note navigation with the whole-line
+//! state (Left at the first note selects the whole line; the steps stay in
+//! the line). The methods live on the EditorController because they own
+//! its selection and history state.
 
 use usdx_edit::ops;
 use usdx_edit::patch::RowOp;
@@ -538,6 +543,137 @@ impl EditorController {
         } else {
             None
         }
+    }
+
+    /// navigate_right selects the note after the selection's focus in the
+    /// current line (the Right key, plan 8.6). The steps stay in the line
+    /// (user decision 2026-11-14): from an empty selection Right picks the
+    /// first note, past the last note it stops, from the whole-line
+    /// selection it picks the first note again, and with a stale anchor (a
+    /// kept selection from another line) it enters the line at its first
+    /// note. Selection only, no history step.
+    pub fn navigate_right(&mut self) {
+        self.navigate(1);
+    }
+
+    /// navigate_left selects the note before the selection's focus in the
+    /// current line (the Left key). Left at the first note selects the
+    /// whole line, and Left on the whole-line selection stops; from an
+    /// empty selection it does nothing, with a stale anchor it enters the
+    /// line at its last note.
+    pub fn navigate_left(&mut self) {
+        self.navigate(-1);
+    }
+
+    /// navigate steps one note in the line (see navigate_left/right).
+    fn navigate(&mut self, direction: i64) {
+        let Some(line) = self.current_line_data() else {
+            return;
+        };
+        let notes: Vec<RowId> = line.notes.to_vec();
+        if notes.is_empty() {
+            return;
+        }
+        // The whole line is selected: Right restarts at the first note,
+        // Left has no earlier state to go to.
+        if self.whole_line_selected() {
+            if direction > 0 {
+                self.select_single(notes[0]);
+            }
+            return;
+        }
+        // From an empty selection Right picks the first note, Left does
+        // nothing.
+        if self.selection.is_empty() {
+            if direction > 0 {
+                self.select_single(notes[0]);
+            }
+            return;
+        }
+        // The anchor is the focus when it is a note of the current line;
+        // with a stale anchor Right enters at the first note, Left at the
+        // last.
+        let focus = self
+            .anchor
+            .and_then(|anchor| notes.iter().position(|note| *note == anchor));
+        let target = match focus {
+            Some(index) => {
+                let next = index as i64 + direction;
+                if next < 0 {
+                    // Left at the first note selects the whole line.
+                    self.select_current_line();
+                    return;
+                }
+                usize::try_from(next)
+                    .ok()
+                    .filter(|next| *next < notes.len())
+            }
+            None => {
+                if direction > 0 {
+                    Some(0)
+                } else {
+                    Some(notes.len() - 1)
+                }
+            }
+        };
+        if let Some(index) = target {
+            self.select_single(notes[index]);
+        }
+    }
+
+    /// select_single makes one note the whole selection and the anchor.
+    fn select_single(&mut self, id: RowId) {
+        self.selection.clear();
+        self.selection.insert(id);
+        self.anchor = Some(id);
+    }
+
+    /// select_current_line makes every note of the current line the
+    /// selection (the whole-line state); the anchor follows the first
+    /// note.
+    fn select_current_line(&mut self) {
+        let notes: Vec<RowId> = match self.current_line_data() {
+            Some(line) => line.notes.to_vec(),
+            None => return,
+        };
+        self.selection = notes.iter().copied().collect();
+        self.anchor = notes.first().copied();
+    }
+
+    /// whole_line_selected tells whether the selection is exactly every
+    /// note of the current line; the header says "Whole line selected"
+    /// then (UI_SPEC 4.3).
+    pub fn whole_line_selected(&self) -> bool {
+        match self.current_line_data() {
+            Some(line) if !line.notes.is_empty() => {
+                self.selection.len() == line.notes.len()
+                    && line.notes.iter().all(|note| self.selection.contains(note))
+            }
+            _ => false,
+        }
+    }
+
+    /// resize_selection_end changes the length of every selected note by
+    /// d_beat beats (the Alt+Left/Right keys, plan 8.6) in ONE history
+    /// step; a length below 1 is refused and changes nothing.
+    pub fn resize_selection_end(&mut self, d_beat: i64) -> Result<(), EditError> {
+        if self.selection.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<RowId> = self.selection.iter().copied().collect();
+        let patch = {
+            let loaded = self.require_loaded()?;
+            let mut edits = Vec::with_capacity(ids.len());
+            for id in ids {
+                let resized = ops::resize_end(&loaded.document, &loaded.song, id, d_beat)?;
+                edits.extend(resized.ops);
+            }
+            Patch {
+                label: "Length".to_owned(),
+                ops: edits,
+            }
+        };
+        self.commit(patch)
     }
 }
 

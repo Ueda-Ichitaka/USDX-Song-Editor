@@ -8,7 +8,11 @@
 // [ and ] follow the plan's key table (8.6) as Shortcut elements (they move
 // into the Kirigami.Actions of the menus when those arrive). The note
 // editing shortcuts N, G, F, R, Shift+R, S, M, Delete, Insert and B (task
-// P5-05) act on the selection; refusals land in passive notifications
+// P5-05) act on the selection; the navigation shortcuts Up, Down, Left,
+// Right, the Ctrl/Alt arrows and the autoplay Shift+A (task P5-06) step
+// through lines, notes, moves, pitches and lengths - the arrows stand back
+// while a text input holds the focus, and the autoplay signal plays the
+// reached line through the player. Refusals land in passive notifications
 // through the document's editRefused signal. The note sheet area shows the
 // waveform and activity lanes of the painted SheetBackground for the
 // current line's time view, with the loading, no-audio and no-vocals states
@@ -41,6 +45,15 @@ Kirigami.Page {
     // The line padding of the settings (0.3 s), hard-coded until the
     // Settings bridge arrives with P8-03.
     readonly property int linePaddingMs: 300
+
+    // True while a text input holds the keyboard focus (the inspector's
+    // Text field, a spin box's editor): the arrow keys then move the text
+    // cursor or step the spin box value, so the navigation shortcuts must
+    // not fire.
+    readonly property bool textEditingFocus: {
+        const item = root.Window.window ? root.Window.window.activeFocusItem : null;
+        return item !== null && item.selectedText !== undefined;
+    }
 
     // The start screen's toolbar keeps only Play of the playback controls
     // (UI_SPEC 4.1); the editor shows them all (UI_SPEC 4.3).
@@ -280,6 +293,17 @@ Kirigami.Page {
         }
     }
 
+    // The autoplay of the key table (plan 8.6, task P5-06): a line reached
+    // while autoplay is on plays with the padding the controller applies.
+    Connections {
+        target: root.document
+        function onAutoPlayRange(startMs, endMs) {
+            if (root.player) {
+                root.player.playRange(startMs, endMs);
+            }
+        }
+    }
+
     // The playback shortcuts of the key table (plan 8.6).
     Shortcut {
         sequence: "Space"
@@ -389,6 +413,100 @@ Kirigami.Page {
         sequence: "B"
         enabled: root.canEditNotes
         onActivated: root.document.togglePhraseEndBeforeSelection()
+    }
+
+    // The navigation shortcuts of the key table (plan 8.6, task P5-06).
+    // Navigation works in read-only songs too (UI_SPEC 4.3); the arrows
+    // step back when a text input holds the focus, and the Ctrl/Alt arrows
+    // edit, so they need a writable song.
+    Shortcut {
+        sequence: "Up"
+        enabled: root.songOpen && !root.textEditingFocus
+        onActivated: root.document.previousLine()
+    }
+
+    Shortcut {
+        sequence: "Down"
+        enabled: root.songOpen && !root.textEditingFocus
+        onActivated: root.document.nextLine()
+    }
+
+    Shortcut {
+        sequence: "Left"
+        enabled: root.songOpen && !root.textEditingFocus
+        onActivated: root.document.selectPreviousNote()
+    }
+
+    Shortcut {
+        sequence: "Right"
+        enabled: root.songOpen && !root.textEditingFocus
+        onActivated: root.document.selectNextNote()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Left"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.moveSelection(-1, 0)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+Left"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.moveSelectionAndFollowing(-1)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Right"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.moveSelection(1, 0)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+Right"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.moveSelectionAndFollowing(1)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Up"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.transposeSelection(-1)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+Up"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.transposeSelection(-12)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Down"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.transposeSelection(1)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+Down"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.transposeSelection(12)
+    }
+
+    Shortcut {
+        sequence: "Alt+Left"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.resizeSelectionEnd(-1)
+    }
+
+    Shortcut {
+        sequence: "Alt+Right"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.document.resizeSelectionEnd(1)
+    }
+
+    Shortcut {
+        sequence: "Shift+A"
+        enabled: root.songOpen
+        onActivated: root.document.toggleAutoplay()
     }
 
     // playCurrentLine plays the padded range of the current line; the

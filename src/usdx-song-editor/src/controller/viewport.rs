@@ -4,7 +4,9 @@
 //! around the cursor beat, wheel scrolling of 10 % of the visible width per
 //! step, Shift+wheel one pitch row per step, middle-drag panning) and fits a
 //! beat range into the view, which is how the follow-line rule of view.rs
-//! reaches the beat-based sheet. It holds no Qt types; the bridge forwards
+//! reaches the beat-based sheet; the FitKey records the range and size a
+//! fit was computed from so the bridge refits on either change. It holds
+//! no Qt types; the bridge forwards
 //! the QML gestures and feeds the fitted range through. Defaults chosen per
 //! user decision 2026-11-13: 20 px per beat for a fresh view; C4 (60) on top
 //! with the spec's minimum 14 px row height until the pitch rule (P5-02)
@@ -30,6 +32,31 @@ pub struct SheetViewport {
 /// The zoom bounds of UI_SPEC 3.2.
 const MIN_PX_PER_BEAT: f64 = 1.0;
 const MAX_PX_PER_BEAT: f64 = 40.0;
+
+/// The fit key: the beat range and the item size the current fit was
+/// computed from. The bridge compares it against the live inputs and runs
+/// fit_range again whenever either changed, so a resize after a fit at a
+/// not yet laid out size gets the real fit (user decision 2026-11-14).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct FitKey {
+    /// The fitted beat range.
+    pub range: (f64, f64),
+    /// The item size the fit used.
+    pub size: (f64, f64),
+}
+
+impl FitKey {
+    /// new builds the key for one fit.
+    pub fn new(range: (f64, f64), size: (f64, f64)) -> FitKey {
+        FitKey { range, size }
+    }
+
+    /// stale reports whether the live inputs no longer match the key, so
+    /// the view needs a new fit_range.
+    pub fn stale(self, range: (f64, f64), size: (f64, f64)) -> bool {
+        self.range != range || self.size != size
+    }
+}
 
 /// The wheel scroll share of one time step (UI_SPEC 3.2).
 const WHEEL_TIME_SHARE: f64 = 0.1;

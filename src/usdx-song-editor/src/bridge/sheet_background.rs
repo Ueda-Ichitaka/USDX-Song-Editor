@@ -8,8 +8,10 @@
 //! the lyric labels through the C++ textmetrics helpers (cxx-qt-lib has no
 //! QFontMetrics). The time view lives in the SheetViewport controller
 //! (task P5-01): the bridge converts the document's millisecond view to
-//! beats and fits the viewport only when that range changed, so zoom and
-//! pan survive stepping through short neighbouring lines. The note data of
+//! beats and fits the viewport whenever the converted range or the item
+//! size changed since the last fit (the fit key), so a resize recomputes
+//! the zoom and zoom and pan survive stepping through short neighbouring
+//! lines. The note data of
 //! the current line and its neighbours arrives as properties SongDocument
 //! computes (user decision 2026-11-13: data push instead of a cross-bridge
 //! pointer); the pitch range runs through pitch_rows here. When the
@@ -160,12 +162,14 @@ pub mod qobject {
         /// Convert the millisecond view into beats and fit the viewport
         /// when the range changed; QML calls it on view and resize changes.
         #[qinvokable]
+        #[cxx_name = "syncView"]
         fn sync_view(self: Pin<&mut Self>);
 
         /// Take the note data over, compute the pitch rows from the pitch
         /// area height and repaint; QML calls it when the note data or the
         /// item's size changes.
         #[qinvokable]
+        #[cxx_name = "syncLyrics"]
         fn sync_lyrics(self: Pin<&mut Self>);
 
         #[inherit]
@@ -194,7 +198,7 @@ use crate::controller::lanes::{AnalysisJob, LaneAnalysis, LaneStatus};
 use crate::controller::sheet::{
     ColorRole, LyricNote, SheetGeometry, SheetInputs, SheetOp, TextFont, layout, pitch_rows,
 };
-use crate::controller::viewport::SheetViewport;
+use crate::controller::viewport::{FitKey, SheetViewport};
 
 /// The peak bucket length of the analysis (plan section 7.2).
 const BUCKET_MS: f64 = 10.0;
@@ -211,9 +215,9 @@ pub struct SheetBackgroundRust {
     /// The beat view: the viewport holds the real state, the properties
     /// mirror it for QML (the note delegates of task P5-03 read them).
     viewport: SheetViewport,
-    /// The millisecond-to-beat view the viewport last fitted; the view
-    /// refits only when the converted range changes.
-    view_beats: (f64, f64),
+    /// The fit key of the viewport's last fit: the converted beat range
+    /// and the item size; the view refits when either changes.
+    fit_key: FitKey,
     /// The mirrored beat view properties (see viewport).
     start_beat: f64,
     px_per_beat: f64,
@@ -540,14 +544,20 @@ impl qobject::SheetBackground {
             return;
         }
         let size = self.as_ref().size();
+        // The gutter holds only the labels, so the beat view fits and maps
+        // the content width right of the gutter (UI_SPEC 3.1).
+        let content_width = (size.width() - *self.gutter_width()).max(0.0);
         // One beat is 15000 / bpm ms (the USDX timing), so a duration in
         // ms maps to beats with bpm / 15000.
         let start_beat = (*self.start_ms() - *self.gap_ms()) * bpm / 15000.0;
         let end_beat = (*self.end_ms() - *self.gap_ms()) * bpm / 15000.0;
         let mut rust = self.as_mut().rust_mut();
-        rust.viewport.set_size(size.width(), size.height());
-        if start_beat != rust.view_beats.0 || end_beat != rust.view_beats.1 {
-            rust.view_beats = (start_beat, end_beat);
+        rust.viewport.set_size(content_width, size.height());
+        if rust
+            .fit_key
+            .stale((start_beat, end_beat), (content_width, size.height()))
+        {
+            rust.fit_key = FitKey::new((start_beat, end_beat), (content_width, size.height()));
             rust.viewport.fit_range(start_beat, end_beat);
         }
         let (start, px_per_beat) = (rust.viewport.start_beat, rust.viewport.px_per_beat);
@@ -583,18 +593,6 @@ impl qobject::SheetBackground {
         }
         let low = *self.sheet_pitch_low();
         let high = *self.sheet_pitch_high();
-        eprintln!(
-            "DBG sync_lyrics notes={} low={low} high={high} size={}x{} ruler={} lyrics={} gap={} wave={} act={} showl={}",
-            starts.len(),
-            self.as_ref().size().width(),
-            self.as_ref().size().height(),
-            self.ruler_height(),
-            self.lyrics_height(),
-            self.gap_height(),
-            self.waveform_height(),
-            self.activity_height(),
-            self.show_lyrics_lane(),
-        );
         let pitch = (low >= 0 && high >= 0).then_some((low, high));
         if let Some((low, high)) = pitch {
             let size = self.as_ref().size();

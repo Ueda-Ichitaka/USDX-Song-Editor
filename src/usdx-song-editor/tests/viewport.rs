@@ -4,7 +4,7 @@
 //! the wheel scrolling rules, the middle-drag pan, the rounded drag deltas
 //! and the fit of a beat range (the follow-line rule of view.rs lands here).
 
-use usdx_song_editor::controller::viewport::SheetViewport;
+use usdx_song_editor::controller::viewport::{FitKey, SheetViewport};
 
 /// A viewport of 1000 px width and 500 px pitch-area height.
 fn viewport() -> SheetViewport {
@@ -190,4 +190,43 @@ fn set_size_changes_the_visible_range() {
     assert_eq!(v.width_px, 500.0);
     assert_eq!(v.height_px, 300.0);
     assert_eq!(v.visible_beats(), 25.0, "500 px at 20 px/beat");
+}
+
+#[test]
+fn fit_key_is_current_while_the_range_and_the_size_stay() {
+    let key = FitKey::new((-36.9, 93.0), (979.0, 674.0));
+    assert!(
+        !key.stale((-36.9, 93.0), (979.0, 674.0)),
+        "the same range and size need no new fit"
+    );
+}
+
+#[test]
+fn fit_key_stales_when_the_range_moves() {
+    let key = FitKey::new((0.0, 10.0), (979.0, 674.0));
+    assert!(
+        key.stale((5.0, 15.0), (979.0, 674.0)),
+        "a moved beat range needs a new fit (the follow-line rule)"
+    );
+}
+
+#[test]
+fn fit_key_stales_when_the_size_changes() {
+    // The acceptance bug: a fit that ran at size 0x0 survived the resize
+    // because only the range was compared, leaving the 1 px/beat clamp.
+    let key = FitKey::new((-36.9, 93.0), (0.0, 0.0));
+    assert!(
+        key.stale((-36.9, 93.0), (979.0, 674.0)),
+        "a resize needs a new fit even when the range stays"
+    );
+}
+
+#[test]
+fn fit_key_defaults_to_the_zero_range_and_size() {
+    let key = FitKey::default();
+    assert!(!key.stale((0.0, 0.0), (0.0, 0.0)));
+    assert!(
+        key.stale((-36.9, 93.0), (0.0, 0.0)),
+        "the first real range always fits"
+    );
 }

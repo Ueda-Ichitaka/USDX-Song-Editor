@@ -580,6 +580,17 @@ Kirigami.Page {
                         Kirigami.Theme.inherit: false
                     }
 
+                    // A resize recomputes the pitch rows and the view
+                    // mapping from the sheet item's new size.
+                    onWidthChanged: {
+                        sheet.syncView();
+                        sheet.syncLyrics();
+                    }
+                    onHeightChanged: {
+                        sheet.syncView();
+                        sheet.syncLyrics();
+                    }
+
                     Usdx.SheetBackground {
                         id: sheet
 
@@ -595,16 +606,6 @@ Kirigami.Page {
                         sheetNoteCurrents: root.document ? root.document.sheetNoteCurrents : []
                         sheetPitchLow: root.document ? root.document.sheetPitchLow : -1
                         sheetPitchHigh: root.document ? root.document.sheetPitchHigh : -1
-                        // A resize recomputes the pitch rows and the view
-                        // mapping from the new item size.
-                        onWidthChanged: {
-                            sheet.syncView();
-                            sheet.syncLyrics();
-                        }
-                        onHeightChanged: {
-                            sheet.syncView();
-                            sheet.syncLyrics();
-                        }
                         startMs: root.document ? root.document.viewStartMs : 0
                         endMs: root.document ? root.document.viewEndMs : 0
                         // The selected track draws the waveform, the vocals
@@ -717,9 +718,11 @@ Kirigami.Page {
                         objectName: "playhead"
                         visible: root.songOpen && root.player !== null
                                  && root.document !== null && root.document.bpm > 0
-                        x: root.player !== null
-                           ? ((root.player.positionMs - root.document.gapMs) * 15
-                              / root.document.bpm - sheet.startBeat) * sheet.pxPerBeat - 1
+                        x: root.player !== null && root.document !== null
+                           ? sheet.gutterWidth
+                             + ((root.player.positionMs - root.document.gapMs)
+                                * root.document.bpm / 15000 - sheet.startBeat)
+                               * sheet.pxPerBeat - 1
                            : -1
                         y: 0
                         width: 2

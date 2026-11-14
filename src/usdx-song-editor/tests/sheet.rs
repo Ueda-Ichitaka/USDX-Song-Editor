@@ -294,6 +294,15 @@ fn ruler_labels_format_m_ss_s() {
 }
 
 #[test]
+fn beat_to_x_places_the_time_content_right_of_the_gutter() {
+    // The gutter holds only the labels; ticks, notes and lyrics start at
+    // the gutter's right edge (UI_SPEC 3.1, 3.3, 3.6).
+    let geometry = geom(None);
+    assert_eq!(geometry.beat_to_x(geometry.start_beat), 46.0);
+    assert_eq!(geometry.beat_to_x(geometry.start_beat + 2.0), 86.0);
+}
+
+#[test]
 fn ruler_ticks_and_labels_lay_on_song_time() {
     // Beats 100 to 150 at 20 px per beat (a 1000 px view), bpm 369.14,
     // gap 14937 ms: the view spans 19000.5 to 21032.25 ms, so the ticks sit
@@ -314,8 +323,9 @@ fn ruler_ticks_and_labels_lay_on_song_time() {
         (20500.0, "0:20.5"),
         (21000.0, "0:21.0"),
     ] {
-        let expected_x =
-            (tick_ms - geometry.gap_ms) / ms_per_beat * 20.0 - geometry.start_beat * 20.0;
+        let expected_x = (tick_ms - geometry.gap_ms) / ms_per_beat * 20.0
+            - geometry.start_beat * 20.0
+            + geometry.gutter_width;
         match &text(&ops, label) {
             SheetOp::Text {
                 x, y, font, color, ..
@@ -755,7 +765,7 @@ fn lines_of(song: &usdx_format::song::Song) -> Vec<&usdx_format::song::Line> {
     song.voices.iter().flat_map(|voice| &voice.lines).collect()
 }
 
-const NOTE_SONG: &str = "#TITLE:T\n#BPM:240\n: 0 4 60 la\n: 4 4 62 la\tla\n- 8\n: 8 4 59 la\nE\n";
+const NOTE_SONG: &str = "#TITLE:T\n#BPM:240\n: 0 4 0 la\n: 4 4 2 la\tla\n- 8\n: 8 4 -1 la\nE\n";
 
 #[test]
 fn line_notes_collects_the_current_line_sorted_with_its_pitch_range() {
@@ -816,6 +826,26 @@ fn line_notes_include_the_faded_global_neighbours() {
         ]
     );
     assert_eq!(result.pitch, Some((59, 59)));
+}
+
+#[test]
+fn line_notes_convert_relative_usdx_pitches_to_midi() {
+    // USDX pitches are relative to C4: 0 is C4 = MIDI 60, so the sheet's
+    // MIDI-based pitch rows and note names (UI_SPEC 3.3) need +60.
+    let (doc, view) = song(NOTE_SONG);
+    let lines = lines_of(&view);
+    let result = line_notes(&doc, &view, &lines, 0);
+    assert_eq!(
+        result.pitch,
+        Some((60, 62)),
+        "relative 0 and 2 read as MIDI 60 (C4) and 62 (D4)"
+    );
+    let result = line_notes(&doc, &view, &lines, 1);
+    assert_eq!(
+        result.pitch,
+        Some((59, 59)),
+        "relative -1 reads as MIDI 59 (B3)"
+    );
 }
 
 #[test]

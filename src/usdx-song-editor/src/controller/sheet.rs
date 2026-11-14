@@ -290,9 +290,10 @@ impl SheetGeometry {
         self.wave_top() + self.waveform_height
     }
 
-    /// beat_to_x maps a beat to its sheet x position.
-    fn beat_to_x(&self, beat: f64) -> f64 {
-        (beat - self.start_beat) * self.px_per_beat
+    /// beat_to_x maps a beat to its sheet x position; the gutter holds only
+    /// the labels, so the time content starts at the gutter's right edge.
+    pub fn beat_to_x(&self, beat: f64) -> f64 {
+        self.gutter_width + (beat - self.start_beat) * self.px_per_beat
     }
 
     /// end_beat returns the rightmost visible beat.
@@ -347,6 +348,11 @@ pub struct LineNotes {
     pub pitch: Option<(i32, i32)>,
 }
 
+/// The MIDI pitch of USDX relative pitch 0: the USDX format stores pitches
+/// relative to C4, and the sheet's pitch rows and note names use MIDI
+/// numbers (C4 = 60, UI_SPEC 3.3).
+const PITCH_C4_MIDI: i32 = 60;
+
 /// line_notes collects the lyric notes of the current line and its global
 /// neighbours (UI_SPEC 3.5, 3.6; user decision 2026-11-13: the neighbours
 /// are the global previous and next line) and the current line's pitch
@@ -361,7 +367,7 @@ pub fn line_notes(doc: &Document, song: &Song, lines: &[&Line], current: usize) 
                 continue;
             };
             if is_current {
-                let value = note.pitch as i32;
+                let value = note.pitch as i32 + PITCH_C4_MIDI;
                 let (min, max) = pitch.unwrap_or((value, value));
                 pitch = Some((min.min(value), max.max(value)));
             }

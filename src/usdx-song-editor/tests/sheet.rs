@@ -856,3 +856,33 @@ fn line_notes_of_an_empty_line_have_no_pitch() {
     assert!(result.notes.is_empty());
     assert_eq!(result.pitch, None);
 }
+
+// ---- x_to_beat and y_to_pitch (task P5-04: the rubber band and the drag
+// deltas map sheet pixels back to song coordinates) ----
+
+#[test]
+fn x_to_beat_inverts_beat_to_x() {
+    let mut geometry = geom(None);
+    geometry.start_beat = 100.0;
+    // The gutter holds only labels: x there still maps linearly, so a band
+    // edge left of the view covers the notes partially off-view too.
+    assert_eq!(geometry.x_to_beat(30.0), 99.2);
+    assert_eq!(geometry.x_to_beat(geometry.beat_to_x(102.0)), 102.0);
+    assert_eq!(
+        geometry.x_to_beat(86.0),
+        102.0,
+        "20 px per beat: 40 px = 2 beats"
+    );
+}
+
+#[test]
+fn y_to_pitch_returns_the_pitch_row_under_the_y() {
+    let geometry = geom(Some((60, 64)));
+    // The first pitch row starts at the ruler height; the inverse maps a
+    // row top back onto its pitch.
+    let pitch = geometry.top_pitch - 2;
+    let y = geometry.ruler_height + 2.0 * geometry.px_per_semitone;
+    assert_eq!(geometry.y_to_pitch(y), pitch);
+    // Above the pitch area the top pitch clamps the result.
+    assert_eq!(geometry.y_to_pitch(0.0), geometry.top_pitch);
+}

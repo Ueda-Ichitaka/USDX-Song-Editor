@@ -21,10 +21,11 @@ mod ffi {
         fn usdx_png_pixel(path: &QString, x: i32, y: i32) -> QString;
         fn usdx_hold_lane_loading(engine: &QQmlApplicationEngine, fraction: f64) -> bool;
         fn usdx_settle_lanes(engine: &QQmlApplicationEngine, timeout_ms: i32) -> QString;
+        fn usdx_select_demo_note(engine: &QQmlApplicationEngine, position: i32) -> bool;
     }
 }
 
 pub use ffi::{
     usdx_hold_lane_loading, usdx_png_pixel, usdx_png_size, usdx_resize_window,
-    usdx_screenshot_window, usdx_settle_lanes,
+    usdx_screenshot_window, usdx_select_demo_note, usdx_settle_lanes,
 };

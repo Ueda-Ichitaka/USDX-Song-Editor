@@ -172,6 +172,30 @@ pub mod qobject {
         #[cxx_name = "syncLyrics"]
         fn sync_lyrics(self: Pin<&mut Self>);
 
+        /// Convert a horizontal drag delta in pixels into an unrounded beat
+        /// delta (plan 8.4, user decision 2026-11-14: the rounding happens
+        /// after the snap in the controller's preview functions).
+        #[qinvokable]
+        #[cxx_name = "dragDeltaBeats"]
+        fn drag_delta_beats(self: &SheetBackground, dx_px: f64) -> f64;
+
+        /// Convert a vertical drag delta in pixels into a pitch delta:
+        /// dragging down lowers the pitch.
+        #[qinvokable]
+        #[cxx_name = "dragDeltaPitch"]
+        fn drag_delta_pitch(self: &SheetBackground, dy_px: f64) -> i64;
+
+        /// Map a sheet x position to its beat (the rubber band); the beat
+        /// view starts at the gutter's right edge.
+        #[qinvokable]
+        #[cxx_name = "xToBeat"]
+        fn x_to_beat(self: &SheetBackground, x: f64) -> f64;
+
+        /// Map a sheet y position to the pitch of the row it falls into.
+        #[qinvokable]
+        #[cxx_name = "yToPitch"]
+        fn y_to_pitch(self: &SheetBackground, y: f64) -> i32;
+
         #[inherit]
         fn size(self: &Self) -> QSizeF;
 
@@ -533,6 +557,49 @@ impl qobject::SheetBackground {
         for op in layout(&geometry, &inputs) {
             replay(painter.as_mut(), &op, rust);
         }
+    }
+
+    /// drag_delta_beats converts a horizontal drag delta into beats without
+    /// rounding; the preview rounds after the snap (plan 8.4).
+    pub fn drag_delta_beats(&self, dx_px: f64) -> f64 {
+        let px_per_beat = *self.px_per_beat();
+        if px_per_beat <= 0.0 {
+            return 0.0;
+        }
+        dx_px / px_per_beat
+    }
+
+    /// drag_delta_pitch converts a vertical drag delta into semitones:
+    /// dragging down lowers the pitch.
+    pub fn drag_delta_pitch(&self, dy_px: f64) -> i64 {
+        let px_per_semitone = *self.px_per_semitone();
+        if px_per_semitone <= 0.0 {
+            return 0;
+        }
+        (-dy_px / px_per_semitone).round() as i64
+    }
+
+    /// x_to_beat maps a sheet x position to its beat; the beat view starts
+    /// at the gutter's right edge.
+    pub fn x_to_beat(&self, x: f64) -> f64 {
+        let px_per_beat = *self.px_per_beat();
+        if px_per_beat <= 0.0 {
+            return *self.start_beat();
+        }
+        *self.start_beat() + (x - *self.gutter_width()) / px_per_beat
+    }
+
+    /// y_to_pitch maps a sheet y position to the pitch of the row it falls
+    /// into; the pitch area starts below the ruler.
+    pub fn y_to_pitch(&self, y: f64) -> i32 {
+        let px_per_semitone = *self.px_per_semitone();
+        if px_per_semitone <= 0.0 {
+            return *self.pitch_top() as i32;
+        }
+        let rows = ((y - *self.ruler_height()) / px_per_semitone)
+            .floor()
+            .max(0.0);
+        (*self.pitch_top()).round() as i32 - rows as i32
     }
 
     /// sync_view converts the millisecond view into beats and fits the

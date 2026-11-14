@@ -1,16 +1,19 @@
 // About me: the editor page (UI_SPEC 4.3): the toolbar with the playback and
 // edit controls, the horizontal split of the lines pane and the editor
-// column with the banners, the line header and the note sheet area, and the
-// status bar in the page footer. Without a song the page shows the start
-// screen with the recent songs list (UI_SPEC 4.1). The playback controls
-// drive the Player bridge: Play and Play line run the audio, Loop replays
-// the current line, and the shortcuts Space, P, L, V, [ and ] follow the
-// plan's key table (8.6) as Shortcut elements (they move into the
-// Kirigami.Actions of the menus when those arrive). The note sheet area
-// shows the waveform and activity lanes of the painted SheetBackground for
-// the current line's time view, with the loading, no-audio and no-vocals
-// states of UI_SPEC 3.7; the ruler, pitch rows, notes and the inspector
-// arrive with P5.
+// column with the banners, the line header, the note sheet area and the
+// note inspector, and the status bar in the page footer. Without a song the
+// page shows the start screen with the recent songs list (UI_SPEC 4.1). The
+// playback controls drive the Player bridge: Play and Play line run the
+// audio, Loop replays the current line, and the shortcuts Space, P, L, V,
+// [ and ] follow the plan's key table (8.6) as Shortcut elements (they move
+// into the Kirigami.Actions of the menus when those arrive). The note
+// editing shortcuts N, G, F, R, Shift+R, S, M, Delete, Insert and B (task
+// P5-05) act on the selection; refusals land in passive notifications
+// through the document's editRefused signal. The note sheet area shows the
+// waveform and activity lanes of the painted SheetBackground for the
+// current line's time view, with the loading, no-audio and no-vocals states
+// of UI_SPEC 3.7; the inspector under it mirrors the document's inspector
+// hash of the current selection (UI_SPEC 4.3, item 3).
 
 import QtQuick
 import QtQuick.Controls
@@ -42,6 +45,19 @@ Kirigami.Page {
     // The start screen's toolbar keeps only Play of the playback controls
     // (UI_SPEC 4.1); the editor shows them all (UI_SPEC 4.3).
     readonly property bool songOpen: root.document !== null && root.document.isLoaded
+
+    // The note-editing shortcuts act on the selection, so they need a
+    // loaded, writable song (plan 8.6, task P5-05).
+    readonly property bool canEditNotes:
+        root.songOpen && root.document && !root.document.readOnly
+
+    // The playhead's beat (the S key splits at it, plan 8.6): the position
+    // mapped back through the GAP offset.
+    readonly property int playheadBeat:
+        root.player && root.document && root.document.bpm > 0
+        ? Math.round((root.player.positionMs - root.document.gapMs)
+                     * root.document.bpm / 15000)
+        : 0
 
     title: ""
     padding: 0
@@ -309,6 +325,72 @@ Kirigami.Page {
         onActivated: root.player.pause()
     }
 
+    // The note-editing shortcuts of the key table (plan 8.6, task P5-05):
+    // the type keys, split and merge at the selected note, delete, insert
+    // after the selection and the phrase end toggle. They act on the
+    // selection, so they need a loaded, writable song; refusals (several
+    // notes selected, a beat outside a note, ...) arrive as passive
+    // notifications through the document's editRefused signal.
+    Shortcut {
+        sequence: "N"
+        enabled: root.canEditNotes
+        onActivated: root.document.setSelectionType(":")
+    }
+
+    Shortcut {
+        sequence: "G"
+        enabled: root.canEditNotes
+        onActivated: root.document.setSelectionType("*")
+    }
+
+    Shortcut {
+        sequence: "F"
+        enabled: root.canEditNotes
+        onActivated: root.document.toggleFreestyle()
+    }
+
+    Shortcut {
+        sequence: "R"
+        enabled: root.canEditNotes
+        onActivated: root.document.setSelectionType("R")
+    }
+
+    Shortcut {
+        sequence: "Shift+R"
+        enabled: root.canEditNotes
+        onActivated: root.document.setSelectionType("G")
+    }
+
+    Shortcut {
+        sequence: "S"
+        enabled: root.canEditNotes
+        onActivated: root.document.splitSelectionAt(root.playheadBeat)
+    }
+
+    Shortcut {
+        sequence: "M"
+        enabled: root.canEditNotes
+        onActivated: root.document.mergeSelection()
+    }
+
+    Shortcut {
+        sequence: "Delete"
+        enabled: root.canEditNotes
+        onActivated: root.document.deleteSelection()
+    }
+
+    Shortcut {
+        sequence: "Insert"
+        enabled: root.canEditNotes
+        onActivated: root.document.insertNote()
+    }
+
+    Shortcut {
+        sequence: "B"
+        enabled: root.canEditNotes
+        onActivated: root.document.togglePhraseEndBeforeSelection()
+    }
+
     // playCurrentLine plays the padded range of the current line; the
     // rangeDone replay of the Loop uses it as well.
     function playCurrentLine() {
@@ -549,207 +631,23 @@ Kirigami.Page {
                     document: root.document
                 }
 
-                // The note sheet area (UI_SPEC 3): the painted background
-                // fills it with the ruler, the pitch rows, the lyrics lane,
-                // the gap and the waveform and activity lanes including the
-                // gutter (the lane labels are painted, not QML elements).
-                // The note delegates, the ruler interaction and the phrase
-                // ends arrive with the P5 tasks.
-                Rectangle {
-                    id: sheetArea
+                // The note sheet area (UI_SPEC 3): NoteSheet.qml holds the
+                // painted background, the note delegates, the phrase end
+                // handles, the rubber band, the ruler seek strip and the
+                // playhead (tasks P5-04, P5-05).
+                Usdx.NoteSheet {
+                    objectName: "sheetArea"
 
+                    document: root.document
+                    player: root.player
+                    songOpen: root.songOpen
+                }
+
+                // The note inspector (UI_SPEC 4.3, item 3, task P5-05)
+                // under the sheet: it mirrors the document's inspector hash.
+                Usdx.Inspector {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Kirigami.Theme.colorSet: Kirigami.Theme.View
-                    Kirigami.Theme.inherit: false
-                    color: Kirigami.Theme.backgroundColor
-
-                    // The window and header colour sets, for the lane and
-                    // ruler backgrounds (UI_SPEC 2.3).
-                    Item {
-                        id: windowColors
-
-                        Kirigami.Theme.colorSet: Kirigami.Theme.Window
-                        Kirigami.Theme.inherit: false
-                    }
-
-                    Item {
-                        id: headerColors
-
-                        Kirigami.Theme.colorSet: Kirigami.Theme.Header
-                        Kirigami.Theme.inherit: false
-                    }
-
-                    // A resize recomputes the pitch rows and the view
-                    // mapping from the sheet item's new size.
-                    onWidthChanged: {
-                        sheet.syncView();
-                        sheet.syncLyrics();
-                    }
-                    onHeightChanged: {
-                        sheet.syncView();
-                        sheet.syncLyrics();
-                    }
-
-                    Usdx.SheetBackground {
-                        id: sheet
-
-                        objectName: "sheetBackground"
-                        anchors.fill: parent
-                        // The song timing the beat axis maps through.
-                        bpm: root.document ? root.document.bpm : 0
-                        gapMs: root.document ? root.document.gapMs : 0
-                        // The note data of the current line and its global
-                        // neighbours, which SongDocument computes.
-                        sheetNoteStarts: root.document ? root.document.sheetNoteStarts : []
-                        sheetNoteTexts: root.document ? root.document.sheetNoteTexts : []
-                        sheetNoteCurrents: root.document ? root.document.sheetNoteCurrents : []
-                        sheetPitchLow: root.document ? root.document.sheetPitchLow : -1
-                        sheetPitchHigh: root.document ? root.document.sheetPitchHigh : -1
-                        startMs: root.document ? root.document.viewStartMs : 0
-                        endMs: root.document ? root.document.viewEndMs : 0
-                        // The selected track draws the waveform, the vocals
-                        // track the activity (UI_SPEC 3.7). filePath takes
-                        // part so a new song re-reads the paths.
-                        audioPath: root.songOpen && root.document.filePath.length > 0
-                                   ? root.document.audioPath(root.player ? root.player.track : 0) : ""
-                        vocalsPath: root.songOpen && root.document.filePath.length > 0
-                                    ? root.document.audioPath(1) : ""
-                        // The lane stack and the gutter (UI_SPEC 3.1).
-                        gutterWidth: metrics.sheetGutterWidth
-                        rulerHeight: metrics.sheetRulerHeight
-                        lyricsHeight: metrics.sheetLyricsHeight
-                        gapHeight: metrics.sheetGapHeight
-                        waveformHeight: metrics.waveformLaneHeight
-                        activityHeight: metrics.activityLaneHeight
-                        showLyricsLane: true
-                        trackName: [qsTr("Mix"), qsTr("Vocals"), qsTr("Instr.")][root.player ? root.player.track : 0]
-                        // The theme colours (UI_SPEC 2.3); the grid lines
-                        // interpolate between the view background and text.
-                        viewBackgroundColor: sheetArea.Kirigami.Theme.backgroundColor
-                        alternateColor: sheetArea.Kirigami.Theme.alternateBackgroundColor
-                        headerBackgroundColor: headerColors.Kirigami.Theme.backgroundColor
-                        windowBackgroundColor: windowColors.Kirigami.Theme.backgroundColor
-                        gridLineColor: Kirigami.ColorUtils.linearInterpolation(
-                            sheetArea.Kirigami.Theme.backgroundColor,
-                            sheetArea.Kirigami.Theme.textColor, 0.10)
-                        strongGridLineColor: Kirigami.ColorUtils.linearInterpolation(
-                            sheetArea.Kirigami.Theme.backgroundColor,
-                            sheetArea.Kirigami.Theme.textColor, 0.20)
-                        textColor: sheetArea.Kirigami.Theme.textColor
-                        disabledTextColor: sheetArea.Kirigami.Theme.disabledTextColor
-                        waveformColor: appPalette.waveform
-                        activityColor: appPalette.vocalActivity
-                        // The sheet fonts (UI_SPEC 2.2, 3.3, 3.6), complete
-                        // because the bridge cannot change size or weight.
-                        smallFont: Kirigami.Theme.smallFont
-                        smallDemiFont: Qt.font({
-                            family: Kirigami.Theme.smallFont.family,
-                            pointSize: Kirigami.Theme.smallFont.pointSize,
-                            weight: Font.DemiBold
-                        })
-                        lyricsFont: Qt.font({
-                            family: Kirigami.Theme.defaultFont.family,
-                            pointSize: 9,
-                            weight: Font.DemiBold
-                        })
-                        lyricsNeighbourFont: Qt.font({
-                            family: Kirigami.Theme.defaultFont.family,
-                            pointSize: 9
-                        })
-
-                        // "Reading the waveform… 42 %" with its progress bar,
-                        // over the waveform lane at the sheet's bottom.
-                        ColumnLayout {
-                            objectName: "waveformLoading"
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: parent.height - metrics.activityLaneHeight
-                               - metrics.waveformLaneHeight
-                               + (metrics.waveformLaneHeight - height) / 2
-                            visible: sheet.laneStatus === Usdx.SheetBackground.LaneStatus.Loading
-                            spacing: Kirigami.Units.smallSpacing
-
-                            QQC2.Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: qsTr("Reading the waveform… %1 %").arg(Math.round(sheet.analysisProgress * 100))
-                                color: sheetArea.Kirigami.Theme.disabledTextColor
-                            }
-
-                            // The Breeze bar draws its 6 px track centred
-                            // in its own implicit height; a forced 6 px
-                            // item height would draw nothing.
-                            QQC2.ProgressBar {
-                                Layout.preferredWidth: metrics.waveformProgressWidth
-                                from: 0
-                                to: 1
-                                value: sheet.analysisProgress
-                            }
-                        }
-
-                        QQC2.Label {
-                            objectName: "waveformNoAudio"
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: parent.height - metrics.activityLaneHeight
-                               - metrics.waveformLaneHeight
-                               + (metrics.waveformLaneHeight - height) / 2
-                            visible: sheet.laneStatus === Usdx.SheetBackground.LaneStatus.NoAudio
-                            text: qsTr("No audio")
-                            color: sheetArea.Kirigami.Theme.disabledTextColor
-                        }
-
-                        QQC2.Label {
-                            objectName: "waveformNoVocals"
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: parent.height - metrics.activityLaneHeight - height
-                            visible: sheet.laneStatus === Usdx.SheetBackground.LaneStatus.Ready
-                                     && !sheet.showActivity
-                            text: qsTr("No vocals track: vocal activity and the coverage check are off. Vocals is disabled in the track list.")
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            color: sheetArea.Kirigami.Theme.disabledTextColor
-                        }
-                    }
-
-                    // The playhead (UI_SPEC 3.5): a 2 px line in the negative
-                    // colour from the ruler top to the activity lane's
-                    // bottom, with a downward triangle at the ruler top. Its
-                    // x follows the player's position mapped through the
-                    // beat axis the sheet shows.
-                    Item {
-                        objectName: "playhead"
-                        visible: root.songOpen && root.player !== null
-                                 && root.document !== null && root.document.bpm > 0
-                        x: root.player !== null && root.document !== null
-                           ? sheet.gutterWidth
-                             + ((root.player.positionMs - root.document.gapMs)
-                                * root.document.bpm / 15000 - sheet.startBeat)
-                               * sheet.pxPerBeat - 1
-                           : -1
-                        y: 0
-                        width: 2
-                        height: parent.height
-
-                        Rectangle {
-                            width: 2
-                            height: parent.height
-                            color: sheetArea.Kirigami.Theme.negativeTextColor
-                        }
-
-                        Canvas {
-                            x: -5
-                            width: 12
-                            height: 8
-                            onPaint: {
-                                const context = getContext("2d");
-                                context.fillStyle = sheetArea.Kirigami.Theme.negativeTextColor;
-                                context.beginPath();
-                                context.moveTo(0, 0);
-                                context.lineTo(12, 0);
-                                context.lineTo(6, 8);
-                                context.closePath();
-                                context.fill();
-                            }
-                        }
-                    }
+                    document: root.document
                 }
             }
         }

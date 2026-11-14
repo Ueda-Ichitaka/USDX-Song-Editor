@@ -38,3 +38,10 @@ bool usdx_hold_lane_loading(const QQmlApplicationEngine &engine, double fraction
 // "no audio", "loading N %", "ready" or "ready, no vocals"; an empty string
 // without the item.
 QString usdx_settle_lanes(const QQmlApplicationEngine &engine, int timeoutMs);
+
+// Selects the note at the given position among the current line's notes of
+// the notes model (0-based, counting only the current line's rows) through
+// selectRange with a band inside the note; false without a document, model
+// or row. The editor demo state uses it so the screenshot shows the
+// selection and the populated inspector like the mockup.
+bool usdx_select_demo_note(const QQmlApplicationEngine &engine, int position);

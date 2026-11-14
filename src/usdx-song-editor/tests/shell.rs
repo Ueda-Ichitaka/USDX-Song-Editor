@@ -660,3 +660,45 @@ fn track_path_is_none_without_a_file() {
     assert_eq!(track_path(&controller, TrackKind::Mix), None);
     let _ = path;
 }
+
+// ---- edit_failure_reason (task P5-04, UI_SPEC 6.4) ----
+
+/// The refused-edit notification texts of UI_SPEC 6.4, verbatim, mapped from
+/// the EditError variants; the relative-mode text is the user decision of
+/// 2026-11-14 (it suggests the fix).
+#[test]
+fn edit_failure_reasons_are_the_ui_spec_texts() {
+    use usdx_edit::EditError;
+    use usdx_format::rows::RowId;
+    use usdx_song_editor::controller::shell::edit_failure_reason;
+
+    assert_eq!(
+        edit_failure_reason(&EditError::BeforeSongStart),
+        "Notes cannot move before the song start. Lower #GAP in Song properties first."
+    );
+    assert_eq!(
+        edit_failure_reason(&EditError::LengthBelowOne),
+        "A note needs a length of at least 1 beat."
+    );
+    assert_eq!(
+        edit_failure_reason(&EditError::PhraseEndOutOfRange),
+        "Phrase ends must stay between two notes."
+    );
+    assert_eq!(
+        edit_failure_reason(&EditError::RelativeModeIsReadOnly),
+        "Relative mode cannot be edited: convert the song to absolute beats first."
+    );
+    assert_eq!(
+        edit_failure_reason(&EditError::UnknownRow(RowId(9))),
+        "This edit cannot be applied to the song.",
+        "internal errors get one neutral text, not a variant dump"
+    );
+    assert_eq!(
+        edit_failure_reason(&EditError::StalePatch("stale")),
+        "This edit cannot be applied to the song."
+    );
+    assert_eq!(
+        edit_failure_reason(&EditError::PhraseEndBetween),
+        "This edit cannot be applied to the song."
+    );
+}

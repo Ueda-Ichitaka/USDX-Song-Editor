@@ -8,9 +8,12 @@
 //! viewport (beats and pitches to pixels, zoom and scroll); the repair and
 //! tap controllers are added in later tasks.
 
+pub mod editing;
 pub mod editor;
 pub mod fingerprint;
+pub mod inspector;
 pub mod lanes;
+pub mod notes;
 pub mod save;
 pub mod settings;
 pub mod sheet;

@@ -21,14 +21,16 @@ import "format.js" as Time
 Kirigami.ApplicationWindow {
     id: root
 
-    // The application state, exposed for the self-test helper and the pages.
-    property Usdx.SongDocument songDocument: Usdx.SongDocument {
-        objectName: "songDocument"
-        linesModel: root.linesModel
-        recentModel: root.recentModel
-    }
     property Usdx.LinesModel linesModel: Usdx.LinesModel {
         objectName: "linesModel"
+        document: root.songDocument
+    }
+    property Usdx.NotesModel notesModel: Usdx.NotesModel {
+        objectName: "notesModel"
+        document: root.songDocument
+    }
+    property Usdx.PhraseEndsModel phraseEndsModel: Usdx.PhraseEndsModel {
+        objectName: "phraseEndsModel"
         document: root.songDocument
     }
     property Usdx.RecentSongsModel recentModel: Usdx.RecentSongsModel {
@@ -38,6 +40,15 @@ Kirigami.ApplicationWindow {
     property Usdx.Player player: Usdx.Player {
         objectName: "player"
         document: root.songDocument
+    }
+
+    // The application state, exposed for the self-test helper and the pages.
+    property Usdx.SongDocument songDocument: Usdx.SongDocument {
+        objectName: "songDocument"
+        linesModel: root.linesModel
+        notesModel: root.notesModel
+        phraseEndsModel: root.phraseEndsModel
+        recentModel: root.recentModel
     }
 
     // The player follows every opened song, so the Track combo shows the
@@ -242,6 +253,9 @@ Kirigami.ApplicationWindow {
         }
         function onExternalChangeDetected() {
             changedOnDiskDialog.open();
+        }
+        function onEditRefused(message) {
+            root.showPassiveNotification(message, 4000);
         }
     }
 

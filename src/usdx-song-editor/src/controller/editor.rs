@@ -41,10 +41,17 @@ pub struct LoadedSong {
 
 /// The state of one editing session.
 pub struct EditorController {
-    loaded: Option<LoadedSong>,
+    /// The loaded session or `None` of the start screen; the editing
+    /// methods in controller/editing.rs read and write it.
+    pub(crate) loaded: Option<LoadedSong>,
     /// The current line as a global index across all voices.
     current_line: usize,
-    selection: BTreeSet<RowId>,
+    /// The selected row ids; the editing methods in controller/editing.rs
+    /// read and write it.
+    pub(crate) selection: BTreeSet<RowId>,
+    /// The anchor of a Shift-extend selection: the last note a click or a
+    /// rubber band selected (task P5-04).
+    pub(crate) anchor: Option<RowId>,
 }
 
 impl Default for EditorController {
@@ -60,6 +67,7 @@ impl EditorController {
             loaded: None,
             current_line: 0,
             selection: BTreeSet::new(),
+            anchor: None,
         }
     }
 
@@ -108,6 +116,7 @@ impl EditorController {
         });
         self.current_line = 0;
         self.selection.clear();
+        self.anchor = None;
         Ok(())
     }
 

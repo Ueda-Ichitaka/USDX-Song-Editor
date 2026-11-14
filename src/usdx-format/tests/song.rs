@@ -306,6 +306,56 @@ fn a_non_relative_song_ignores_the_rel_offset_column() {
     assert_eq!(s.note(&d, RowId(3)).expect("b is a note").start, 0.0);
 }
 
+// ---- Phrase end beats ----
+
+#[test]
+fn a_phrase_end_beats_read_raw_in_absolute_mode() {
+    let d = doc("#TITLE:T\n: 0 1 1 a\n- 8 12\n: 0 1 1 b\n- 9\nE\n");
+    let s = Song::from_document(&d);
+    assert_eq!(
+        s.phrase_end_beat(&d, RowId(2))
+            .expect("the marker has a beat"),
+        8.0,
+        "the rel-offset column is ignored outside relative mode"
+    );
+    assert_eq!(
+        s.phrase_end_beat(&d, RowId(4))
+            .expect("the marker has a beat"),
+        9.0
+    );
+}
+
+#[test]
+fn a_relative_phrase_end_beats_shift_by_the_offsets_before_it() {
+    // The fixture's markers (see the walk above): `- 8 12` sits at rel 0,
+    // `- 4 8` at rel 12, `- 0 5` at rel 20; each own rel-offset accumulates
+    // only for the rows after the marker.
+    let (d, s) = relative_song();
+    assert_eq!(s.phrase_end_beat(&d, RowId(8)).expect("a marker"), 8.0);
+    assert_eq!(s.phrase_end_beat(&d, RowId(10)).expect("a marker"), 16.0);
+    assert_eq!(s.phrase_end_beat(&d, RowId(11)).expect("a marker"), 20.0);
+}
+
+#[test]
+fn a_phrase_end_beat_is_none_for_other_rows_and_unknown_ids() {
+    let d = doc("#TITLE:T\n: 0 1 1 a\n- 8\nE\n");
+    let s = Song::from_document(&d);
+    assert!(
+        s.phrase_end_beat(&d, RowId(1)).is_none(),
+        "a note row is not a phrase end"
+    );
+    assert!(s.phrase_end_beat(&d, RowId(99)).is_none());
+}
+
+#[test]
+fn a_phrase_end_without_a_beat_has_no_beat() {
+    // The row layer holds `beat: Option<i64>`; a marker without a usable
+    // beat reports none (the line's end falls back to its last note).
+    let d = doc("#TITLE:T\n: 0 1 1 a\n-\nE\n");
+    let s = Song::from_document(&d);
+    assert!(s.phrase_end_beat(&d, RowId(2)).is_none());
+}
+
 // ---- Rebuild benchmark ----
 
 /// a_3000_row_song generates a song text with 3000 note rows.

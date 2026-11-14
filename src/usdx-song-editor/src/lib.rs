@@ -217,8 +217,9 @@ fn copy_song_with_audio(
 
 /// The demo states the harness knows (UI_SPEC 8.1); later tasks add theirs.
 #[cfg(debug_assertions)]
-const DEMO_STATES: [&str; 4] = [
+const DEMO_STATES: [&str; 5] = [
     "start-screen",
+    "editor",
     "audio-states-missing",
     "audio-states-loading",
     "audio-states-no-vocals",
@@ -239,7 +240,7 @@ fn check_demo_state(state: &str, has_song: bool) -> Result<(), String> {
             DEMO_STATES.join(", ")
         ));
     }
-    if state.starts_with("audio-states-") && !has_song {
+    if (state.starts_with("audio-states-") || state == "editor") && !has_song {
         return Err(format!("the demo state \"{state}\" needs --song"));
     }
     Ok(())
@@ -268,6 +269,13 @@ fn apply_demo_state(
     };
     let lanes = bridge::screenshot::usdx_settle_lanes(engine, settle_ms).to_string();
     println!("lane status: {lanes}");
+    if state == "editor" {
+        // The editor screenshot shows the selection and the populated
+        // inspector like the mockup: the third note of the current line.
+        if !bridge::screenshot::usdx_select_demo_note(engine, 2) {
+            return Err(String::from("no note of the current line was selected"));
+        }
+    }
     Ok(())
 }
 

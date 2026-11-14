@@ -9,7 +9,9 @@
 #include "screenshot.h"
 
 #include <QtCore/QEventLoop>
+#include <QtCore/QModelIndex>
 #include <QtCore/QTimer>
+#include <QtCore/QAbstractItemModel>
 #include <QtGui/QColor>
 #include <QtGui/QImage>
 #include <QtQuick/QQuickItem>
@@ -133,4 +135,68 @@ QString usdx_settle_lanes(const QQmlApplicationEngine &engine, int timeoutMs) {
     }
     return lanes->property("showActivity").toBool() ? QStringLiteral("ready")
                                                     : QStringLiteral("ready, no vocals");
+}
+
+bool usdx_select_demo_note(const QQmlApplicationEngine &engine, int position) {
+    if (engine.rootObjects().isEmpty()) {
+        return false;
+    }
+    QObject *const document =
+        engine.rootObjects().first()->findChild<QObject *>(QStringLiteral("songDocument"));
+    if (document == nullptr) {
+        return false;
+    }
+    const QVariant modelVariant = document->property("notesModel");
+    auto *const model = modelVariant.value<QAbstractItemModel *>();
+    if (model == nullptr) {
+        return false;
+    }
+    // The role numbers of the model, resolved from its role names.
+    QHash<int, QByteArray> roles = model->roleNames();
+    int noteIdRole = -1;
+    int startRole = -1;
+    int lengthRole = -1;
+    int pitchRole = -1;
+    int lineOffsetRole = -1;
+    for (auto it = roles.constBegin(); it != roles.constEnd(); ++it) {
+        if (it.value() == QByteArrayLiteral("noteId")) {
+            noteIdRole = it.key();
+        } else if (it.value() == QByteArrayLiteral("start")) {
+            startRole = it.key();
+        } else if (it.value() == QByteArrayLiteral("length")) {
+            lengthRole = it.key();
+        } else if (it.value() == QByteArrayLiteral("pitch")) {
+            pitchRole = it.key();
+        } else if (it.value() == QByteArrayLiteral("lineOffset")) {
+            lineOffsetRole = it.key();
+        }
+    }
+    if (noteIdRole < 0 || startRole < 0 || lengthRole < 0 || pitchRole < 0
+        || lineOffsetRole < 0) {
+        return false;
+    }
+    // The position-th note of the current line (lineOffset 0).
+    int seen = 0;
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const QModelIndex index = model->index(row, 0);
+        if (index.data(lineOffsetRole).toInt() != 0) {
+            continue;
+        }
+        if (seen++ != position) {
+            continue;
+        }
+        const double start = index.data(startRole).toDouble();
+        const double length = index.data(lengthRole).toDouble();
+        const int pitch = index.data(pitchRole).toInt();
+        if (length < 1.0) {
+            return false;
+        }
+        // A band inside the note (a whole beat wide around its middle)
+        // selects exactly this note.
+        const double middle = start + length / 2.0;
+        return QMetaObject::invokeMethod(
+            document, "selectRange", Q_ARG(double, middle - 0.5),
+            Q_ARG(double, middle + 0.5), Q_ARG(int, pitch), Q_ARG(int, pitch));
+    }
+    return false;
 }

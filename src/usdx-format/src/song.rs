@@ -7,7 +7,7 @@
 //! on a cheap, rebuildable view while the document keeps every raw row.
 
 use crate::headers::{Headers, Version};
-use crate::rows::{Document, NoteRow, NoteType, RowId, RowKind};
+use crate::rows::{Document, NoteType, RowId, RowKind};
 use crate::timing::Timing;
 
 /// One line of a voice: its note rows, the end-of-phrase row that ends it (if
@@ -102,7 +102,7 @@ impl Song {
         // In relative mode the start beat is the row's start shifted by the
         // running relative offset of its voice.
         let start = if self.relative {
-            relative_start(doc, id, note)
+            relative_absolute(doc, id, note.start as f64)
         } else {
             note.start as f64
         };
@@ -115,37 +115,60 @@ impl Song {
             text: note.text.clone(),
         })
     }
+
+    /// phrase_end_beat returns the absolute beat of an end-of-phrase row, or
+    /// `None` when the id is unknown, another row kind, or the marker has no
+    /// beat. In relative mode the marker's own rel-offset accumulates only
+    /// for the rows after it (the Factory's semantics), so its beat shifts
+    /// by the offsets before it.
+    pub fn phrase_end_beat(&self, doc: &Document, id: RowId) -> Option<f64> {
+        let row = doc.rows.get(id.0 as usize)?;
+        let RowKind::PhraseEnd { beat, .. } = &row.kind else {
+            return None;
+        };
+        let beat = (*beat)? as f64;
+        if self.relative {
+            Some(relative_absolute(doc, id, beat))
+        } else {
+            Some(beat)
+        }
+    }
 }
 
-/// relative_start computes the absolute start of a note in relative mode. The
-/// relative offset `rel` starts at 0 per voice (the USDX implementation; the
-/// `#GAP` value stays in the timing, which already adds it at the millisecond
-/// conversion), the rel-offset of every phrase end shifts the following notes
-/// of its voice, and a voice change does not reset the offset.
-fn relative_start(doc: &Document, id: RowId, note: &NoteRow) -> f64 {
+/// relative_absolute computes the absolute beat of a row in relative mode:
+/// the raw beat shifted by the relative offsets accumulated before the row.
+/// The rel value starts at 0 per voice (the USDX implementation; the `#GAP`
+/// value stays in the timing, which already adds it at the millisecond
+/// conversion), the rel-offset of every phrase end shifts the rows after it,
+/// a voice change does not reset the offset, and a phrase end's own
+/// rel-offset does not shift its own beat. Rows after the target or the end
+/// row keep the offsets accumulated so far.
+fn relative_absolute(doc: &Document, target: RowId, raw: f64) -> f64 {
     use std::collections::HashMap;
 
     let mut rel: HashMap<u8, f64> = HashMap::new();
     let mut current_voice = 1u8;
     for row in &doc.rows {
+        if row.id == target {
+            break;
+        }
         match &row.kind {
-            RowKind::Note(row_note) => {
-                if row.id == id {
-                    let offset = rel.get(&current_voice).copied().unwrap_or(0.0);
-                    return offset + row_note.start as f64;
-                }
-            }
-            RowKind::PhraseEnd { rel_offset, .. } => {
-                if let Some(offset) = rel_offset {
-                    *rel.entry(current_voice).or_default() += *offset as f64;
-                }
+            RowKind::PhraseEnd {
+                rel_offset: Some(offset),
+                ..
+            } => {
+                *rel.entry(current_voice).or_default() += *offset as f64;
             }
             RowKind::Voice(number) => current_voice = *number,
             RowKind::End => break,
             RowKind::Header { .. } | RowKind::Empty | RowKind::Invalid { .. } => {}
+            RowKind::PhraseEnd {
+                rel_offset: None, ..
+            }
+            | RowKind::Note(_) => {}
         }
     }
-    note.start as f64
+    raw + rel.get(&current_voice).copied().unwrap_or(0.0)
 }
 
 /// build_voices walks the rows and builds the voices with their lines. A line

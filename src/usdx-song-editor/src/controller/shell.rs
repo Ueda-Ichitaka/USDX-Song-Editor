@@ -15,6 +15,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use usdx_edit::EditError;
 use usdx_format::bytes::decode;
 use usdx_format::headers::Headers;
 use usdx_format::rows::classify;
@@ -409,6 +410,29 @@ pub fn save_failure_reason(error: &SaveError, path: &Path) -> String {
             io::ErrorKind::NotFound => String::from("the folder no longer exists"),
             _ => format!("\"{name}\" could not be written: {error}"),
         },
+    }
+}
+
+/// edit_failure_reason renders a refused edit as the user-facing passive
+/// notification text (UI_SPEC 6.4, task P5-04). The four specified
+/// situations have their verbatim texts; the remaining variants are internal
+/// guard errors that share one neutral text. The relative-mode text is the
+/// user decision of 2026-11-14: it says what still works (converting).
+pub fn edit_failure_reason(error: &EditError) -> String {
+    match error {
+        EditError::BeforeSongStart => String::from(
+            "Notes cannot move before the song start. Lower #GAP in Song properties first.",
+        ),
+        EditError::LengthBelowOne => String::from("A note needs a length of at least 1 beat."),
+        EditError::PhraseEndOutOfRange => String::from("Phrase ends must stay between two notes."),
+        EditError::RelativeModeIsReadOnly => String::from(
+            "Relative mode cannot be edited: convert the song to absolute beats first.",
+        ),
+        EditError::UnknownRow(_)
+        | EditError::StalePatch(_)
+        | EditError::PhraseEndBetween
+        | EditError::NoTiming
+        | EditError::InvalidHeaderValue => String::from("This edit cannot be applied to the song."),
     }
 }
 

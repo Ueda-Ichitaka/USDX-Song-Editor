@@ -19,6 +19,10 @@ fn main() {
         "qml/EditorPage.qml",
         "qml/LinesPane.qml",
         "qml/LineHeader.qml",
+        "qml/NoteSheet.qml",
+        "qml/NoteDelegate.qml",
+        "qml/PhraseEndHandle.qml",
+        "qml/Inspector.qml",
         "qml/StatusBar.qml",
         "qml/format.js",
     ]);

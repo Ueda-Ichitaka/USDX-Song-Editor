@@ -296,6 +296,27 @@ impl SheetGeometry {
         self.gutter_width + (beat - self.start_beat) * self.px_per_beat
     }
 
+    /// x_to_beat maps a sheet x position back to its beat (the rubber band
+    /// and the drag deltas); x inside the gutter maps to the start beat.
+    pub fn x_to_beat(&self, x: f64) -> f64 {
+        self.start_beat + (x - self.gutter_width) / self.px_per_beat
+    }
+
+    /// pitch_to_y maps a MIDI pitch to the top y of its pitch row (the
+    /// first row starts at the ruler height).
+    pub fn pitch_to_y(&self, pitch: i32) -> f64 {
+        self.ruler_height + (self.top_pitch - pitch) as f64 * self.px_per_semitone
+    }
+
+    /// y_to_pitch maps a sheet y position back to the pitch of the row it
+    /// falls into; y above the pitch area maps to the top pitch.
+    pub fn y_to_pitch(&self, y: f64) -> i32 {
+        let rows = ((y - self.ruler_height) / self.px_per_semitone)
+            .floor()
+            .max(0.0);
+        self.top_pitch - rows as i32
+    }
+
     /// end_beat returns the rightmost visible beat.
     fn end_beat(&self) -> f64 {
         self.start_beat + self.width / self.px_per_beat
@@ -329,8 +350,9 @@ fn shaded(pitch: i32) -> bool {
     SHADED_CLASSES.contains(&pitch.rem_euclid(12))
 }
 
-/// pitch_name formats a pitch as a note name with octave (`C4`, `F#4`).
-fn pitch_name(pitch: i32) -> String {
+/// pitch_name formats a pitch as a note name with octave (`C4`, `F#4`);
+/// the inspector reuses it (UI_SPEC 4.3).
+pub fn pitch_name(pitch: i32) -> String {
     let class = pitch.rem_euclid(12) as usize;
     let octave = pitch.div_euclid(12) - 1;
     format!("{}{octave}", NOTE_NAMES[class])

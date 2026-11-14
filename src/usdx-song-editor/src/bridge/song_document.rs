@@ -1,33 +1,40 @@
-//! The SongDocument, LinesModel, RecentSongsModel and Player bridges.
+//! The SongDocument, LinesModel, NotesModel, PhraseEndsModel, RecentSongsModel
+//! and Player bridges.
 //!
 //! About me: this cxx-qt bridge exposes the editor controller and the
 //! settings to QML. The SongDocument QObject holds the EditorController, the
 //! SaveService and the Settings and mirrors their state into Q_PROPERTIES
 //! after every state change; the LinesModel QAbstractListModel feeds the
-//! lines pane and the RecentSongsModel feeds the recent songs list; the
-//! Player QObject (declared here next to the document it follows, its logic
-//! living in bridge/player.rs) drives the audio playback of P4-04. The
-//! bridges are thin: the logic lives in the plain-Rust controller
-//! (src/controller), this file only converts between Qt and Rust types and
-//! routes the guarded transition results of the shell (UI_SPEC 5.1, 5.2) to
-//! the right channel - the save error banner property, the open error dialog
-//! signal or the changed-on-disk dialog signal. The editing invokables
-//! (selection, note moves, line text) and the NotesModel arrive with the
-//! later tasks (P5-03 to P6-02); the health and anchor roles stay neutral
-//! (0, empty) until the analysis (P7) and repair (P6.3) phases fill them.
+//! lines pane, the NotesModel and PhraseEndsModel feed the note sheet's
+//! delegates and phrase end handles (task P5-03) and the RecentSongsModel
+//! feeds the recent songs list; the Player QObject (declared here next to
+//! the document it follows, its logic living in bridge/player.rs) drives
+//! the audio playback of P4-04. The bridges are thin: the logic lives in
+//! the plain-Rust controller (src/controller), this file only converts
+//! between Qt and Rust types and routes the guarded transition results of
+//! the shell (UI_SPEC 5.1, 5.2) to the right channel - the save error
+//! banner property, the open error dialog signal or the changed-on-disk
+//! dialog signal. The editing invokables (selection, note moves, line
+//! text) arrive with the later tasks (P5-04 to P6-02); the health and
+//! anchor roles stay neutral (0, empty) until the analysis (P7) and repair
+//! (P6.3) phases fill them.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cxx_qt_lib::{
-    QByteArray, QHash, QHashPair_QString_QVariant, QHashPair_i32_QByteArray, QModelIndex, QString,
-    QUrl, QVariant,
+    QByteArray, QHash, QHashPair_QString_QVariant, QHashPair_i32_QByteArray, QList, QModelIndex,
+    QString, QUrl, QVariant,
 };
 use usdx_format::headers::{Headers, Version};
-use usdx_format::rows::{NoteType, RowKind};
-use usdx_format::song::Line;
+use usdx_format::rows::{NoteType, RowId};
 
 use crate::bridge::player::PlayerCore;
+use crate::controller::editing::{Edge, SelectionMode, snapped_move, snapped_resize};
+use crate::controller::inspector::{InspectorState, inspector_state};
+use crate::controller::notes::{
+    PhraseEndRow, VisibleNote, neighbour_lines, type_char, visible_notes, visible_phrase_ends,
+};
 use crate::controller::save::SaveError;
 use crate::controller::settings::{Settings, settings_path};
 use crate::controller::sheet::{LineNotes, line_notes};
@@ -72,6 +79,9 @@ pub mod qobject {
         include!("cxx-qt-lib/core/qlist/qlist_QVariant.h");
         /// A QVariantList (QList<QVariant>) from cxx_qt_lib.
         type QList_QVariant = cxx_qt_lib::QList<QVariant>;
+        include!("cxx-qt-lib/core/qlist/qlist_i32.h");
+        /// A QList<i32>, the roles list of a dataChanged call.
+        type QList_i32 = cxx_qt_lib::QList<i32>;
         include!("format.h");
         /// Relative-date text ("today", "yesterday", "10 Nov 2026") for the
         /// recent songs list (UI_SPEC 4.1).
@@ -185,6 +195,126 @@ pub mod qobject {
         OpenedText,
     }
 
+    extern "RustQt" {
+        #[qobject]
+        #[base = QAbstractListModel]
+        #[qml_element]
+        #[qproperty(*mut SongDocument, document)]
+        type NotesModel = super::NotesModelRust;
+
+        /// Return the data for one note row.
+        #[qinvokable]
+        #[cxx_override]
+        fn data(self: &NotesModel, index: &QModelIndex, role: i32) -> QVariant;
+
+        /// Return the role names of the note rows.
+        #[qinvokable]
+        #[cxx_override]
+        #[cxx_name = "roleNames"]
+        fn role_names(self: &NotesModel) -> QHash_i32_QByteArray;
+
+        /// Return the number of note rows.
+        #[qinvokable]
+        #[cxx_override]
+        #[cxx_name = "rowCount"]
+        fn row_count(self: &NotesModel, parent: &QModelIndex) -> i32;
+
+        /// Refill the rows from the current line and its neighbours.
+        #[qinvokable]
+        fn rebuild(self: Pin<&mut NotesModel>);
+
+        /// Set the drag preview of one note row (plan 8.3): start and length
+        /// in beats, or -1 for the length to clear the preview.
+        #[qinvokable]
+        #[cxx_name = "setGhost"]
+        fn set_ghost(self: Pin<&mut NotesModel>, row_id: i64, start: f64, length: i64);
+    }
+
+    unsafe extern "RustQt" {
+        /// The model index of one row, for the ghost roles' dataChanged.
+        #[inherit]
+        #[cxx_name = "index"]
+        fn index_of(self: &NotesModel, row: i32, column: i32) -> QModelIndex;
+
+        /// Emit the ghost roles' dataChanged in place: a reset during a
+        /// drag would destroy the delegate that is being dragged.
+        #[inherit]
+        #[cxx_name = "dataChanged"]
+        fn notes_data_changed(
+            self: Pin<&mut NotesModel>,
+            top_left: &QModelIndex,
+            bottom_right: &QModelIndex,
+            roles: &QList_i32,
+        );
+    }
+
+    /// The roles of the note rows (plan section 8.3).
+    #[qenum(NotesModel)]
+    enum NoteRoles {
+        /// The note's row id.
+        NoteId,
+        /// The absolute start beat.
+        Start,
+        /// The length in beats.
+        Length,
+        /// The pitch as a MIDI number (C4 = 60, UI_SPEC 3.3).
+        Pitch,
+        /// The note type as its chip character (`:`, `*`, `F`, `R`, `G`).
+        Type,
+        /// The syllable text, a tab read as a space.
+        Text,
+        /// The line the note belongs to: -1 previous, 0 current, +1 next.
+        LineOffset,
+        /// Whether the note is in the selection.
+        Selected,
+        /// The dragged preview start beat, -1 when the note is not dragged.
+        GhostStart,
+        /// The dragged preview length, -1 when the note is not dragged.
+        GhostLength,
+    }
+
+    extern "RustQt" {
+        #[qobject]
+        #[base = QAbstractListModel]
+        #[qml_element]
+        #[qproperty(*mut SongDocument, document)]
+        type PhraseEndsModel = super::PhraseEndsModelRust;
+
+        /// Return the data for one phrase end row.
+        #[qinvokable]
+        #[cxx_override]
+        fn data(self: &PhraseEndsModel, index: &QModelIndex, role: i32) -> QVariant;
+
+        /// Return the role names of the phrase end rows.
+        #[qinvokable]
+        #[cxx_override]
+        #[cxx_name = "roleNames"]
+        fn role_names(self: &PhraseEndsModel) -> QHash_i32_QByteArray;
+
+        /// Return the number of phrase end rows.
+        #[qinvokable]
+        #[cxx_override]
+        #[cxx_name = "rowCount"]
+        fn row_count(self: &PhraseEndsModel, parent: &QModelIndex) -> i32;
+
+        /// Refill the rows from the current line and its neighbours.
+        #[qinvokable]
+        fn rebuild(self: Pin<&mut PhraseEndsModel>);
+    }
+
+    /// The roles of the phrase end rows (plan section 8.3).
+    #[qenum(PhraseEndsModel)]
+    enum PhraseEndRoles {
+        /// The end-of-phrase row's id.
+        RowId,
+        /// The absolute beat of the marker.
+        Beat,
+        /// The lowest allowed beat: the previous note's end.
+        Min,
+        /// The highest allowed beat: the next note's start.
+        Max,
+    }
+
     /// What the QML must do to finish a guarded transition (UI_SPEC 5.1,
     /// 5.2): continue, show one of the two dialogs, or stop. Save failures
     /// land in the saveError property, open and reload failures in the
@@ -215,6 +345,28 @@ pub mod qobject {
         Overwrite,
         Reload,
         Cancel,
+    }
+
+    /// How one click on a note changes the selection (plan 8.4: a click
+    /// selects, Ctrl adds, Shift extends in time).
+    #[qenum(SongDocument)]
+    enum SelectionKind {
+        /// The clicked note becomes the whole selection.
+        Set,
+        /// The clicked note joins the selection.
+        Add,
+        /// The notes between the anchor and the clicked note join the
+        /// selection.
+        Extend,
+    }
+
+    /// The note edge an edge drag works on (plan 8.4).
+    #[qenum(SongDocument)]
+    enum ResizeEdge {
+        /// The note's start beat.
+        Start,
+        /// The note's end beat.
+        End,
     }
 
     /// The result of the activation check (UI_SPEC 5.2). ReloadSilently
@@ -248,6 +400,26 @@ pub mod qobject {
         #[inherit]
         #[cxx_name = "endResetModel"]
         unsafe fn recent_end_reset_model(self: Pin<&mut RecentSongsModel>);
+
+        /// The same on the notes model.
+        #[inherit]
+        #[cxx_name = "beginResetModel"]
+        unsafe fn notes_begin_reset_model(self: Pin<&mut NotesModel>);
+
+        /// Inherited endResetModel.
+        #[inherit]
+        #[cxx_name = "endResetModel"]
+        unsafe fn notes_end_reset_model(self: Pin<&mut NotesModel>);
+
+        /// The same on the phrase ends model.
+        #[inherit]
+        #[cxx_name = "beginResetModel"]
+        unsafe fn phrase_ends_begin_reset_model(self: Pin<&mut PhraseEndsModel>);
+
+        /// Inherited endResetModel.
+        #[inherit]
+        #[cxx_name = "endResetModel"]
+        unsafe fn phrase_ends_end_reset_model(self: Pin<&mut PhraseEndsModel>);
     }
 
     extern "RustQt" {
@@ -318,6 +490,15 @@ pub mod qobject {
         #[qproperty(QString, app_version, cxx_name = "appVersion")]
         #[qproperty(*mut LinesModel, lines_model, cxx_name = "linesModel")]
         #[qproperty(*mut RecentSongsModel, recent_model, cxx_name = "recentModel")]
+        // The note rows and the phrase end rows of the note sheet (plan 8.3,
+        // task P5-03); QML binds the models here on startup.
+        #[qproperty(*mut NotesModel, notes_model, cxx_name = "notesModel")]
+        #[qproperty(*mut PhraseEndsModel, phrase_ends_model, cxx_name = "phraseEndsModel")]
+        // The inspector contents of the current selection (UI_SPEC 4.3,
+        // task P5-05): a QVariant hash with the keys label, editable,
+        // single, count, typeCode, start, length, pitch, pitchCommon,
+        // pitchName, text and pitchEditable.
+        #[qproperty(QVariant, inspector)]
         type SongDocument = super::SongDocumentRust;
     }
 
@@ -338,6 +519,12 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "externalChangeDetected"]
         fn external_change_detected(self: Pin<&mut SongDocument>);
+
+        /// Emitted with the UI_SPEC 6.4 text when an editing action was
+        /// refused; the shell shows it as a passive notification.
+        #[qsignal]
+        #[cxx_name = "editRefused"]
+        fn edit_refused(self: Pin<&mut SongDocument>, message: QString);
     }
 
     extern "RustQt" {
@@ -371,6 +558,139 @@ pub mod qobject {
         /// Redo the last undone edit step.
         #[qinvokable]
         fn redo(self: Pin<&mut SongDocument>);
+
+        /// Change the selection from one click on a note (plan 8.4).
+        #[qinvokable]
+        #[cxx_name = "selectNote"]
+        fn select_note(self: Pin<&mut SongDocument>, id: i64, mode: SelectionKind);
+
+        /// Empty the selection (a click on the empty sheet).
+        #[qinvokable]
+        #[cxx_name = "clearSelection"]
+        fn clear_selection(self: Pin<&mut SongDocument>);
+
+        /// Select every note intersecting the rubber band rectangle (plan
+        /// 8.4, user decision 2026-11-14): the beats and MIDI pitches of
+        /// the band, bounds may arrive swapped.
+        #[qinvokable]
+        #[cxx_name = "selectRange"]
+        fn select_range(
+            self: Pin<&mut SongDocument>,
+            start_beat: f64,
+            end_beat: f64,
+            low_pitch: i32,
+            high_pitch: i32,
+        );
+
+        /// Move the selection by the committed drag deltas (plan 8.4: one
+        /// undo step per drag). Reports the refusal through `editRefused`.
+        #[qinvokable]
+        #[cxx_name = "moveSelection"]
+        fn move_selection(self: Pin<&mut SongDocument>, d_beat: i64, d_pitch: i64) -> bool;
+
+        /// Shift the selection and every later row of their voice as a
+        /// block (the Ctrl+Shift arrow semantics).
+        #[qinvokable]
+        #[cxx_name = "moveSelectionAndFollowing"]
+        fn move_selection_and_following(self: Pin<&mut SongDocument>, d_beat: i64) -> bool;
+
+        /// Resize one note edge by the committed drag delta. Reports the
+        /// refusal through `editRefused`.
+        #[qinvokable]
+        #[cxx_name = "resizeNote"]
+        fn resize_note(
+            self: Pin<&mut SongDocument>,
+            id: i64,
+            edge: ResizeEdge,
+            d_beat: i64,
+        ) -> bool;
+
+        /// Compute the snapped committed deltas of a body drag (plan 8.4,
+        /// user decision 2026-11-14: the ghost preview and the commit agree,
+        /// the rounding happens after the snap), show them as the dragged
+        /// note's ghost and return them in the hash keys dBeat and dPitch.
+        #[qinvokable]
+        #[cxx_name = "previewMove"]
+        fn preview_move(
+            self: Pin<&mut SongDocument>,
+            row_id: i64,
+            d_beat: f64,
+            d_pitch: i64,
+            snap_on: bool,
+            px_per_beat: f64,
+        ) -> QHash_QString_QVariant;
+
+        /// Compute the snapped committed delta of an edge drag, show the
+        /// resized ghost and return the delta. An unknown id or no song
+        /// returns the plain rounded delta.
+        #[qinvokable]
+        #[cxx_name = "previewResize"]
+        fn preview_resize(
+            self: Pin<&mut SongDocument>,
+            row_id: i64,
+            edge: ResizeEdge,
+            d_beat: f64,
+            snap_on: bool,
+            px_per_beat: f64,
+        ) -> i64;
+
+        /// Insert a note after the last selected one, or after the current
+        /// line's last note without a selection (the Insert key, task P5-05).
+        #[qinvokable]
+        #[cxx_name = "insertNote"]
+        fn insert_note(self: Pin<&mut SongDocument>) -> bool;
+
+        /// Delete every selected note (the Delete key).
+        #[qinvokable]
+        #[cxx_name = "deleteSelection"]
+        fn delete_selection(self: Pin<&mut SongDocument>) -> bool;
+
+        /// Split the single selected note at the beat (the S key at the
+        /// playhead beat); with no note or several selected a no-op.
+        #[qinvokable]
+        #[cxx_name = "splitSelectionAt"]
+        fn split_selection_at(self: Pin<&mut SongDocument>, beat: i64) -> bool;
+
+        /// Merge the single selected note with the next one (the M key);
+        /// with no note or several selected a no-op.
+        #[qinvokable]
+        #[cxx_name = "mergeSelection"]
+        fn merge_selection(self: Pin<&mut SongDocument>) -> bool;
+
+        /// Set the type of every selected note (the type keys and the
+        /// inspector's type buttons); the code "F" toggles freestyle.
+        #[qinvokable]
+        #[cxx_name = "setSelectionType"]
+        fn set_selection_type(self: Pin<&mut SongDocument>, code: QString) -> bool;
+
+        /// Toggle every selected note between freestyle and normal (the F
+        /// key; setSelectionType("F") routes here too).
+        #[qinvokable]
+        #[cxx_name = "toggleFreestyle"]
+        fn toggle_freestyle(self: Pin<&mut SongDocument>) -> bool;
+
+        /// Set one note's syllable (the inspector's Text field).
+        #[qinvokable]
+        #[cxx_name = "setNoteText"]
+        fn set_note_text(self: Pin<&mut SongDocument>, row_id: i64, text: QString) -> bool;
+
+        /// Insert or remove the end-of-phrase marker before the selected
+        /// note (the B key).
+        #[qinvokable]
+        #[cxx_name = "togglePhraseEndBeforeSelection"]
+        fn toggle_phrase_end_before_selection(self: Pin<&mut SongDocument>) -> bool;
+
+        /// Move one end-of-phrase marker to the beat (the phrase end
+        /// handle's drag commit).
+        #[qinvokable]
+        #[cxx_name = "movePhraseEnd"]
+        fn move_phrase_end(self: Pin<&mut SongDocument>, row_id: i64, beat: i64) -> bool;
+
+        /// Shift the pitch of every selected note by semitone steps (the
+        /// inspector's Pitch field on a multi selection).
+        #[qinvokable]
+        #[cxx_name = "transposeSelection"]
+        fn transpose_selection(self: Pin<&mut SongDocument>, semitones: i64) -> bool;
 
         /// Jump to the global line index, clamped into range.
         #[qinvokable]
@@ -555,8 +875,9 @@ use core::pin::Pin;
 use cxx_qt::CxxQtType;
 
 use crate::bridge::song_document::qobject::{
-    ActivationKind, ChangedOnDiskKind, LinesModel, RecentRoles, RecentSongsModel, Roles,
-    SaveChangesKind, SongDocument, TransitionKind, usdx_relative_date_text,
+    ActivationKind, ChangedOnDiskKind, LinesModel, NoteRoles, NotesModel, PhraseEndRoles,
+    PhraseEndsModel, RecentRoles, RecentSongsModel, ResizeEdge, Roles, SaveChangesKind,
+    SelectionKind, SongDocument, TransitionKind, usdx_relative_date_text,
 };
 
 /// The Rust side of the Player: the playback core plus the Q_PROPERTY
@@ -670,6 +991,33 @@ pub struct RecentSongsModelRust {
     document: *mut SongDocument,
 }
 
+/// One row of the notes model: the controller's visible note plus whether
+/// it sits in the selection.
+pub struct NoteRow {
+    note: VisibleNote,
+    selected: bool,
+}
+
+/// The Rust side of the NotesModel (plan section 8.3): the notes of the
+/// current line and its global neighbours, plus the drag preview of one
+/// note (None when none).
+#[derive(Default)]
+pub struct NotesModelRust {
+    rows: Vec<NoteRow>,
+    /// The dragged note's preview: the row id, the preview start beat and
+    /// the preview length.
+    ghost: Option<(i64, f64, i64)>,
+    document: *mut SongDocument,
+}
+
+/// The Rust side of the PhraseEndsModel (plan section 8.3): the visible
+/// end-of-phrase markers with their drag bounds.
+#[derive(Default)]
+pub struct PhraseEndsModelRust {
+    rows: Vec<PhraseEndRow>,
+    document: *mut SongDocument,
+}
+
 /// The Rust side of the SongDocument: the controller, the save service, the
 /// settings and the Q_PROPERTY storage.
 pub struct SongDocumentRust {
@@ -738,6 +1086,11 @@ pub struct SongDocumentRust {
     app_version: QString,
     lines_model: *mut LinesModel,
     recent_model: *mut RecentSongsModel,
+    notes_model: *mut NotesModel,
+    phrase_ends_model: *mut PhraseEndsModel,
+    /// The inspector contents of the current selection (a QVariant hash,
+    /// task P5-05).
+    inspector: QVariant,
 }
 
 impl Default for SongDocumentRust {
@@ -811,6 +1164,9 @@ impl Default for SongDocumentRust {
             app_version: QString::from(env!("CARGO_PKG_VERSION")),
             lines_model: std::ptr::null_mut(),
             recent_model: std::ptr::null_mut(),
+            notes_model: std::ptr::null_mut(),
+            phrase_ends_model: std::ptr::null_mut(),
+            inspector: QVariant::default(),
         }
     }
 }
@@ -956,6 +1312,170 @@ impl qobject::RecentSongsModel {
     }
 }
 
+impl qobject::NotesModel {
+    /// data returns the value of one note row for one role.
+    pub fn data(&self, index: &QModelIndex, role: i32) -> QVariant {
+        let Some(row) = self.rows.get(index.row() as usize) else {
+            return QVariant::default();
+        };
+        let note = &row.note;
+        match (NoteRoles { repr: role }) {
+            NoteRoles::NoteId => QVariant::from(&(note.row_id.0 as i64)),
+            NoteRoles::Start => QVariant::from(&note.start),
+            NoteRoles::Length => QVariant::from(&note.length),
+            NoteRoles::Pitch => QVariant::from(&note.pitch),
+            NoteRoles::Type => QVariant::from(&QString::from(note.kind)),
+            NoteRoles::Text => QVariant::from(&QString::from(note.text.as_str())),
+            NoteRoles::LineOffset => QVariant::from(&note.line_offset),
+            NoteRoles::Selected => QVariant::from(&row.selected),
+            NoteRoles::GhostStart => {
+                let (ghost_id, ghost_start, _) = self.ghost.unwrap_or((-1, -1.0, -1));
+                let beat = if ghost_id == note.row_id.0 as i64 {
+                    ghost_start
+                } else {
+                    -1.0
+                };
+                QVariant::from(&beat)
+            }
+            NoteRoles::GhostLength => {
+                let (ghost_id, _, ghost_length) = self.ghost.unwrap_or((-1, -1.0, -1));
+                let length = if ghost_id == note.row_id.0 as i64 {
+                    ghost_length
+                } else {
+                    -1
+                };
+                QVariant::from(&length)
+            }
+            _ => QVariant::default(),
+        }
+    }
+
+    /// role_names returns the role numbers of the note rows.
+    pub fn role_names(&self) -> QHash<QHashPair_i32_QByteArray> {
+        let mut roles = QHash::<QHashPair_i32_QByteArray>::default();
+        roles.insert(NoteRoles::NoteId.repr, QByteArray::from("noteId"));
+        roles.insert(NoteRoles::Start.repr, QByteArray::from("start"));
+        roles.insert(NoteRoles::Length.repr, QByteArray::from("length"));
+        roles.insert(NoteRoles::Pitch.repr, QByteArray::from("pitch"));
+        roles.insert(NoteRoles::Type.repr, QByteArray::from("type"));
+        roles.insert(NoteRoles::Text.repr, QByteArray::from("text"));
+        roles.insert(NoteRoles::LineOffset.repr, QByteArray::from("lineOffset"));
+        roles.insert(NoteRoles::Selected.repr, QByteArray::from("selected"));
+        roles.insert(NoteRoles::GhostStart.repr, QByteArray::from("ghostStart"));
+        roles.insert(NoteRoles::GhostLength.repr, QByteArray::from("ghostLength"));
+        roles
+    }
+
+    /// row_count returns the number of note rows.
+    pub fn row_count(&self, _parent: &QModelIndex) -> i32 {
+        self.rows.len() as i32
+    }
+
+    /// rebuild refills the rows from the current line and its global
+    /// neighbours, with the selection state of each note.
+    pub fn rebuild(mut self: Pin<&mut Self>) {
+        let rows = match unsafe { self.as_ref().document().as_ref() } {
+            Some(document) => {
+                let controller = &document.rust().controller;
+                let (lines, current) = neighbour_lines(controller);
+                match controller.loaded() {
+                    Some(loaded) => {
+                        let selection = controller.selection();
+                        visible_notes(&loaded.document, &loaded.song, &lines, current)
+                            .into_iter()
+                            .map(|note| NoteRow {
+                                selected: selection.contains(&note.row_id),
+                                note,
+                            })
+                            .collect()
+                    }
+                    None => Vec::new(),
+                }
+            }
+            None => Vec::new(),
+        };
+        unsafe {
+            self.as_mut().notes_begin_reset_model();
+            self.as_mut().rust_mut().rows = rows;
+            self.as_mut().notes_end_reset_model();
+        }
+    }
+
+    /// set_ghost stores the drag preview of one note and emits the ghost
+    /// roles as a dataChanged over all rows: a structural reset during a
+    /// drag would destroy the delegate that is being dragged. A negative
+    /// row id or length clears the preview.
+    pub fn set_ghost(mut self: Pin<&mut Self>, row_id: i64, start: f64, length: i64) {
+        self.as_mut().rust_mut().ghost = if row_id >= 0 && length >= 0 {
+            Some((row_id, start, length))
+        } else {
+            None
+        };
+        let count = self.as_ref().rust().rows.len() as i32;
+        if count == 0 {
+            return;
+        }
+        let mut roles = QList::<i32>::default();
+        roles.append(NoteRoles::GhostStart.repr);
+        roles.append(NoteRoles::GhostLength.repr);
+        let top_left = self.index_of(0, 0);
+        let bottom_right = self.index_of(count - 1, 0);
+        self.notes_data_changed(&top_left, &bottom_right, &roles);
+    }
+}
+
+impl qobject::PhraseEndsModel {
+    /// data returns the value of one phrase end row for one role.
+    pub fn data(&self, index: &QModelIndex, role: i32) -> QVariant {
+        let Some(row) = self.rows.get(index.row() as usize) else {
+            return QVariant::default();
+        };
+        match (PhraseEndRoles { repr: role }) {
+            PhraseEndRoles::RowId => QVariant::from(&(row.row_id.0 as i64)),
+            PhraseEndRoles::Beat => QVariant::from(&row.beat),
+            PhraseEndRoles::Min => QVariant::from(&row.min),
+            PhraseEndRoles::Max => QVariant::from(&row.max),
+            _ => QVariant::default(),
+        }
+    }
+
+    /// role_names returns the role numbers of the phrase end rows.
+    pub fn role_names(&self) -> QHash<QHashPair_i32_QByteArray> {
+        let mut roles = QHash::<QHashPair_i32_QByteArray>::default();
+        roles.insert(PhraseEndRoles::RowId.repr, QByteArray::from("rowId"));
+        roles.insert(PhraseEndRoles::Beat.repr, QByteArray::from("beat"));
+        roles.insert(PhraseEndRoles::Min.repr, QByteArray::from("min"));
+        roles.insert(PhraseEndRoles::Max.repr, QByteArray::from("max"));
+        roles
+    }
+
+    /// row_count returns the number of phrase end rows.
+    pub fn row_count(&self, _parent: &QModelIndex) -> i32 {
+        self.rows.len() as i32
+    }
+
+    /// rebuild refills the rows from the current line and its global
+    /// neighbours.
+    pub fn rebuild(mut self: Pin<&mut Self>) {
+        let rows = match unsafe { self.as_ref().document().as_ref() } {
+            Some(document) => {
+                let controller = &document.rust().controller;
+                let (lines, _current) = neighbour_lines(controller);
+                match controller.loaded() {
+                    Some(loaded) => visible_phrase_ends(&loaded.document, &loaded.song, &lines),
+                    None => Vec::new(),
+                }
+            }
+            None => Vec::new(),
+        };
+        unsafe {
+            self.as_mut().phrase_ends_begin_reset_model();
+            self.as_mut().rust_mut().rows = rows;
+            self.as_mut().phrase_ends_end_reset_model();
+        }
+    }
+}
+
 impl qobject::SongDocument {
     /// open loads the song at the url.
     pub fn open(mut self: Pin<&mut Self>, url: QUrl) -> bool {
@@ -988,20 +1508,488 @@ impl qobject::SongDocument {
         }
     }
 
-    /// undo reverts the last edit step.
+    /// undo reverts the last edit step and rebuilds the song view (the
+    /// controller rebuilds; the song view follows the document).
     pub fn undo(mut self: Pin<&mut Self>) {
-        if let Some(loaded) = self.as_mut().rust_mut().controller.loaded_mut() {
-            loaded.history.undo(&mut loaded.document);
-        }
+        self.as_mut().rust_mut().controller.undo();
         self.as_mut().refresh();
     }
 
     /// redo re-applies the last undone edit step.
     pub fn redo(mut self: Pin<&mut Self>) {
-        if let Some(loaded) = self.as_mut().rust_mut().controller.loaded_mut() {
-            loaded.history.redo(&mut loaded.document);
-        }
+        self.as_mut().rust_mut().controller.redo();
         self.as_mut().refresh();
+    }
+
+    /// edit_allowed checks the commit guards: an edit needs a loaded song
+    /// that is not read-only. Without a song it is a silent no-op; a
+    /// read-only song reports through `editRefused`.
+    fn edit_allowed(mut self: Pin<&mut Self>) -> bool {
+        let (loaded, read_only) = {
+            let rust = self.rust();
+            (
+                rust.controller.loaded().is_some(),
+                rust.controller.read_only(),
+            )
+        };
+        if !loaded {
+            return false;
+        }
+        if read_only {
+            let message = QString::from("The song is read-only.");
+            self.as_mut().edit_refused(message);
+            return false;
+        }
+        true
+    }
+
+    /// finish_edit refreshes after an applied edit or reports the refusal
+    /// through `editRefused` with its UI_SPEC 6.4 text.
+    fn finish_edit(mut self: Pin<&mut Self>, result: Result<(), usdx_edit::EditError>) -> bool {
+        match result {
+            Ok(()) => {
+                self.as_mut().refresh();
+                true
+            }
+            Err(error) => {
+                let message = QString::from(shell::edit_failure_reason(&error));
+                self.as_mut().edit_refused(message);
+                false
+            }
+        }
+    }
+
+    /// select_note applies one click's selection change (plan 8.4).
+    pub fn select_note(mut self: Pin<&mut Self>, id: i64, mode: SelectionKind) {
+        let Some(id) = row_id_of(id) else {
+            return;
+        };
+        let mode = match (SelectionKind { repr: mode.repr }) {
+            SelectionKind::Set => SelectionMode::Set,
+            SelectionKind::Add => SelectionMode::Add,
+            SelectionKind::Extend => SelectionMode::Extend,
+            _ => return,
+        };
+        self.as_mut().rust_mut().controller.select_note(id, mode);
+        self.as_mut().refresh();
+    }
+
+    /// clear_selection empties the selection (a click on the empty sheet).
+    pub fn clear_selection(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().controller.clear_selection();
+        self.as_mut().refresh();
+    }
+
+    /// select_range replaces the selection with every note intersecting
+    /// the band (plan 8.4).
+    pub fn select_range(
+        mut self: Pin<&mut Self>,
+        start_beat: f64,
+        end_beat: f64,
+        low_pitch: i32,
+        high_pitch: i32,
+    ) {
+        self.as_mut()
+            .rust_mut()
+            .controller
+            .select_range(start_beat, end_beat, low_pitch, high_pitch);
+        self.as_mut().refresh();
+    }
+
+    /// move_selection moves the selection by the committed drag deltas.
+    pub fn move_selection(mut self: Pin<&mut Self>, d_beat: i64, d_pitch: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .move_selection(d_beat, d_pitch);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// move_selection_and_following shifts the selection and every later
+    /// row of their voice as a block.
+    pub fn move_selection_and_following(mut self: Pin<&mut Self>, d_beat: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .move_selection_and_following(d_beat);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// resize_note moves one note edge by the committed drag delta.
+    pub fn resize_note(mut self: Pin<&mut Self>, id: i64, edge: ResizeEdge, d_beat: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Some(id) = row_id_of(id) else {
+            return false;
+        };
+        let edge = match (ResizeEdge { repr: edge.repr }) {
+            ResizeEdge::Start => Edge::Start,
+            ResizeEdge::End => Edge::End,
+            _ => return false,
+        };
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .resize_note(id, edge, d_beat);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// preview_move computes the snapped committed deltas of a body drag,
+    /// shows them as the dragged note's ghost and returns them (plan 8.4:
+    /// the ghost and the commit agree). The keys are dBeat and dPitch.
+    pub fn preview_move(
+        mut self: Pin<&mut Self>,
+        row_id: i64,
+        d_beat: f64,
+        d_pitch: i64,
+        snap_on: bool,
+        px_per_beat: f64,
+    ) -> QHash<QHashPair_QString_QVariant> {
+        let id = row_id_of(row_id);
+        let (committed, ghost) = {
+            let rust = self.rust();
+            let loaded = rust.controller.loaded();
+            let committed = match (&id, loaded) {
+                (Some(id), Some(loaded)) => snapped_move(
+                    &loaded.document,
+                    &loaded.song,
+                    *id,
+                    d_beat,
+                    d_pitch,
+                    snap_on,
+                    px_per_beat,
+                ),
+                _ => (d_beat.round() as i64, d_pitch),
+            };
+            let ghost = match (&id, loaded) {
+                (Some(id), Some(loaded)) => loaded
+                    .song
+                    .note(&loaded.document, *id)
+                    .map(|note| (row_id, note.start + committed.0 as f64, note.length)),
+                _ => None,
+            };
+            (committed, ghost)
+        };
+        self.as_mut().show_ghost(ghost);
+        let mut hash = QHash::<QHashPair_QString_QVariant>::default();
+        hash.insert(QString::from("dBeat"), QVariant::from(&committed.0));
+        hash.insert(QString::from("dPitch"), QVariant::from(&committed.1));
+        hash
+    }
+
+    /// preview_resize computes the snapped committed delta of an edge drag
+    /// and shows the resized ghost; returns the delta.
+    pub fn preview_resize(
+        mut self: Pin<&mut Self>,
+        row_id: i64,
+        edge: ResizeEdge,
+        d_beat: f64,
+        snap_on: bool,
+        px_per_beat: f64,
+    ) -> i64 {
+        let id = row_id_of(row_id);
+        let edge = match (ResizeEdge { repr: edge.repr }) {
+            ResizeEdge::Start => Some(Edge::Start),
+            ResizeEdge::End => Some(Edge::End),
+            _ => None,
+        };
+        let Some(edge) = edge else {
+            return d_beat.round() as i64;
+        };
+        let committed = {
+            let rust = self.rust();
+            match (&id, rust.controller.loaded()) {
+                (Some(id), Some(loaded)) => snapped_resize(
+                    &loaded.document,
+                    &loaded.song,
+                    *id,
+                    edge,
+                    d_beat,
+                    snap_on,
+                    px_per_beat,
+                ),
+                _ => d_beat.round() as i64,
+            }
+        };
+        let ghost = {
+            let rust = self.rust();
+            match (&id, rust.controller.loaded()) {
+                (Some(id), Some(loaded)) => {
+                    loaded
+                        .song
+                        .note(&loaded.document, *id)
+                        .map(|note| match edge {
+                            Edge::Start => (
+                                row_id,
+                                note.start + committed as f64,
+                                note.length - committed,
+                            ),
+                            Edge::End => (row_id, note.start, note.length + committed),
+                        })
+                }
+                _ => None,
+            }
+        };
+        self.as_mut().show_ghost(ghost);
+        committed
+    }
+
+    /// show_ghost puts one drag preview onto the notes model; without a
+    /// preview it clears the ghost.
+    fn show_ghost(self: Pin<&mut Self>, ghost: Option<(i64, f64, i64)>) {
+        if let Some(model) = unsafe { self.as_ref().notes_model().as_mut() } {
+            let pinned = unsafe { Pin::new_unchecked(model) };
+            let (row_id, start, length) = ghost.unwrap_or((-1, 0.0, -1));
+            pinned.set_ghost(row_id, start, length);
+        }
+    }
+
+    /// insert_note inserts a note after the last selected one or after the
+    /// current line's last note (task P5-05).
+    pub fn insert_note(mut self: Pin<&mut Self>) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self.as_mut().rust_mut().controller.insert_note_after();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// delete_selection deletes every selected note.
+    pub fn delete_selection(mut self: Pin<&mut Self>) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self.as_mut().rust_mut().controller.delete_selection();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// split_selection_at splits the single selected note at the beat.
+    pub fn split_selection_at(mut self: Pin<&mut Self>, beat: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self.as_mut().rust_mut().controller.split_selection_at(beat);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// merge_selection merges the single selected note with the next one.
+    pub fn merge_selection(mut self: Pin<&mut Self>) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .merge_selection_with_next();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// set_selection_type sets the type of every selected note; the code
+    /// "F" toggles freestyle instead (UI_SPEC: the F key toggles).
+    pub fn set_selection_type(mut self: Pin<&mut Self>, code: QString) -> bool {
+        if code.to_string() == "F" {
+            return self.as_mut().toggle_freestyle();
+        }
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Some(first) = code.to_string().chars().next() else {
+            return false;
+        };
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .set_selection_type(first);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// toggle_freestyle toggles every selected note between freestyle and
+    /// normal.
+    pub fn toggle_freestyle(mut self: Pin<&mut Self>) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .toggle_freestyle_selection();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// set_note_text sets one note's syllable.
+    pub fn set_note_text(mut self: Pin<&mut Self>, row_id: i64, text: QString) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Some(id) = row_id_of(row_id) else {
+            return false;
+        };
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .set_note_text(id, &text.to_string());
+        self.as_mut().finish_edit(result)
+    }
+
+    /// toggle_phrase_end_before_selection inserts or removes the
+    /// end-of-phrase marker before the selected note.
+    pub fn toggle_phrase_end_before_selection(mut self: Pin<&mut Self>) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .toggle_phrase_end_before_selection();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// move_phrase_end moves one end-of-phrase marker to the beat.
+    pub fn move_phrase_end(mut self: Pin<&mut Self>, row_id: i64, beat: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Some(id) = row_id_of(row_id) else {
+            return false;
+        };
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .move_phrase_end(id, beat);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// transpose_selection shifts the pitch of every selected note.
+    pub fn transpose_selection(mut self: Pin<&mut Self>, semitones: i64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .transpose_selection(semitones);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// publish_inspector copies the inspector state of the current
+    /// selection into the inspector property (task P5-05). The hash keys
+    /// are label, editable, single, count, typeCode, start, length,
+    /// pitch, pitchCommon, pitchName, text and pitchEditable.
+    fn publish_inspector(mut self: Pin<&mut Self>) {
+        let ids: Vec<RowId> = self.rust().controller.selection().iter().copied().collect();
+        let state = {
+            let rust = self.rust();
+            match rust.controller.loaded() {
+                Some(loaded) => inspector_state(&loaded.document, &loaded.song, &ids),
+                None => InspectorState::None,
+            }
+        };
+        let editable = self.controller.is_loaded() && !self.controller.read_only();
+        let mut hash = QHash::<QHashPair_QString_QVariant>::default();
+        match &state {
+            InspectorState::None => {
+                hash.insert(
+                    QString::from("label"),
+                    QVariant::from(&QString::from("No note selected")),
+                );
+            }
+            InspectorState::Single {
+                label,
+                type_code,
+                start,
+                length,
+                pitch,
+                pitch_name,
+                text,
+                pitch_editable,
+            } => {
+                hash.insert(
+                    QString::from("label"),
+                    QVariant::from(&QString::from(label.clone())),
+                );
+                hash.insert(
+                    QString::from("noteId"),
+                    QVariant::from(&ids.first().map(|id| i64::from(id.0)).unwrap_or(-1)),
+                );
+                hash.insert(
+                    QString::from("typeCode"),
+                    QVariant::from(&QString::from(type_code.to_string())),
+                );
+                hash.insert(QString::from("start"), QVariant::from(start));
+                hash.insert(QString::from("length"), QVariant::from(length));
+                hash.insert(QString::from("pitch"), QVariant::from(pitch));
+                hash.insert(
+                    QString::from("pitchName"),
+                    QVariant::from(&QString::from(pitch_name.clone())),
+                );
+                hash.insert(
+                    QString::from("text"),
+                    QVariant::from(&QString::from(text.clone())),
+                );
+                hash.insert(
+                    QString::from("pitchEditable"),
+                    QVariant::from(pitch_editable),
+                );
+            }
+            InspectorState::Multi {
+                count,
+                type_code,
+                common_pitch,
+            } => {
+                hash.insert(
+                    QString::from("label"),
+                    QVariant::from(&QString::from(format!(
+                        "{count} note{} selected",
+                        if *count == 1 { "" } else { "s" }
+                    ))),
+                );
+                hash.insert(
+                    QString::from("typeCode"),
+                    QVariant::from(&QString::from(
+                        type_code.map(|code| code.to_string()).unwrap_or_default(),
+                    )),
+                );
+                hash.insert(
+                    QString::from("pitch"),
+                    QVariant::from(&common_pitch.unwrap_or(0)),
+                );
+                hash.insert(
+                    QString::from("pitchCommon"),
+                    QVariant::from(&common_pitch.is_some()),
+                );
+            }
+        }
+        hash.insert(QString::from("editable"), QVariant::from(&editable));
+        hash.insert(
+            QString::from("single"),
+            QVariant::from(&matches!(state, InspectorState::Single { .. })),
+        );
+        hash.insert(
+            QString::from("count"),
+            QVariant::from(&match &state {
+                InspectorState::None => 0,
+                InspectorState::Single { .. } => 1,
+                InspectorState::Multi { count, .. } => *count as i32,
+            }),
+        );
+        self.as_mut().set_inspector(QVariant::from(&hash));
     }
 
     /// go_to_line jumps to the global line index.
@@ -1253,7 +2241,16 @@ impl qobject::SongDocument {
     /// models.
     fn refresh(mut self: Pin<&mut Self>) {
         self.as_mut().sync();
+        self.as_mut().publish_inspector();
         if let Some(model) = unsafe { self.as_ref().lines_model().as_mut() } {
+            let pinned = unsafe { Pin::new_unchecked(model) };
+            pinned.rebuild();
+        }
+        if let Some(model) = unsafe { self.as_ref().notes_model().as_mut() } {
+            let pinned = unsafe { Pin::new_unchecked(model) };
+            pinned.rebuild();
+        }
+        if let Some(model) = unsafe { self.as_ref().phrase_ends_model().as_mut() } {
             let pinned = unsafe { Pin::new_unchecked(model) };
             pinned.rebuild();
         }
@@ -1348,22 +2345,7 @@ impl qobject::SongDocument {
         let data = match loaded {
             true => {
                 let editor = self.rust().editor();
-                let current = editor.current_line();
-                let mut lines: Vec<&Line> = Vec::new();
-                let mut current_index = 0;
-                if let Some(previous) = current
-                    .checked_sub(1)
-                    .and_then(|index| editor.line_data(index))
-                {
-                    lines.push(previous);
-                    current_index += 1;
-                }
-                if let Some(current_line) = editor.line_data(current) {
-                    lines.push(current_line);
-                }
-                if let Some(next) = editor.line_data(current + 1) {
-                    lines.push(next);
-                }
+                let (lines, current_index) = neighbour_lines(editor);
                 match editor.loaded() {
                     Some(song) => line_notes(&song.document, &song.song, &lines, current_index),
                     None => LineNotes::default(),
@@ -1597,15 +2579,7 @@ fn line_rows(controller: &EditorController) -> Vec<LineRow> {
                 .rev()
                 .find_map(|id| song.note(doc, *id))
                 .map(|note| note.start + note.length as f64);
-            let end_beat = line
-                .end
-                .and_then(|id| doc.rows.get(id.0 as usize))
-                .and_then(|row| match &row.kind {
-                    RowKind::PhraseEnd {
-                        beat: Some(beat), ..
-                    } => Some(*beat as f64),
-                    _ => None,
-                });
+            let end_beat = line.end.and_then(|id| song.phrase_end_beat(doc, id));
             let start_ms = first.map(|note| to_ms(note.start)).unwrap_or(0.0);
             let end_ms = end_beat.or(last_end).map(to_ms).unwrap_or(start_ms);
             let kinds: Vec<NoteType> = line
@@ -1707,20 +2681,13 @@ fn version_text(version: &Version) -> String {
     }
 }
 
-/// type_char maps a note type to its summary character (plan section 8.3);
-/// unknown types display as freestyle (the Phase 1 decision).
-fn type_char(kind: &NoteType) -> &'static str {
-    match kind {
-        NoteType::Normal => ":",
-        NoteType::Golden => "*",
-        NoteType::Freestyle | NoteType::Other(_) => "F",
-        NoteType::Rap => "R",
-        NoteType::RapGolden => "G",
-    }
-}
-
 /// qurl_to_path converts a file url to a path; other urls keep their text
 /// form so that plain paths round-trip.
+/// row_id_of converts a QML row id into a RowId; negative ids are unknown.
+fn row_id_of(id: i64) -> Option<RowId> {
+    u32::try_from(id).ok().map(RowId)
+}
+
 fn qurl_to_path(url: &QUrl) -> PathBuf {
     let text = match url.to_local_file() {
         Some(local) => String::from(&local),

@@ -22,7 +22,9 @@
 //! word added between two notes goes to the notes without text between
 //! them, else into the note before it (the first note at the line start);
 //! a word deleted from a note's stretch merges that note into its
-//! neighbour. The `Ask` policy returns the plan as `NeedsDecision` so the
+//! neighbour. Where a changed stretch meets an unchanged note of a line that
+//! puts the word space first, exactly one space stays between the words. The
+//! `Ask` policy returns the plan as `NeedsDecision` so the
 //! dialog can let the user pick the note per count change (user decision
 //! 2026-11-15, "Pick note per change"); `plan_line_text` takes those picks.
 
@@ -441,6 +443,9 @@ pub fn plan_line_text(
     let new_keys: Vec<&str> = syllables.iter().map(|s| key(&s.text)).collect();
     let mut plan = TextPlan::default();
     let mut next_note = 0;
+    // The planned notes of each stretch and whether its first syllable
+    // starts a word, for the word space pass below.
+    let mut stretches: Vec<(Range<usize>, bool)> = Vec::new();
     for ((a, b), new) in regions(notes, &old, &new_keys) {
         for (index, note) in notes.iter().enumerate().take(a).skip(next_note) {
             plan.notes.push(PlannedNote {
@@ -450,6 +455,8 @@ pub fn plan_line_text(
             });
         }
         next_note = b + 1;
+        let starts_word = new.start == 0 || syllables[new.start - 1].text.ends_with(' ');
+        let first_planned = plan.notes.len();
         let texts: Vec<&str> = syllables[new.clone()]
             .iter()
             .map(|s| s.text.as_str())
@@ -549,6 +556,7 @@ pub fn plan_line_text(
                 chosen,
             });
         }
+        stretches.push((first_planned..plan.notes.len(), starts_word));
     }
     for (index, note) in notes.iter().enumerate().skip(next_note) {
         plan.notes.push(PlannedNote {
@@ -557,7 +565,53 @@ pub fn plan_line_text(
             status: NoteStatus::Unchanged,
         });
     }
+    keep_word_spaces(&mut plan, notes, &stretches);
     Ok(plan)
+}
+
+/// keep_word_spaces keeps exactly one space between words where a changed
+/// stretch meets an unchanged note of a line that puts the word space first
+/// (`"All"`, `" the"`, `" world"`): a stretch starting a word takes a space in
+/// front when the note before it ends without one, and a stretch whose last
+/// text ends with a space drops it when the note after it starts with one.
+/// Only texts that come from the new syllables change; a planned note whose
+/// text and timing end up as before is unchanged again.
+fn keep_word_spaces(plan: &mut TextPlan, notes: &[NoteRow], stretches: &[(Range<usize>, bool)]) {
+    for (range, starts_word) in stretches {
+        if range.is_empty() {
+            continue;
+        }
+        let first = range.start;
+        let last = range.end - 1;
+        let from_syllables =
+            |planned: &PlannedNote| planned.note.text != notes[planned.source].text;
+        if *starts_word
+            && first > 0
+            && !plan.notes[first - 1]
+                .note
+                .text
+                .ends_with(char::is_whitespace)
+            && from_syllables(&plan.notes[first])
+            && !plan.notes[first].note.text.starts_with(char::is_whitespace)
+        {
+            plan.notes[first].note.text.insert(0, ' ');
+        }
+        if last + 1 < plan.notes.len()
+            && plan.notes[last + 1]
+                .note
+                .text
+                .starts_with(char::is_whitespace)
+            && from_syllables(&plan.notes[last])
+        {
+            let trimmed = plan.notes[last].note.text.trim_end().len();
+            plan.notes[last].note.text.truncate(trimmed);
+        }
+        for planned in &mut plan.notes[range.clone()] {
+            if planned.status == NoteStatus::Changed && planned.note == notes[planned.source] {
+                planned.status = NoteStatus::Unchanged;
+            }
+        }
+    }
 }
 
 /// pick returns the user's pick for the count change when it is a

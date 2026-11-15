@@ -588,7 +588,7 @@ per line ("Local to the edit"): the old and new syllables are aligned by a longe
 subsequence on their texts without spaces, and only the notes whose syllables changed are
 re-mapped, so unchanged notes keep their exact text (leading spaces, two words on one note,
 a `~` inside a note included) and moving a space is no change. Edited syllables always
-carry the trailing space ("Always trailing space"). `Ask` returns the plan with one note
+carry the trailing space ("Always trailing space"). Where a changed stretch meets an unchanged note of a line that puts the word space first, exactly one space stays between the words. `Ask` returns the plan with one note
 pick per count change ("Pick note per change"); `plan_line_text(notes, syllables, picks)`
 takes the picks and `text_change_patch` builds the patch. The exact round trip holds for
 trailing-space lines; for every line an unchanged display text plans no change.

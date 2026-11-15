@@ -1523,12 +1523,27 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     pump_events(50);
     QList<QObject *> delegates;
     find_current_line_delegates(window, delegates);
+    // The note's centre must lie in the visible sheet: right of the gutter
+    // (a note left of the view sits clipped under the lines pane) and inside
+    // the pitch rows.
+    auto *const sheet = root->findChild<QQuickItem *>(QStringLiteral("sheetBackground"));
+    if (sheet == nullptr) {
+        std::cerr << "text editing: no sheetBackground item\n";
+        return false;
+    }
+    const double gutter = sheet->property("gutterWidth").toDouble();
+    const double pitchTop = sheet->property("rulerHeight").toDouble();
+    const double pitchBottom =
+        sheet->height() - sheet->property("lyricsHeight").toDouble()
+        - sheet->property("gapHeight").toDouble() - sheet->property("waveformHeight").toDouble()
+        - sheet->property("activityHeight").toDouble();
     QQuickItem *target = nullptr;
     for (QObject *const candidate : delegates) {
         auto *const item = qobject_cast<QQuickItem *>(candidate);
-        const QPointF centre = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
-        if (centre.x() > 0.0 && centre.y() > 0.0 && centre.x() < window->width()
-            && centre.y() < window->height() && item->width() >= 4.0) {
+        const QPointF centre = sheet->mapFromItem(
+            item, QPointF(item->width() / 2, item->height() / 2));
+        if (centre.x() > gutter + 2.0 && centre.x() < sheet->width() - 2.0
+            && centre.y() > pitchTop && centre.y() < pitchBottom && item->width() >= 4.0) {
             target = item;
             break;
         }
@@ -1547,8 +1562,13 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     if (!inlineField->isVisible() || inlineField->property("noteId").toLongLong() != noteId
         || inlineField->property("text").toString() != syllable) {
         std::cerr << "text editing: a double click on a note did not open the inline field "
-                     "with its syllable (visible "
-                  << inlineField->isVisible() << ", text \""
+                     "with its syllable (note "
+                  << noteId << " at " << noteCentre.x() << "," << noteCentre.y()
+                  << ", selected "
+                  << document->property("inspector").toMap().value(QStringLiteral("noteId"))
+                         .toLongLong()
+                  << ", field visible " << inlineField->isVisible() << " for note "
+                  << inlineField->property("noteId").toLongLong() << ", text \""
                   << inlineField->property("text").toString().toStdString() << "\")\n";
         return false;
     }

@@ -320,6 +320,54 @@ fn a_changed_word_keeps_a_note_with_two_words() {
     );
 }
 
+#[test]
+fn an_edited_word_after_a_leading_space_note_keeps_its_word_space() {
+    // Songs that put the word space first ("All", " the", " world"): the
+    // edited last word must stay a separate word, so it takes a space in
+    // front where the unchanged note before it has none at its end
+    // (Metric - Gold Guns Girls, Toto - Africa in the corpus sweep).
+    let out = applied(
+        &song_text(&[(0, 2, 0, "All"), (2, 2, 0, " the"), (4, 2, 0, " world")]),
+        "All the worldzz",
+    );
+    assert_eq!(notes_of(&out)[2].3, " worldzz ");
+    assert_eq!(
+        line_text_for_editing(&[
+            note(0, 2, 0, "All"),
+            note(2, 2, 0, " the"),
+            note(4, 2, 0, " worldzz ")
+        ]),
+        "All the worldzz"
+    );
+}
+
+#[test]
+fn an_edited_word_before_a_leading_space_note_gets_no_second_space() {
+    // The unchanged note after the edit brings its own space, so the edited
+    // word ends without one: exactly one space between the words.
+    let out = applied(
+        &song_text(&[(0, 2, 0, "All"), (2, 2, 0, " the"), (4, 2, 0, " world")]),
+        "All THE world",
+    );
+    assert_eq!(
+        notes_of(&out),
+        vec![
+            (0, 2, 0, "All".to_owned()),
+            (2, 2, 0, " THE".to_owned()),
+            (4, 2, 0, " world".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn an_edit_inside_a_word_adds_no_space() {
+    let out = applied(
+        &song_text(&[(0, 2, 0, "Hel"), (2, 2, 0, "lo "), (4, 2, 0, " you")]),
+        "Hel|LO you",
+    );
+    assert_eq!(notes_of(&out)[1].3, "LO");
+}
+
 // ---- plan_text_change: more syllables ----
 
 #[test]

@@ -7,14 +7,16 @@
 //! upgrade planner. It exists so that every user action is one invertible patch and
 //! the file format invariants are enforced in one place, without Qt or GStreamer.
 //!
-//! This skeleton is filled in by tasks P2-01 to P2-05 and phase 7 of
-//! Plan/IMPLEMENTATION_PLAN.md.
+//! Tasks P2-01 to P2-05 built the patches, history, operations and change
+//! log, task P6-01 the line text module; phase 7 of Plan/IMPLEMENTATION_PLAN.md
+//! adds the retiming, health, export and upgrade modules.
 
 pub mod changes;
 pub mod header_ops;
 pub mod history;
 pub mod ops;
 pub mod patch;
+pub mod text;
 
 pub use history::History;
 pub use patch::{EditError, Patch, RowOp};

@@ -315,7 +315,7 @@ impl EditorController {
 
     /// commit applies a built patch as one history step and rebuilds the
     /// song view, so the lines, notes and times follow the edit.
-    fn commit(&mut self, patch: Patch) -> Result<(), EditError> {
+    pub(crate) fn commit(&mut self, patch: Patch) -> Result<(), EditError> {
         let Some(loaded) = self.loaded.as_mut() else {
             return Ok(());
         };

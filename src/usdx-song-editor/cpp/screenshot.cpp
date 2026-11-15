@@ -4,7 +4,8 @@
 // and every child) and spins a local event loop until the result is ready,
 // because grabToImage is asynchronous and the screenshot mode does not run
 // the application event loop. The lane helpers reach the sheet background
-// by its object name and spin the same kind of bounded local loop.
+// by its object name and spin the same kind of bounded local loop; the demo
+// helpers call the document's and the dialogs' invokables by name.
 
 #include "screenshot.h"
 
@@ -216,4 +217,22 @@ bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fractio
     const double end = document->property("currentLineEndMs").toDouble();
     return QMetaObject::invokeMethod(player, "seekMs",
                                      Q_ARG(double, start + (end - start) * fraction));
+}
+
+bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, const QString &text) {
+    const auto roots = engine.rootObjects();
+    if (roots.isEmpty()) {
+        return false;
+    }
+    QObject *const root = roots.first();
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    QObject *const dialog = root->findChild<QObject *>(QStringLiteral("lineTextDialog"));
+    if (document == nullptr || dialog == nullptr) {
+        return false;
+    }
+    if (!QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, line))) {
+        return false;
+    }
+    return QMetaObject::invokeMethod(dialog, "openFor", Q_ARG(QVariant, QVariant(line)),
+                                     Q_ARG(QVariant, QVariant(text)));
 }

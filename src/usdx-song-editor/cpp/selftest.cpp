@@ -11,8 +11,9 @@
 // locks in the note drag, rubber band and sheet navigation fixes (skipped on
 // a song whose current line has fewer than two notes), usdx_playhead_check
 // covers the waveform-lane seek, the playhead line and the playback follow,
-// all driven through synthesized mouse and wheel events (send_mouse/
-// send_wheel). The
+// and usdx_text_edit_check the Edit line dialog and the inline syllable
+// field, all driven through synthesized mouse, wheel and key events
+// (send_mouse/send_wheel/send_key/send_text). The
 // installed message handler counts every Qt warning, so the self-test can
 // fail on QML binding and script errors, which QML reports only as warnings.
 
@@ -23,6 +24,8 @@
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QQuickItem>
@@ -45,6 +48,7 @@
 #include <initializer_list>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <iostream>
 
@@ -102,6 +106,49 @@ void send_key(QWindow *window, int key, Qt::KeyboardModifiers modifiers) {
     QWindowSystemInterface::handleKeyEvent<QWindowSystemInterface::SynchronousDelivery>(
         window, QEvent::KeyRelease, key, modifiers);
     pump_events(20);
+}
+
+// Types the text into the focused item, one key press and release per
+// character carrying the character's text, the way a keyboard does.
+void send_text(QWindow *window, const QString &text) {
+    for (const QChar ch : text) {
+        const int key = ch.toUpper().unicode();
+        QWindowSystemInterface::handleKeyEvent<QWindowSystemInterface::SynchronousDelivery>(
+            window, QEvent::KeyPress, key, Qt::NoModifier, QString(ch));
+        QWindowSystemInterface::handleKeyEvent<QWindowSystemInterface::SynchronousDelivery>(
+            window, QEvent::KeyRelease, key, Qt::NoModifier, QString(ch));
+    }
+    pump_events(30);
+}
+
+// Double-clicks at the scene position: two presses and releases 60 ms
+// apart, inside the double-click interval.
+void send_double_click(QWindow *window, const QPointF &at, ulong timestamp) {
+    send_mouse(window, at, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, timestamp);
+    send_mouse(window, at, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+               timestamp + 20);
+    send_mouse(window, at, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+               timestamp + 60);
+    send_mouse(window, at, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+               timestamp + 80);
+    pump_events(100);
+}
+
+// Calls a QString-returning invokable of the document that takes a line
+// index (an i32 on the Rust side).
+QString document_text(QObject *document, const char *name, int line) {
+    QString result;
+    QMetaObject::invokeMethod(document, name, Q_RETURN_ARG(QString, result), Q_ARG(int, line));
+    return result;
+}
+
+// Calls a QString-returning invokable of the document that takes a row id
+// (an i64 on the Rust side, std::int64_t in the generated C++).
+QString document_text(QObject *document, const char *name, std::int64_t rowId) {
+    QString result;
+    QMetaObject::invokeMethod(document, name, Q_RETURN_ARG(QString, result),
+                              Q_ARG(std::int64_t, rowId));
+    return result;
 }
 
 // Sends one wheel event straight to the window and pumps the event loop
@@ -1343,5 +1390,219 @@ bool usdx_playhead_check(const QQmlApplicationEngine &engine) {
         pump_events(50);
     }
     std::cout << "playhead: ok" << std::endl;
+    return true;
+}
+
+// Checks the text editing of task P6-02 through real key and mouse events:
+// Ctrl+E opens the Edit line dialog with the current line's text, typing
+// previews, Enter applies one undo step that Ctrl+Z takes back, an added
+// word splits a note (when the line's last note is long enough), a double
+// click on a note opens the inline syllable field over its lyric label,
+// Enter commits it with the word space kept, Tab moves it to the next
+// note, and a double click on the lyric label opens the field too, where
+// Esc cancels. Prints "text
+// editing: ok", or "text editing: skipped" for a read-only song or an empty
+// first line.
+bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    QObject *const dialog = root->findChild<QObject *>(QStringLiteral("lineTextDialog"));
+    auto *const lineField = root->findChild<QQuickItem *>(QStringLiteral("lineTextField"));
+    auto *const inlineField =
+        root->findChild<QQuickItem *>(QStringLiteral("inlineSyllableField"));
+    auto *const lyrics = root->findChild<QQuickItem *>(QStringLiteral("lyricsLaneArea"));
+    if (window == nullptr || document == nullptr || dialog == nullptr || lineField == nullptr
+        || inlineField == nullptr || lyrics == nullptr) {
+        std::cerr << "text editing: an object is missing (window, songDocument, "
+                     "lineTextDialog, lineTextField, inlineSyllableField or lyricsLaneArea)\n";
+        return false;
+    }
+    if (document->property("readOnly").toBool()) {
+        std::cout << "text editing: skipped (the song is read-only)" << std::endl;
+        return true;
+    }
+    QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
+    QMetaObject::invokeMethod(document, "clearSelection");
+    pump_events(100);
+    const int notes = document->property("currentLineNoteCount").toInt();
+    const QString original = document_text(document, "lineText", 0);
+    if (notes < 1 || original.isEmpty()) {
+        std::cout << "text editing: skipped (the first line has no text)" << std::endl;
+        return true;
+    }
+    // No text input may hold the focus, or the shortcuts stand back.
+    window->contentItem()->forceActiveFocus();
+    pump_events(50);
+
+    // Ctrl+E opens the dialog with the line's text.
+    auto open_dialog = [&]() -> bool {
+        send_key(window, Qt::Key_E, Qt::ControlModifier);
+        pump_events(400);
+        if (!dialog->property("visible").toBool()) {
+            std::cerr << "text editing: Ctrl+E did not open the Edit line dialog\n";
+            return false;
+        }
+        if (lineField->property("text").toString() != original) {
+            std::cerr << "text editing: the dialog field shows \""
+                      << lineField->property("text").toString().toStdString()
+                      << "\" instead of \"" << original.toStdString() << "\"\n";
+            return false;
+        }
+        return true;
+    };
+    if (!open_dialog()) {
+        return false;
+    }
+    // Typing previews; Enter applies one undo step.
+    send_key(window, Qt::Key_End, Qt::NoModifier);
+    send_text(window, QStringLiteral("zz"));
+    const QVariantMap preview = dialog->property("preview").toMap();
+    if (!preview.value(QStringLiteral("canApply")).toBool()
+        || !preview.value(QStringLiteral("changed")).toBool()) {
+        std::cerr << "text editing: the preview of a changed syllable cannot apply\n";
+        return false;
+    }
+    send_key(window, Qt::Key_Return, Qt::NoModifier);
+    pump_events(400);
+    if (dialog->property("visible").toBool()) {
+        std::cerr << "text editing: Enter did not apply and close the dialog\n";
+        return false;
+    }
+    if (document_text(document, "lineText", 0) != original + QStringLiteral("zz")
+        || document->property("undoText").toString() != QStringLiteral("Edit line text")) {
+        std::cerr << "text editing: the applied line reads \""
+                  << document_text(document, "lineText", 0).toStdString() << "\" (undo \""
+                  << document->property("undoText").toString().toStdString() << "\")\n";
+        return false;
+    }
+    send_key(window, Qt::Key_Z, Qt::ControlModifier);
+    if (document_text(document, "lineText", 0) != original) {
+        std::cerr << "text editing: Ctrl+Z did not take the line text back\n";
+        return false;
+    }
+    // An added word splits a note when the plan allows it.
+    {
+        QString json;
+        QMetaObject::invokeMethod(document, "previewLineText", Q_RETURN_ARG(QString, json),
+                                  Q_ARG(int, 0), Q_ARG(QString, original + QStringLiteral(" zz")),
+                                  Q_ARG(QString, QString()));
+        const QJsonObject wordPreview = QJsonDocument::fromJson(json.toUtf8()).object();
+        if (wordPreview.value(QStringLiteral("canApply")).toBool()) {
+            window->contentItem()->forceActiveFocus();
+            if (!open_dialog()) {
+                return false;
+            }
+            send_key(window, Qt::Key_End, Qt::NoModifier);
+            send_text(window, QStringLiteral(" zz"));
+            send_key(window, Qt::Key_Return, Qt::NoModifier);
+            pump_events(400);
+            if (document->property("currentLineNoteCount").toInt() != notes + 1) {
+                std::cerr << "text editing: an added word did not split a note ("
+                          << document->property("currentLineNoteCount").toInt() << " notes, "
+                          << notes + 1 << " wanted)\n";
+                return false;
+            }
+            send_key(window, Qt::Key_Z, Qt::ControlModifier);
+            if (document->property("currentLineNoteCount").toInt() != notes) {
+                std::cerr << "text editing: Ctrl+Z did not merge the split back\n";
+                return false;
+            }
+        } else {
+            std::cout << "text editing: the added-word split skipped (the last note is too "
+                         "short)"
+                      << std::endl;
+        }
+    }
+
+    // A double click on a note opens the inline field with its syllable.
+    window->contentItem()->forceActiveFocus();
+    pump_events(50);
+    QList<QObject *> delegates;
+    find_current_line_delegates(window, delegates);
+    QQuickItem *target = nullptr;
+    for (QObject *const candidate : delegates) {
+        auto *const item = qobject_cast<QQuickItem *>(candidate);
+        const QPointF centre = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        if (centre.x() > 0.0 && centre.y() > 0.0 && centre.x() < window->width()
+            && centre.y() < window->height() && item->width() >= 4.0) {
+            target = item;
+            break;
+        }
+    }
+    if (target == nullptr) {
+        std::cout << "text editing: ok (the inline field skipped: no note on screen)"
+                  << std::endl;
+        return true;
+    }
+    const std::int64_t noteId = target->property("noteId").toLongLong();
+    const QString syllable = document_text(document, "syllableForEditing", noteId);
+    const QPointF noteCentre =
+        target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
+    const double noteStartX = target->mapToScene(QPointF(1.0, 0.0)).x();
+    send_double_click(window, noteCentre, 50000);
+    if (!inlineField->isVisible() || inlineField->property("noteId").toLongLong() != noteId
+        || inlineField->property("text").toString() != syllable) {
+        std::cerr << "text editing: a double click on a note did not open the inline field "
+                     "with its syllable (visible "
+                  << inlineField->isVisible() << ", text \""
+                  << inlineField->property("text").toString().toStdString() << "\")\n";
+        return false;
+    }
+    send_key(window, Qt::Key_End, Qt::NoModifier);
+    send_text(window, QStringLiteral("q"));
+    send_key(window, Qt::Key_Return, Qt::NoModifier);
+    pump_events(100);
+    if (inlineField->isVisible()
+        || document_text(document, "syllableForEditing", noteId) != syllable + QStringLiteral("q")
+        || document->property("undoText").toString() != QStringLiteral("Edit syllable")) {
+        std::cerr << "text editing: Enter did not commit the inline syllable (now \""
+                  << document_text(document, "syllableForEditing", noteId).toStdString()
+                  << "\")\n";
+        return false;
+    }
+    send_key(window, Qt::Key_Z, Qt::ControlModifier);
+    if (document_text(document, "syllableForEditing", noteId) != syllable) {
+        std::cerr << "text editing: Ctrl+Z did not take the inline syllable back\n";
+        return false;
+    }
+    // Tab commits and moves the field to the next note of the line (the
+    // last note keeps the field closed).
+    send_double_click(window, noteCentre, 55000);
+    send_key(window, Qt::Key_Tab, Qt::NoModifier);
+    pump_events(100);
+    if (inlineField->isVisible() && inlineField->property("noteId").toLongLong() == noteId) {
+        std::cerr << "text editing: Tab did not move the inline field to the next note\n";
+        return false;
+    }
+    if (inlineField->isVisible()) {
+        send_key(window, Qt::Key_Escape, Qt::NoModifier);
+    }
+    if (document_text(document, "syllableForEditing", noteId) != syllable) {
+        std::cerr << "text editing: Tab changed an untouched syllable\n";
+        return false;
+    }
+    // A double click on the lyric label opens the field; Esc cancels.
+    const QPointF label(noteStartX + 1.0, lyrics->mapToScene(QPointF(0, lyrics->height() / 2)).y());
+    send_double_click(window, label, 60000);
+    if (!inlineField->isVisible()) {
+        std::cerr << "text editing: a double click on a lyric label did not open the inline "
+                     "field\n";
+        return false;
+    }
+    const std::int64_t labelNote = inlineField->property("noteId").toLongLong();
+    const QString labelSyllable = document_text(document, "syllableForEditing", labelNote);
+    send_text(window, QStringLiteral("w"));
+    send_key(window, Qt::Key_Escape, Qt::NoModifier);
+    pump_events(100);
+    if (inlineField->isVisible()
+        || document_text(document, "syllableForEditing", labelNote) != labelSyllable) {
+        std::cerr << "text editing: Esc did not cancel the inline field\n";
+        return false;
+    }
+    std::cout << "text editing: ok" << std::endl;
     return true;
 }

@@ -428,6 +428,13 @@ pub fn edit_failure_reason(error: &EditError) -> String {
         EditError::RelativeModeIsReadOnly => String::from(
             "Relative mode cannot be edited: convert the song to absolute beats first.",
         ),
+        EditError::NotesTooShort => String::from(
+            "The changed notes are too short for the added syllables: a note needs at least 1 beat per syllable.",
+        ),
+        EditError::EmptyLineText => String::from("The line needs at least one syllable."),
+        EditError::NeedsDecision(_) => String::from(
+            "The syllable count differs from the note count: pick the notes to split or merge.",
+        ),
         EditError::UnknownRow(_)
         | EditError::StalePatch(_)
         | EditError::PhraseEndBetween

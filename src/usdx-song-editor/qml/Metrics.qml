@@ -59,6 +59,24 @@ QtObject {
     property real activityLaneHeight: 6
     property real waveformProgressWidth: 260
 
+    // Dialogs (UI_SPEC 5.4): the 16 px content padding and 12 px spacing.
+    property real dialogPadding: 16
+    property real dialogSpacing: 12
+
+    // The Edit line dialog (UI_SPEC 5.4): its preferred width, the 15 px
+    // text of the line field and the syllable chips (1 px border, radius 4,
+    // 3 / 6 px padding, at least 38 px wide).
+    property real lineTextDialogWidth: 720
+    property real lineTextFieldPixelSize: 15
+    property real syllableChipRadius: 4
+    property real syllableChipPaddingVertical: 3
+    property real syllableChipPaddingHorizontal: 6
+    property real syllableChipMinimumWidth: 38
+
+    // The inline syllable field over a lyric label (user decision
+    // 2026-11-15): at least as wide as the inspector's Text field.
+    property real inlineSyllableMinimumWidth: 90
+
     // Status bar: height, side padding and label spacing.
     property real statusBarHeight: 24
     property real statusBarPadding: 10

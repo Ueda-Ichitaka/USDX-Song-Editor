@@ -3,7 +3,9 @@
 // the QML window root object was not created, open a song silently through the
 // SongDocument bridge (the seam of the --song flag), open and verify a song
 // through the window's requestOpen() guard (line count, lines model rows and
-// window title), drive the QML paths a user reaches, and count Qt warnings.
+// window title), drive the QML paths a user reaches, count Qt warnings, and
+// run the regression checks (drawer, sheet interaction, playhead, text
+// editing) through synthesized input events.
 
 #pragma once
 #include <QQmlApplicationEngine>
@@ -80,3 +82,10 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine);
 // playback makes the line being sung the current line. Prints
 // "playhead: ok" on success.
 bool usdx_playhead_check(const QQmlApplicationEngine &engine);
+
+// Checks the text editing (task P6-02) through real key and mouse events:
+// the Edit line dialog (Ctrl+E, preview, Enter applies one undo step, an
+// added word splits a note) and the inline syllable field (a double click
+// on a note or its lyric label, Enter commits, Esc cancels). Prints "text
+// editing: ok" on success.
+bool usdx_text_edit_check(const QQmlApplicationEngine &engine);

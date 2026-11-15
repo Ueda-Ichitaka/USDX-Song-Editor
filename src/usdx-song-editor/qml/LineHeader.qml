@@ -3,9 +3,9 @@
 // selected" while the selection is exactly the current line's notes, task
 // P5-06), note count and syllable rate, the timing health pill and the line
 // type combo with the Edit text button. The combo shows the line's type and
-// sets it for every note of the line. The health stays "timing ok" (the
-// analysis arrives with P7) and the Edit text dialog arrives with P6-02;
-// both render their final texts and enablement already.
+// sets it for every note of the line; the button asks the editor page to
+// open the Edit line dialog (editTextRequested, task P6-02). The health
+// stays "timing ok" until the analysis of P7 arrives.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -19,6 +19,9 @@ Rectangle {
 
     // The document the header mirrors; set by the editor page.
     property Usdx.SongDocument document
+
+    // The Edit text button asks the editor page for the Edit line dialog.
+    signal editTextRequested()
 
     color: Kirigami.Theme.backgroundColor
     implicitHeight: headerRow.implicitHeight + 2 * metrics.columnPaddingVertical
@@ -153,9 +156,7 @@ Rectangle {
             icon.name: "document-edit"
             text: qsTr("Edit text…")
             enabled: document && document.isLoaded && !document.readOnly
-            onClicked: {
-                // The Edit line dialog arrives with P6-02.
-            }
+            onClicked: root.editTextRequested()
         }
     }
 }

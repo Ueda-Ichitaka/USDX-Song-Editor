@@ -13,7 +13,8 @@
 // outline shows the snapped, committed result, and the release commits
 // once, so one drag is one undo step; Shift locks the first axis moved and
 // Alt turns the edge snapping off. The pointer deltas are taken in scene
-// coordinates because the note moves under the pointer.
+// coordinates because the note moves under the pointer. A double click
+// opens the sheet's inline syllable field for the note.
 
 import QtQuick
 import org.kde.kirigami as Kirigami
@@ -176,6 +177,10 @@ Rectangle {
                     : Usdx.SongDocument.SelectionKind.Set;
             noteSheet.document.selectNote(note.noteId, mode);
         }
+
+        // A double click edits the note's syllable over its lyric label
+        // (UI_SPEC 3.6, task P6-02).
+        onDoubleTapped: noteSheet.editSyllable(note.noteId)
     }
 
     DragHandler {

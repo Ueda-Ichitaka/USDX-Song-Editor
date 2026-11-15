@@ -217,9 +217,10 @@ fn copy_song_with_audio(
 
 /// The demo states the harness knows (UI_SPEC 8.1); later tasks add theirs.
 #[cfg(debug_assertions)]
-const DEMO_STATES: [&str; 5] = [
+const DEMO_STATES: [&str; 6] = [
     "start-screen",
     "editor",
+    "line-text",
     "audio-states-missing",
     "audio-states-loading",
     "audio-states-no-vocals",
@@ -240,7 +241,9 @@ fn check_demo_state(state: &str, has_song: bool) -> Result<(), String> {
             DEMO_STATES.join(", ")
         ));
     }
-    if (state.starts_with("audio-states-") || state == "editor") && !has_song {
+    if (state.starts_with("audio-states-") || state == "editor" || state == "line-text")
+        && !has_song
+    {
         return Err(format!("the demo state \"{state}\" needs --song"));
     }
     Ok(())
@@ -278,6 +281,14 @@ fn apply_demo_state(
         // The playhead stands inside the current line, as in the mockup.
         if !bridge::screenshot::usdx_seek_demo_playhead(engine, 0.6) {
             return Err(String::from("the playhead could not be placed"));
+        }
+    }
+    if state == "line-text" {
+        // The Edit line dialog of line 3 with the mockup's edit: one word
+        // split into more syllables than it has notes (UI_SPEC 5.4).
+        let text = QString::from("Are you free or just a slave of the~ au|tho|ri|ties?");
+        if !bridge::screenshot::usdx_open_demo_line_text(engine, 2, &text) {
+            return Err(String::from("the Edit line dialog could not be opened"));
         }
     }
     Ok(())
@@ -473,21 +484,22 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                 1
             } else {
                 // The permanent regression checks run only with a song
-                // loaded: the drawer, the note drag, the sheet navigation
-                // and the playhead all need a real document. The interaction
+                // loaded: the drawer, the note drag, the sheet navigation,
+                // the playhead and the text editing all need a real document. The interaction
                 // check runs first: the drawer check opens and closes the
                 // GlobalDrawer, whose close animation leaves the modal
                 // overlay swallowing synthesized presses for a moment.
                 let interaction_ok = engine.as_ref().is_some_and(|engine| {
                     bridge::selftest::usdx_sheet_interaction_check(engine)
                         && bridge::selftest::usdx_playhead_check(engine)
+                        && bridge::selftest::usdx_text_edit_check(engine)
                         && bridge::selftest::usdx_drawer_check(engine)
                 });
                 if interaction_ok {
                     0
                 } else {
                     eprintln!(
-                        "self-test failed: the drawer, sheet interaction or playhead check failed"
+                        "self-test failed: the drawer, sheet interaction, playhead or text editing check failed"
                     );
                     1
                 }

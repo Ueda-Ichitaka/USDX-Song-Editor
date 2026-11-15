@@ -583,6 +583,16 @@ fewer, the shortest neighbouring pairs are merged. `CountPolicy::Ask` returns
 `EditError::NeedsDecision` with the proposed mapping, which the dialog shows. Round trip:
 `parse_line_text(line_text_for_editing(notes))` reproduces the note texts exactly.
 
+User decisions 2026-11-15 (task P6-01): the counts are compared per changed stretch, not
+per line ("Local to the edit"): the old and new syllables are aligned by a longest common
+subsequence on their texts without spaces, and only the notes whose syllables changed are
+re-mapped, so unchanged notes keep their exact text (leading spaces, two words on one note,
+a `~` inside a note included) and moving a space is no change. Edited syllables always
+carry the trailing space ("Always trailing space"). `Ask` returns the plan with one note
+pick per count change ("Pick note per change"); `plan_line_text(notes, syllables, picks)`
+takes the picks and `text_change_patch` builds the patch. The exact round trip holds for
+trailing-space lines; for every line an unchanged display text plans no change.
+
 ### 6.6 Collision resolution (`collisions.rs`)
 
 Input: one voice's notes with new float start times and lengths in beats (from a retime).

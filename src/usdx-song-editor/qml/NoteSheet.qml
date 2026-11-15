@@ -18,7 +18,12 @@
 // middle drag pans, and a visible horizontal scrollbar (recorded spec
 // deviation, user decision 2026-11-15) spans the whole song. The sheet
 // paints every line of the song (user decision 2026-11-15); the current
-// line's notes draw opaque, all other lines at 35 % opacity.
+// line's notes draw opaque, all other lines at 35 % opacity. The inline
+// syllable field (task P6-02, user decision 2026-11-15) opens over a note's
+// lyric label in the lyrics lane after a double click on the note or the
+// label, or through editSyllable (the Enter key): Enter commits one undo
+// step, Esc cancels, Tab and Shift+Tab commit and move to the next or
+// previous note of the line, and leaving the field commits.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -212,6 +217,60 @@ Rectangle {
             text: qsTr("No vocals track: vocal activity and the coverage check are off. Vocals is disabled in the track list.")
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             color: root.Kirigami.Theme.disabledTextColor
+        }
+    }
+
+    // editSyllable opens the inline syllable field over the note's lyric
+    // label: the note becomes the selection, the field shows its syllable
+    // without the word space.
+    function editSyllable(noteId: int) {
+        if (!root.document || root.document.readOnly || noteId < 0) {
+            return;
+        }
+        root.document.selectNote(noteId, Usdx.SongDocument.SelectionKind.Set);
+        const info = root.document.inspector;
+        if (!info.single) {
+            return;
+        }
+        syllableField.beat = info.start;
+        syllableField.text = root.document.syllableForEditing(noteId);
+        syllableField.noteId = noteId;
+        syllableField.forceActiveFocus();
+        syllableField.selectAll();
+    }
+
+    // closeSyllableField hides the inline field. Closed by a key, it hands
+    // the keyboard focus back to the sheet, so the window shortcuts (Ctrl+Z,
+    // the arrows) work again at once; closed because the focus went
+    // elsewhere, the focus stays there.
+    function closeSyllableField(refocus: bool) {
+        syllableField.noteId = -1;
+        if (refocus) {
+            root.forceActiveFocus();
+        }
+    }
+
+    // commitSyllable commits the inline field; `step` 1 or -1 then opens
+    // the field on the next or previous note of the line. `refocus` hands
+    // the focus back to the sheet (see closeSyllableField).
+    function commitSyllable(step: int, refocus: bool) {
+        const id = syllableField.noteId;
+        if (id < 0) {
+            return;
+        }
+        root.closeSyllableField(refocus);
+        root.document.setNoteSyllable(id, syllableField.text);
+        if (step === 0) {
+            return;
+        }
+        if (step > 0) {
+            root.document.selectNextNote();
+        } else {
+            root.document.selectPreviousNote();
+        }
+        const info = root.document.inspector;
+        if (info.single && info.noteId !== id) {
+            root.editSyllable(info.noteId);
         }
     }
 
@@ -446,6 +505,62 @@ Rectangle {
                 if (mouse.buttons & Qt.LeftButton) {
                     root.seekTo(waveformSeek.x + mouse.x);
                 }
+            }
+        }
+    }
+
+    // The lyrics lane's double click (UI_SPEC 3.6): it edits the syllable
+    // of the note whose label lies under the pointer.
+    MouseArea {
+        id: lyricsLane
+
+        objectName: "lyricsLaneArea"
+        x: sheet.gutterWidth
+        y: root.pitchBottom
+        width: Math.max(0, parent.width - sheet.gutterWidth)
+        height: sheet.lyricsHeight
+        enabled: root.songOpen && root.document !== null && !root.document.readOnly
+        acceptedButtons: Qt.LeftButton
+        z: 6
+
+        onDoubleClicked: (mouse) => root.editSyllable(
+            root.document.noteAtLyricBeat(sheet.xToBeat(lyricsLane.x + mouse.x)))
+    }
+
+    // The inline syllable field over the lyric label of the note it edits.
+    QQC2.TextField {
+        id: syllableField
+
+        // The row id of the edited note, -1 while closed, and its start
+        // beat, which places the field.
+        property int noteId: -1
+        property real beat: 0
+
+        objectName: "inlineSyllableField"
+        visible: noteId >= 0
+        z: 9
+        x: Math.max(sheet.gutterWidth,
+                    sheet.gutterWidth + (beat - sheet.startBeat) * sheet.pxPerBeat)
+        y: root.pitchBottom + 1
+        width: Math.max(metrics.inlineSyllableMinimumWidth, implicitWidth)
+        height: sheet.lyricsHeight - 2
+
+        onAccepted: root.commitSyllable(0, true)
+        Keys.onEscapePressed: (event) => {
+            root.closeSyllableField(true);
+            event.accepted = true;
+        }
+        Keys.onTabPressed: (event) => {
+            root.commitSyllable(1, true);
+            event.accepted = true;
+        }
+        Keys.onBacktabPressed: (event) => {
+            root.commitSyllable(-1, true);
+            event.accepted = true;
+        }
+        onActiveFocusChanged: {
+            if (!activeFocus && noteId >= 0) {
+                root.commitSyllable(0, false);
             }
         }
     }

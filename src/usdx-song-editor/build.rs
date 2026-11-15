@@ -23,6 +23,7 @@ fn main() {
         "qml/NoteDelegate.qml",
         "qml/PhraseEndHandle.qml",
         "qml/Inspector.qml",
+        "qml/LineTextDialog.qml",
         "qml/StatusBar.qml",
         "qml/format.js",
     ]);

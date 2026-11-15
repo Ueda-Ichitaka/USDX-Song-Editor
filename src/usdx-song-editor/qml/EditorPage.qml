@@ -8,7 +8,9 @@
 // [ and ] follow the plan's key table (8.6) as Shortcut elements (they move
 // into the Kirigami.Actions of the menus when those arrive). The note
 // editing shortcuts N, G, F, R, Shift+R, S, M, Delete, Insert and B (task
-// P5-05) act on the selection; the navigation shortcuts Up, Down, Left,
+// P5-05) act on the selection; Enter edits the selected note's syllable in
+// place and Ctrl+E opens the Edit line dialog of the current line (task
+// P6-02, also the line header's Edit text button); the navigation shortcuts Up, Down, Left,
 // Right, the Ctrl/Alt arrows and the autoplay Shift+A (task P5-06) step
 // through lines, notes, moves, pitches and lengths - the arrows stand back
 // while a text input holds the focus, and the autoplay signal plays the
@@ -368,9 +370,10 @@ Kirigami.Page {
     // closing dialogs and leaving pages keep their precedence.
     Shortcut {
         sequence: "Esc"
-        enabled: (root.player && root.player.playing)
-                 || (root.songOpen && root.document.inspector !== undefined
-                     && root.document.inspector.count > 0)
+        enabled: !root.textEditingFocus
+                 && ((root.player && root.player.playing)
+                     || (root.songOpen && root.document.inspector !== undefined
+                         && root.document.inspector.count > 0))
         onActivated: {
             if (root.player && root.player.playing) {
                 root.player.pause();
@@ -444,6 +447,31 @@ Kirigami.Page {
         sequence: "B"
         enabled: root.canEditNotes
         onActivated: root.document.togglePhraseEndBeforeSelection()
+    }
+
+    // The text shortcuts of the key table (plan 8.6, task P6-02): Enter
+    // edits the selected note's syllable over its lyric label, Ctrl+E the
+    // current line's text in the Edit line dialog. Both stand back while a
+    // text input holds the focus, so Enter there commits the input.
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        enabled: root.canEditNotes && !root.textEditingFocus
+                 && root.document.inspector !== undefined
+                 && root.document.inspector.single === true
+        onActivated: noteSheet.editSyllable(root.document.inspector.noteId)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+E"
+        enabled: root.canEditNotes && !root.textEditingFocus
+        onActivated: root.editLineText()
+    }
+
+    // editLineText opens the Edit line dialog for the current line.
+    function editLineText() {
+        if (root.canEditNotes) {
+            lineTextDialog.openFor(root.document.currentLine, null);
+        }
     }
 
     // The navigation shortcuts of the key table (plan 8.6, task P5-06).
@@ -781,6 +809,7 @@ Kirigami.Page {
                 Usdx.LineHeader {
                     Layout.fillWidth: true
                     document: root.document
+                    onEditTextRequested: root.editLineText()
                 }
 
                 // The note sheet area (UI_SPEC 3): NoteSheet.qml holds the
@@ -805,6 +834,14 @@ Kirigami.Page {
                 }
             }
         }
+    }
+
+    // The Edit line dialog (UI_SPEC 5.4, task P6-02).
+    Usdx.LineTextDialog {
+        id: lineTextDialog
+
+        objectName: "lineTextDialog"
+        document: root.document
     }
 
     Usdx.Metrics {

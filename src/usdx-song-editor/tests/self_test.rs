@@ -6,7 +6,10 @@
 //! drives the QML paths a user reaches (open through the unsaved-changes
 //! guard, the rendered lines pane and recent-songs menu, the activation
 //! check, the dialog choices, quit) and fails on any Qt warning, because QML
-//! reports binding and script errors only as warnings.
+//! reports binding and script errors only as warnings. On a multi-note song
+//! it also runs the regression checks of the sheet interaction, the
+//! playhead, the text editing (the Edit line dialog and the inline syllable
+//! field, task P6-02) and the main menu drawer.
 
 use std::process::Command;
 
@@ -170,7 +173,12 @@ fn self_test_runs_the_interaction_checks_on_a_multi_note_song() {
         out.status.success(),
         "--self-test with a song failed:\n{stdout}\n{stderr}"
     );
-    for report in ["sheet interaction: ok", "drawer check: ok", "playhead: ok"] {
+    for report in [
+        "sheet interaction: ok",
+        "drawer check: ok",
+        "playhead: ok",
+        "text editing: ok",
+    ] {
         assert!(
             stdout.contains(report),
             "the self-test must report {report:?}, got: {stdout}\n{stderr}"

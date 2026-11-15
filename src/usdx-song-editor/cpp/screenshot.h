@@ -6,7 +6,8 @@
 // from a PNG so the tests can assert what was rendered without adding an
 // image-decoding crate, and two drive the waveform lane of the audio demo
 // states: one pins it at a loading fraction, one waits for its analysis and
-// describes what it shows.
+// describes what it shows; the rest set up the editor and line-text demo
+// states.
 
 #pragma once
 
@@ -50,3 +51,8 @@ bool usdx_select_demo_note(const QQmlApplicationEngine &engine, int position);
 // so the editor screenshot shows the playhead inside the view like the
 // mockup; false without a document or player.
 bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fraction);
+
+// Makes the global line current and opens the Edit line dialog for it with
+// the given text (the line-text demo state, UI_SPEC 5.4); false without the
+// document or the dialog.
+bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, const QString &text);

@@ -3,7 +3,7 @@
 Where the application stands, task by task. The work plan is `Plan/IMPLEMENTATION_PLAN.md`,
 the task checklist `Plan/PROGRESS.md`; this page translates them into user-visible terms.
 
-Version 0.1.0, development build (13 November 2026).
+Version 0.1.0, development build (15 November 2026).
 
 ## In the current build
 
@@ -27,6 +27,9 @@ Version 0.1.0, development build (13 November 2026).
 | About page with version and licence | menu |
 | Playback: Play, Play line (0.3 s padding), Loop of the current line, Track (Mix, Vocals, Instrumental, chosen per song from the settings), Speed (0.5x, 0.75x, 1x, pitch kept), playhead time and beat in the status bar | toolbar, Space / P / L / V / [ / ] |
 | Dotted playhead across ruler, notes, lyrics and waveform; seek by pressing or dragging in the ruler or the waveform lanes; the current line follows the playback while the whole song plays | mouse |
+| Note sheet: every line of the song on pitch rows (current line opaque), ruler, lyrics lane, zoom, pan and scrollbar | editor |
+| Note editing with mouse and keyboard: select, rubber band, drag, resize, split, merge, insert, delete, type keys, phrase ends, inspector, line type | editor |
+| Text editing: inline syllable field (double click, Enter) and the Edit line dialog with syllable chips and local split / merge (Ctrl+E) | editor |
 | Waveform lane (selected track) and vocal activity lane (#VOCALS) under the note sheet, for the current line's time view; "Reading the waveform... N %", "No audio" and the no-vocals note; analysis in the background with an on-disk cache | editor |
 | Offscreen self-test (`--self-test [SONG]`) that opens the song through the window's open guard, drives the dialogs, the recent menu and quit, and fails on any Qt warning | command line |
 | Screenshot harness (`--screenshot`, `--demo-state`, debug builds) for the UI acceptance check | command line, `scripts/ui-shots.sh` |
@@ -38,9 +41,6 @@ USDX Song Factory output round trip byte-identically.
 
 | Feature | Planned phase |
 |---|---|
-| Note sheet: viewport, background, notes on pitch rows, ruler, lyrics lane | P5 |
-| Note editing with mouse and keyboard: select, drag, resize, split, merge, insert, delete, type keys | P5 |
-| Line text and syllable editing dialogs, inspector | P5 / P6 |
 | Repair timing: anchor + stretch, block move and scale, tap-along | P7 |
 | Timing health analysis (suspicious / racing marks with reasons) | P7 |
 | Anchors export for the USDX Song Factory | P7 |
@@ -49,6 +49,5 @@ USDX Song Factory output round trip byte-identically.
 | Settings page in the UI (the settings file already exists) | P8 |
 | Packaging (PKGBUILD), documentation polish | P8 |
 
-Until the note sheet lands, the repair and song properties controls show their final
-enablement but do not act, and the note sheet area shows only the waveform lanes at its
-bottom.
+Until their phases land, the repair and song properties controls show their final
+enablement but do not act.

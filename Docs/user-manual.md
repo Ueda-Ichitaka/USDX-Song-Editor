@@ -147,6 +147,30 @@ beat and keeps its length, **Length** changes where it ends, **Pitch** transpose
 **Line type** box in the line header shows the type of the current line ("Mixed" when its
 notes differ); choosing a type there sets it for every note of the line in one undo step.
 
+**Editing text.** Double-click a note, or its syllable in the lyrics lane, or press Enter
+with one note selected: a small text field opens over the syllable. Type the new syllable
+and press Enter (one undo step); Esc cancels, Tab and Shift+Tab save and move on to the next
+or previous note of the line, and clicking elsewhere saves. The word space of the note stays
+where it was, so you only type the syllable itself.
+
+To edit a whole line, press Ctrl+E or click **Edit text...** in the line header. The Edit
+line dialog shows the line in one field, written the way syllabified lyrics are written: a
+space separates words, `|` splits a word into syllables, and `~` continues the previous
+syllable on a new note (a held note). For example `the~ au|tho|ri|ties?`. Under the field,
+one chip per note shows its syllable and start beat: blue for a changed syllable, green for
+a new note. Only the notes whose syllables you changed are touched; everything else keeps
+its exact text.
+
+When a changed word has more syllables than notes, the editor splits its longest note in
+halves (the new notes keep the pitch and type); with fewer syllables it merges the
+neighbouring notes with the shortest span. A word added between two notes goes into the
+note before it (the first note at the start of the line); a deleted word's note merges into
+its neighbour. A blue message explains each split or merge before you apply it. Choose **Ask
+me per note** to pick the note to split or the notes to merge yourself, one choice per
+change. A note needs at least one beat per syllable; if the notes are too short, the dialog
+says so and Apply stays disabled. Apply (or Enter in the field) changes the line as one undo
+step.
+
 **Playhead.** A dotted red line with a small triangle on the ruler marks the playback
 position. It runs from the ruler through the notes and the lyrics down to the waveform, so
 you can line up a note's start with what you hear and see. To move it, press anywhere in the

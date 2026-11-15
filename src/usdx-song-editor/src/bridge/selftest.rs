@@ -9,9 +9,10 @@
 //! one reports how many Qt warnings
 //! the installed message handler counted, two serve the G-08 drawer
 //! probe (reading a window property as bool and clicking a child object
-//! through its invokable click() method), and three lock in the phase-5
-//! fixes (the main-menu drawer check, the sheet interaction check and the
-//! playhead check, driven through synthesized mouse and wheel events).
+//! through its invokable click() method), and four are regression checks
+//! (the main-menu drawer check, the sheet interaction check, the playhead
+//! check and the text editing check of task P6-02, driven through
+//! synthesized mouse, wheel and key events).
 
 #[cxx::bridge]
 mod ffi {
@@ -37,6 +38,7 @@ mod ffi {
         fn usdx_drawer_check(engine: &QQmlApplicationEngine) -> bool;
         fn usdx_sheet_interaction_check(engine: &QQmlApplicationEngine) -> bool;
         fn usdx_playhead_check(engine: &QQmlApplicationEngine) -> bool;
+        fn usdx_text_edit_check(engine: &QQmlApplicationEngine) -> bool;
     }
 }
 
@@ -44,5 +46,5 @@ pub use ffi::{
     usdx_drawer_check, usdx_install_message_handler, usdx_open_song, usdx_playhead_check,
     usdx_qml_click_child, usdx_qml_root_object_exists, usdx_qml_root_property_bool,
     usdx_qt_warning_count, usdx_selftest_load_song, usdx_selftest_start_screen,
-    usdx_selftest_ui_paths, usdx_sheet_interaction_check,
+    usdx_selftest_ui_paths, usdx_sheet_interaction_check, usdx_text_edit_check,
 };

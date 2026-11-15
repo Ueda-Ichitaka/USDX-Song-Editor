@@ -292,6 +292,14 @@ lyrics lane is left out.
 - Current line: `pointSize` 9, `Font.DemiBold`, `textColor`. Neighbour lines: `pointSize` 9,
   normal weight, `disabledTextColor` at 70 % opacity.
 - Double-clicking a label edits that note's text (same as double-clicking the note).
+- The inline syllable field (user decision 2026-11-15, "Over the lyric label"): a
+  `QQC2.TextField` over the lyrics lane at the note's `x(start)` (never left of the gutter),
+  lane height minus 2 px, at least 90 px wide (`Metrics.inlineSyllableMinimumWidth`). It
+  opens on a double click on the note or its label and on Enter with one note selected; it
+  shows the note's text without its surrounding spaces and puts the typed syllable back
+  between the note's own leading and trailing spaces. Enter commits (one undo step, "Edit
+  syllable"), Esc cancels, Tab / Shift+Tab commit and open it on the next / previous note of
+  the line, losing the focus commits. An empty or unchanged text adds no undo step.
 
 ### 3.7 Waveform and activity lanes
 
@@ -644,6 +652,25 @@ song, else of the most recent song, else the home folder.
      Hidden when the counts match.
   5. "When counts differ" [Split / merge longest notes | Ask me per note].
 - Buttons: "Apply" (default), "Cancel". Apply is one undo step.
+- Count fixes (user decision 2026-11-15, "Local to the edit"): only the stretches of notes
+  whose syllables changed are re-mapped (plan 6.5); the info message names each stretch:
+  `<S> syllables for <N> notes.` then per stretch `"<syllables>" now has <m> syllables on
+  <n> notes. The editor will split "<note>" (<L> beats) into <k> notes of <a>, <b> and <c>
+  beats at the same pitch.` or `... The editor will merge "<a>" and "<b>" (<L> beats) into
+  one note.` Counts up to twelve are words, the totals digits. The mockup's example text
+  (13 syllables, "three syllables on two notes" for a one-note stretch) is not consistent
+  with its own input; the implemented text follows the rule above (recorded in PROGRESS
+  P6-02).
+- "Ask me per note" (user decision 2026-11-15, "Pick note per change"): under the message,
+  one row per count change: "Split note" or "Merge notes" (`disabledTextColor`) and a
+  ComboBox of the candidates (split: `"<note>" (<L> beats)` for every note of the stretch
+  long enough; merge: `"<a>" + "<b>" (<L> beats)` for every run that can merge), preset to
+  the automatic choice; a pick updates the chips and the message.
+- A text that cannot apply (no syllable, notes too short, a count change in a relative-mode
+  song) shows its reason in an Error InlineMessage under the info message and disables
+  Apply; the chips are empty then.
+- The dialog renders inside the editor window (`Kirigami.Dialog`), not as the separate
+  window the mockup draws.
 
 ### 5.5 Export anchors for the Factory (`export-anchors`)
 

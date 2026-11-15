@@ -44,7 +44,19 @@ pub enum EditError {
     /// The operation needs a usable `#BPM` timing and the song has none.
     #[error("the song has no usable #BPM timing")]
     NoTiming,
-    // Later tasks add their own variants (NeedsDecision, AnchorsOutOfOrder).
+    /// The line text has a different syllable count than the notes it
+    /// replaces, and the `Ask` policy wants the user to pick the notes to
+    /// split or merge; the plan carries the automatic proposal.
+    #[error("the syllable count differs from the note count and needs a decision")]
+    NeedsDecision(crate::text::TextPlan),
+    /// No note of the changed stretch is long enough to take the extra
+    /// syllables (a note of N beats takes at most N syllables).
+    #[error("the notes are too short to take the extra syllables")]
+    NotesTooShort,
+    /// The line text holds no syllable, so no note would keep a text.
+    #[error("the line text holds no syllable")]
+    EmptyLineText,
+    // Later tasks add their own variants (AnchorsOutOfOrder).
 }
 
 /// One row operation. The ids and the carried rows refer to the document

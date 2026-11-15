@@ -14,8 +14,10 @@
 //! between Qt and Rust types and routes the guarded transition results of
 //! the shell (UI_SPEC 5.1, 5.2) to the right channel - the save error
 //! banner property, the open error dialog signal or the changed-on-disk
-//! dialog signal. The editing invokables (selection, note moves, line
-//! text) arrive with the later tasks (P5-04 to P6-02); the health and
+//! dialog signal. The editing invokables cover the selection, the note
+//! moves and actions (P5-04 to P5-06) and the line text: the Edit line
+//! dialog's text, preview JSON and apply and the inline syllable edit
+//! (P6-02); the health and
 //! anchor roles stay neutral (0, empty) until the analysis (P7) and repair
 //! (P6.3) phases fill them.
 
@@ -32,6 +34,7 @@ use usdx_format::rows::{NoteType, RowId};
 use crate::bridge::player::PlayerCore;
 use crate::controller::editing::{Edge, SelectionMode, snapped_move, snapped_resize};
 use crate::controller::inspector::{InspectorState, inspector_state};
+use crate::controller::line_text;
 use crate::controller::model_update::{RowUpdate, row_update};
 use crate::controller::notes::{
     PhraseEndRow, VisibleNote, all_lines, song_end_beat, type_char, visible_notes,
@@ -727,6 +730,56 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "setNoteText"]
         fn set_note_text(self: Pin<&mut SongDocument>, row_id: i64, text: QString) -> bool;
+
+        /// The line's text in the line text syntax for the Edit line
+        /// dialog's field (global line index), empty past the last line.
+        #[qinvokable]
+        #[cxx_name = "lineText"]
+        fn line_text(self: &SongDocument, line: i32) -> QString;
+
+        /// The Edit line dialog's preview of a text as JSON: the syllable
+        /// chips, the count changes with their note picks, the count
+        /// message, the refusal reason and whether Apply is possible.
+        /// `picks` lists the picked line note per count change,
+        /// comma-separated (-1: automatic).
+        #[qinvokable]
+        #[cxx_name = "previewLineText"]
+        fn preview_line_text(
+            self: &SongDocument,
+            line: i32,
+            text: QString,
+            picks: QString,
+        ) -> QString;
+
+        /// Apply a line text as one undo step (the Edit line dialog's
+        /// Apply); a refusal reports through editRefused.
+        #[qinvokable]
+        #[cxx_name = "applyLineText"]
+        fn apply_line_text(
+            self: Pin<&mut SongDocument>,
+            line: i32,
+            text: QString,
+            picks: QString,
+        ) -> bool;
+
+        /// The note's syllable without its surrounding spaces, for the
+        /// inline field over the lyric label.
+        #[qinvokable]
+        #[cxx_name = "syllableForEditing"]
+        fn syllable_for_editing(self: &SongDocument, row_id: i64) -> QString;
+
+        /// Commit the inline field: the typed syllable replaces the note's
+        /// text between its own leading and trailing spaces.
+        #[qinvokable]
+        #[cxx_name = "setNoteSyllable"]
+        fn set_note_syllable(self: Pin<&mut SongDocument>, row_id: i64, text: QString) -> bool;
+
+        /// The row id of the note whose lyric label covers the beat (the
+        /// last note of the current voice starting at or before it), -1
+        /// when none.
+        #[qinvokable]
+        #[cxx_name = "noteAtLyricBeat"]
+        fn note_at_lyric_beat(self: &SongDocument, beat: f64) -> i64;
 
         /// Insert or remove the end-of-phrase marker before the selected
         /// note (the B key).
@@ -1952,6 +2005,84 @@ impl qobject::SongDocument {
             .controller
             .set_note_text(id, &text.to_string());
         self.as_mut().finish_edit(result)
+    }
+
+    /// line_text returns the line's text in the line text syntax.
+    pub fn line_text(&self, line: i32) -> QString {
+        usize::try_from(line)
+            .ok()
+            .and_then(|line| self.rust().controller.line_text(line))
+            .map(QString::from)
+            .unwrap_or_default()
+    }
+
+    /// preview_line_text describes the text's plan for the Edit line
+    /// dialog as JSON.
+    pub fn preview_line_text(&self, line: i32, text: QString, picks: QString) -> QString {
+        let Ok(line) = usize::try_from(line) else {
+            return QString::default();
+        };
+        let preview = self.rust().controller.preview_line_text(
+            line,
+            &text.to_string(),
+            &line_text::parse_picks(&picks.to_string()),
+        );
+        QString::from(line_text::preview_json(&preview))
+    }
+
+    /// apply_line_text applies the text to the line as one undo step.
+    pub fn apply_line_text(
+        mut self: Pin<&mut Self>,
+        line: i32,
+        text: QString,
+        picks: QString,
+    ) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Ok(line) = usize::try_from(line) else {
+            return false;
+        };
+        let result = self.as_mut().rust_mut().controller.apply_line_text(
+            line,
+            &text.to_string(),
+            &line_text::parse_picks(&picks.to_string()),
+        );
+        self.as_mut().finish_edit(result.map(|_| ()))
+    }
+
+    /// syllable_for_editing returns the note's syllable without its
+    /// surrounding spaces.
+    pub fn syllable_for_editing(&self, row_id: i64) -> QString {
+        row_id_of(row_id)
+            .and_then(|id| self.rust().controller.syllable_for_editing(id))
+            .map(QString::from)
+            .unwrap_or_default()
+    }
+
+    /// set_note_syllable commits the inline field's syllable.
+    pub fn set_note_syllable(mut self: Pin<&mut Self>, row_id: i64, text: QString) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Some(id) = row_id_of(row_id) else {
+            return false;
+        };
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .set_note_syllable(id, &text.to_string());
+        self.as_mut().finish_edit(result.map(|_| ()))
+    }
+
+    /// note_at_lyric_beat returns the row id of the note whose lyric label
+    /// covers the beat, -1 when none.
+    pub fn note_at_lyric_beat(&self, beat: f64) -> i64 {
+        self.rust()
+            .controller
+            .note_at_lyric_beat(beat)
+            .map_or(-1, |id| i64::from(id.0))
     }
 
     /// toggle_phrase_end_before_selection inserts or removes the

@@ -485,7 +485,8 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
             } else {
                 // The permanent regression checks run only with a song
                 // loaded: the drawer, the note drag, the sheet navigation,
-                // the playhead and the text editing all need a real document. The interaction
+                // the playhead, the text editing and the song end all need a
+                // real document. The interaction
                 // check runs first: the drawer check opens and closes the
                 // GlobalDrawer, whose close animation leaves the modal
                 // overlay swallowing synthesized presses for a moment.
@@ -493,13 +494,14 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                     bridge::selftest::usdx_sheet_interaction_check(engine)
                         && bridge::selftest::usdx_playhead_check(engine)
                         && bridge::selftest::usdx_text_edit_check(engine)
+                        && bridge::selftest::usdx_song_end_check(engine)
                         && bridge::selftest::usdx_drawer_check(engine)
                 });
                 if interaction_ok {
                     0
                 } else {
                     eprintln!(
-                        "self-test failed: the drawer, sheet interaction, playhead or text editing check failed"
+                        "self-test failed: the drawer, sheet interaction, playhead, text editing or song end check failed"
                     );
                     1
                 }

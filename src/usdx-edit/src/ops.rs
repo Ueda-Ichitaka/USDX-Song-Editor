@@ -2,7 +2,8 @@
 //!
 //! About me: this module builds the undoable patches for every note-level
 //! edit the UI offers: moving, resizing, retyping, inserting, deleting,
-//! splitting and merging notes and moving or toggling phrase ends. Each
+//! splitting and merging notes, moving or toggling phrase ends and ending
+//! the song at a time (`#END` plus the removal of everything after it). Each
 //! function takes the document and its song view, validates the edit against
 //! the current state and returns one `Patch`; it changes nothing itself. The
 //! beat-editing operations refuse relative-mode songs, whose stored relative
@@ -411,15 +412,22 @@ pub fn delete_notes(doc: &Document, song: &Song, ids: &[RowId]) -> Result<Patch,
     for index in orphans {
         remove[index] = true;
     }
-    // The removal positions ascend; the k-th removal sits at `index - k`
-    // while the earlier ones are gone, which is the position the patch layer
-    // checks.
+    Ok(Patch {
+        label: "Delete notes".to_owned(),
+        ops: removal_ops(doc, &remove),
+    })
+}
+
+/// removal_ops builds the remove ops for the flagged rows. The removal
+/// positions ascend; the k-th removal sits at `index - k` while the earlier
+/// ones are gone, which is the position the patch layer checks.
+fn removal_ops(doc: &Document, remove: &[bool]) -> Vec<RowOp> {
     let indices: Vec<usize> = remove
         .iter()
         .enumerate()
         .filter_map(|(index, flag)| flag.then_some(index))
         .collect();
-    let ops = indices
+    indices
         .iter()
         .enumerate()
         .map(|(k, &index)| {
@@ -439,9 +447,90 @@ pub fn delete_notes(doc: &Document, song: &Song, ids: &[RowId]) -> Result<Patch,
                 },
             }
         })
-        .collect();
+        .collect()
+}
+
+/// lonely_phrase_ends flags the phrase ends without a kept note before
+/// them (since the previous phrase end or the voice start) or after them
+/// (before the next voice change or the end row), with the flagged notes
+/// of `removed` taken away.
+fn lonely_phrase_ends(doc: &Document, removed: &[bool]) -> Vec<bool> {
+    let mut lonely = vec![false; doc.rows.len()];
+    let mut note_before = false;
+    let mut open: Vec<usize> = Vec::new();
+    for (index, row) in doc.rows.iter().enumerate() {
+        match &row.kind {
+            RowKind::Note(_) if !removed[index] => {
+                open.clear();
+                note_before = true;
+            }
+            RowKind::PhraseEnd { .. } => {
+                if note_before {
+                    open.push(index);
+                } else {
+                    lonely[index] = true;
+                }
+                note_before = false;
+            }
+            RowKind::Voice(_) | RowKind::End => {
+                for &waiting in &open {
+                    lonely[waiting] = true;
+                }
+                open.clear();
+                note_before = false;
+            }
+            _ => {}
+        }
+    }
+    for &waiting in &open {
+        lonely[waiting] = true;
+    }
+    lonely
+}
+
+/// end_song_at ends the song at `end_ms` (user decision 2026-11-15, for
+/// example to cut off a video's endcard): it writes `#END` in whole
+/// milliseconds and removes, in every voice, the notes that start at or
+/// after that time and the phrase ends that are left without a note before
+/// or after them. A note that starts before the cut stays as it is. The
+/// removals and the header are one patch, so one undo step restores both.
+pub fn end_song_at(doc: &Document, song: &Song, end_ms: f64) -> Result<Patch, EditError> {
+    if !end_ms.is_finite() || end_ms < 0.0 {
+        return Err(EditError::InvalidHeaderValue);
+    }
+    let timing = song.timing.ok_or(EditError::NoTiming)?;
+    require_absolute(song)?;
+    let end_ms = end_ms.round();
+    let cut_beat = timing.ms_to_beat(end_ms);
+    let mut remove = vec![false; doc.rows.len()];
+    for (index, row) in doc.rows.iter().enumerate() {
+        if let RowKind::Note(note) = &row.kind
+            && note.start as f64 >= cut_beat
+        {
+            remove[index] = true;
+        }
+    }
+    // A phrase end the cut leaves without a note before or after it goes;
+    // one that had no such note already stays, it is not the cut's change.
+    let lonely_before = lonely_phrase_ends(doc, &vec![false; doc.rows.len()]);
+    let lonely_after = lonely_phrase_ends(doc, &remove);
+    for (index, (before, after)) in lonely_before.iter().zip(&lonely_after).enumerate() {
+        if *after && !*before {
+            remove[index] = true;
+        }
+    }
+    let mut ops = removal_ops(doc, &remove);
+    // The header goes in after the removals, built on the document they
+    // leave, so its row position is the one the patch layer will see.
+    let mut cut = doc.clone();
+    Patch {
+        label: String::new(),
+        ops: ops.clone(),
+    }
+    .apply(&mut cut)?;
+    ops.extend(crate::header_ops::set_header(&cut, "END", &format!("{end_ms}"))?.ops);
     Ok(Patch {
-        label: "Delete notes".to_owned(),
+        label: "End song here".to_owned(),
         ops,
     })
 }

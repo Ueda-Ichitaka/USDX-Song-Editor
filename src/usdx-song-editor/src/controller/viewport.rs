@@ -6,7 +6,9 @@
 //! beat range into the view, which is how the follow-line rule of view.rs
 //! reaches the beat-based sheet; the FitKey records the range and size a
 //! fit was computed from so the bridge refits on either change. It holds
-//! no Qt types; the bridge forwards
+//! The time scroll stays inside optional beat bounds (user decision
+//! 2026-11-15: 0:00 to the song or audio end plus a margin) for every
+//! gesture and fit. It holds no Qt types; the bridge forwards
 //! the QML gestures and feeds the fitted range through. Defaults chosen per
 //! user decision 2026-11-13: 20 px per beat for a fresh view; C4 (60) on top
 //! with the spec's minimum 14 px row height until the pitch rule (P5-02)
@@ -27,6 +29,9 @@ pub struct SheetViewport {
     pub width_px: f64,
     /// The pitch area's height in pixels.
     pub height_px: f64,
+    /// The beats the time scroll may show (user decision 2026-11-15: from
+    /// 0:00 to the song or audio end plus a margin); `None` scrolls freely.
+    bounds: Option<(f64, f64)>,
 }
 
 /// The zoom bounds of UI_SPEC 3.2.
@@ -86,7 +91,42 @@ impl SheetViewport {
             px_per_semitone: DEFAULT_PX_PER_SEMITONE,
             width_px,
             height_px,
+            bounds: None,
         }
+    }
+
+    /// set_bounds limits the time scroll to the beat range (`None` frees
+    /// it) and pulls the view inside at once.
+    pub fn set_bounds(&mut self, bounds: Option<(f64, f64)>) {
+        self.bounds = bounds;
+        self.clamp_start();
+    }
+
+    /// bounds returns the beat range the time scroll is limited to.
+    pub fn bounds(&self) -> Option<(f64, f64)> {
+        self.bounds
+    }
+
+    /// scroll_to shows the beat at the view's left edge, inside the bounds.
+    pub fn scroll_to(&mut self, beat: f64) {
+        self.start_beat = beat;
+        self.clamp_start();
+    }
+
+    /// clamp_start keeps the view inside the bounds: a view wider than the
+    /// bounds starts at their start, else it neither starts before them nor
+    /// ends after them. A view without a usable size or zoom (before the
+    /// layout runs) starts at the bounds' start.
+    fn clamp_start(&mut self) {
+        let Some((min, max)) = self.bounds else {
+            return;
+        };
+        let latest = max - self.visible_beats();
+        self.start_beat = if !latest.is_finite() || !self.start_beat.is_finite() || latest <= min {
+            min
+        } else {
+            self.start_beat.clamp(min, latest)
+        };
     }
 
     /// beat_to_x maps a beat to its sheet x position.
@@ -124,6 +164,7 @@ impl SheetViewport {
     pub fn set_size(&mut self, width_px: f64, height_px: f64) {
         self.width_px = width_px;
         self.height_px = height_px;
+        self.clamp_start();
     }
 
     /// zoom_around multiplies the zoom by the factor (1.25 for one wheel
@@ -133,12 +174,14 @@ impl SheetViewport {
         let anchor = self.x_to_beat(cursor_x);
         self.px_per_beat = (self.px_per_beat * factor).clamp(MIN_PX_PER_BEAT, MAX_PX_PER_BEAT);
         self.start_beat = anchor - cursor_x / self.px_per_beat;
+        self.clamp_start();
     }
 
     /// wheel_time scrolls time by 10 % of the visible width per step;
     /// positive steps move forward.
     pub fn wheel_time(&mut self, steps: f64) {
         self.start_beat += steps * WHEEL_TIME_SHARE * self.visible_beats();
+        self.clamp_start();
     }
 
     /// wheel_pitch scrolls the pitch range by one row per step; positive
@@ -151,6 +194,7 @@ impl SheetViewport {
     /// dragging right shows earlier beats.
     pub fn pan_time(&mut self, dx_px: f64) {
         self.start_beat -= dx_px / self.px_per_beat;
+        self.clamp_start();
     }
 
     /// drag_delta_beats converts a horizontal drag delta into whole beats,
@@ -171,5 +215,6 @@ impl SheetViewport {
         } else {
             self.start_beat = (start_beat + end_beat) / 2.0 - self.visible_beats() / 2.0;
         }
+        self.clamp_start();
     }
 }

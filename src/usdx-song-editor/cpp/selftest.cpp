@@ -11,8 +11,9 @@
 // locks in the note drag, rubber band and sheet navigation fixes (skipped on
 // a song whose current line has fewer than two notes), usdx_playhead_check
 // covers the waveform-lane seek, the playhead line and the playback follow,
-// and usdx_text_edit_check the Edit line dialog and the inline syllable
-// field, all driven through synthesized mouse, wheel and key events
+// usdx_text_edit_check the Edit line dialog and the inline syllable field,
+// and usdx_song_end_check the scroll bounds, Home / End, End song here and
+// the drag guides, all driven through synthesized mouse, wheel and key events
 // (send_mouse/send_wheel/send_key/send_text). The
 // installed message handler counts every Qt warning, so the self-test can
 // fail on QML binding and script errors, which QML reports only as warnings.
@@ -1215,6 +1216,13 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         const double pxPerBeat = std::max(0.001, bg->property("pxPerBeat").toDouble());
         return std::max(2.0, std::ceil(30.0 / pxPerBeat));
     };
+    // The marker must lie in the visible sheet: right of the gutter (the
+    // sheet left of it sits clipped under the lines pane) and left of the
+    // sheet's right edge.
+    auto *const bgItem = qobject_cast<QQuickItem *>(bg);
+    const double sheetLeft =
+        bgItem->mapToScene(QPointF(bg->property("gutterWidth").toDouble() + 2.0, 0)).x();
+    const double sheetRight = bgItem->mapToScene(QPointF(bgItem->width() - 2.0, 0)).x();
     auto find_marker = [&]() -> QQuickItem * {
         QQuickItem *found = nullptr;
         std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
@@ -1229,8 +1237,8 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
                 const double beat = child->property("beat").toDouble();
                 if (found == nullptr && child->property("previewBeat").isValid()
                     && child->isVisible() && std::isfinite(min) && std::isfinite(max)
-                    && beat >= min && beat + marker_beats(child) <= max && sceneX > 0.0
-                    && sceneX + travel < window->width()) {
+                    && beat >= min && beat + marker_beats(child) <= max
+                    && sceneX > sheetLeft && sceneX + travel < sheetRight) {
                     found = child;
                 }
                 walk(child);
@@ -1428,6 +1436,16 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
     QMetaObject::invokeMethod(document, "clearSelection");
     pump_events(100);
+    // The earlier checks leave the view wherever their gestures ended; the
+    // first line's start is scrolled into view.
+    if (QObject *const sheetObject = root->findChild<QObject *>(QStringLiteral("sheetBackground"));
+        sheetObject != nullptr && document->property("bpm").toDouble() > 0.0) {
+        const double lineBeat = (document->property("currentLineStartMs").toDouble()
+                                 - document->property("gapMs").toDouble())
+            * document->property("bpm").toDouble() / 15000.0;
+        QMetaObject::invokeMethod(sheetObject, "scrollToBeat", Q_ARG(double, lineBeat - 1.0));
+        pump_events(100);
+    }
     const int notes = document->property("currentLineNoteCount").toInt();
     const QString original = document_text(document, "lineText", 0);
     if (notes < 1 || original.isEmpty()) {
@@ -1549,7 +1567,7 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
         }
     }
     if (target == nullptr) {
-        std::cout << "text editing: ok (the inline field skipped: no note on screen)"
+        std::cout << "text editing: skipped the inline field (no note of the first line in view)"
                   << std::endl;
         return true;
     }
@@ -1624,5 +1642,203 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
         return false;
     }
     std::cout << "text editing: ok" << std::endl;
+    return true;
+}
+
+// Checks the song end features (user decisions 2026-11-15) through real
+// input: the time scroll stops at 0:00 and 2 s after the song end, End
+// moves the playhead to the song end and Home back to 0:00, the toolbar's
+// End song here button writes #END at the playhead, removes the notes after
+// it and shades the area behind it (Ctrl+Z restores both), and a note drag
+// shows the dashed guides at the landing position's lower corners down to
+// the sheet's bottom. Prints "song end: ok", or "song end: skipped" for a
+// read-only song or one without a tempo.
+bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    QObject *const player = root->findChild<QObject *>(QStringLiteral("player"));
+    auto *const bg = root->findChild<QQuickItem *>(QStringLiteral("sheetBackground"));
+    auto *const endButton = root->findChild<QQuickItem *>(QStringLiteral("endSongButton"));
+    auto *const endArea = root->findChild<QQuickItem *>(QStringLiteral("songEndArea"));
+    if (window == nullptr || document == nullptr || player == nullptr || bg == nullptr
+        || endButton == nullptr || endArea == nullptr) {
+        std::cerr << "song end: an object is missing (window, songDocument, player, "
+                     "sheetBackground, endSongButton or songEndArea)\n";
+        return false;
+    }
+    const double bpm = document->property("bpm").toDouble();
+    if (bpm <= 0.0 || document->property("readOnly").toBool()) {
+        std::cout << "song end: skipped (read-only or no tempo)" << std::endl;
+        return true;
+    }
+    const double gapMs = document->property("gapMs").toDouble();
+    const double msPerBeat = 15000.0 / bpm;
+    auto view_end = [&]() {
+        return bg->property("startBeat").toDouble()
+            + (bg->width() - bg->property("gutterWidth").toDouble())
+                  / bg->property("pxPerBeat").toDouble();
+    };
+    window->contentItem()->forceActiveFocus();
+    QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
+    pump_events(100);
+    // The scroll stops at both bounds: 0:00 and 2 s after the song end.
+    const double minBeat = bg->property("minBeat").toDouble();
+    const double maxBeat = bg->property("maxBeat").toDouble();
+    if (std::abs(minBeat - (0.0 - gapMs) / msPerBeat) > 1e-6) {
+        std::cerr << "song end: the scroll starts at beat " << minBeat << ", not at 0:00\n";
+        return false;
+    }
+    const QPointF centre = bg->mapToScene(QPointF(bg->width() * 0.6, bg->height() * 0.4));
+    for (int step = 0; step < 60; step++) {
+        send_wheel(window, centre, QPoint(0, -120 * 5), Qt::NoModifier);
+    }
+    // A view wider than the bounds starts at 0:00 and may end past them.
+    const bool wider = view_end() - bg->property("startBeat").toDouble() >= maxBeat - minBeat;
+    if (wider ? std::abs(bg->property("startBeat").toDouble() - minBeat) > 1e-6
+              : view_end() > maxBeat + 1e-6) {
+        std::cerr << "song end: the view scrolled to beat " << view_end() << " past the bound "
+                  << maxBeat << "\n";
+        return false;
+    }
+    for (int step = 0; step < 60; step++) {
+        send_wheel(window, centre, QPoint(0, 120 * 5), Qt::NoModifier);
+    }
+    if (std::abs(bg->property("startBeat").toDouble() - minBeat) > 1e-6) {
+        std::cerr << "song end: the view scrolled to beat " << bg->property("startBeat").toDouble()
+                  << " before 0:00\n";
+        return false;
+    }
+    // End moves the playhead to the song end, Home back to 0:00.
+    double endTarget = 0.0;
+    QMetaObject::invokeMethod(document, "songEndTargetMs", Q_RETURN_ARG(double, endTarget),
+                              Q_ARG(double, player->property("durationMs").toDouble()));
+    send_key(window, Qt::Key_End, Qt::NoModifier);
+    if (std::abs(player->property("positionMs").toDouble() - endTarget) > 1.0
+        || view_end() < (endTarget - gapMs) / msPerBeat) {
+        std::cerr << "song end: End moved the playhead to "
+                  << player->property("positionMs").toDouble() << " ms (wanted " << endTarget
+                  << ") and the view to beat " << view_end() << "\n";
+        return false;
+    }
+    send_key(window, Qt::Key_Home, Qt::NoModifier);
+    if (player->property("positionMs").toDouble() != 0.0
+        || std::abs(bg->property("startBeat").toDouble() - minBeat) > 1e-6) {
+        std::cerr << "song end: Home did not return to 0:00\n";
+        return false;
+    }
+    // End song here 1 ms after the last line's first note starts: the
+    // line keeps that note and loses the ones after it.
+    const int lines = document->property("lineCount").toInt();
+    QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, lines - 1));
+    pump_events(50);
+    const double lineStart = document->property("currentLineStartMs").toDouble();
+    const int notesBefore = document->property("currentLineNoteCount").toInt();
+    const double cutMs = std::ceil(lineStart) + 1.0;
+    QMetaObject::invokeMethod(player, "seekMs", Q_ARG(double, cutMs));
+    pump_events(50);
+    if (notesBefore >= 2) {
+        const QPointF button = endButton->mapToScene(
+            QPointF(endButton->width() / 2, endButton->height() / 2));
+        send_mouse(window, button, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                   70000);
+        send_mouse(window, button, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                   70020);
+        pump_events(100);
+        if (document->property("endMs").toDouble() != cutMs
+            || document->property("undoText").toString() != QStringLiteral("End song here")) {
+            std::cerr << "song end: End song here wrote #END "
+                      << document->property("endMs").toDouble() << " (wanted " << cutMs
+                      << ")\n";
+            return false;
+        }
+        if (document->property("currentLineNoteCount").toInt() >= notesBefore) {
+            std::cerr << "song end: End song here removed no note after the playhead\n";
+            return false;
+        }
+        if (!endArea->isVisible()) {
+            std::cerr << "song end: the area after #END is not shaded\n";
+            return false;
+        }
+        send_key(window, Qt::Key_Z, Qt::ControlModifier);
+        if (document->property("endMs").toDouble() > 0.0) {
+            std::cerr << "song end: Ctrl+Z did not take #END back\n";
+            return false;
+        }
+    } else {
+        std::cout << "song end: the cut skipped (the last line has one note)" << std::endl;
+    }
+    // A note drag shows the guides at the landing position's lower corners.
+    QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
+    QMetaObject::invokeMethod(document, "clearSelection");
+    pump_events(100);
+    QList<QObject *> delegates;
+    find_current_line_delegates(window, delegates);
+    const double gutter = bg->property("gutterWidth").toDouble();
+    QQuickItem *note = nullptr;
+    for (QObject *const candidate : delegates) {
+        auto *const item = qobject_cast<QQuickItem *>(candidate);
+        const QPointF local = bg->mapFromItem(item, QPointF(item->width() / 2, item->height() / 2));
+        if (local.x() > gutter + 50.0 && local.x() < bg->width() - 50.0 && local.y() > 30.0
+            && item->width() >= 6.0) {
+            note = item;
+            break;
+        }
+    }
+    if (note == nullptr) {
+        std::cout << "song end: skipped the drag guides (no note in view)" << std::endl;
+        return true;
+    }
+    auto guide = [&](const char *name) -> QQuickItem * {
+        for (QQuickItem *const child : note->childItems()) {
+            if (child->objectName() == QLatin1String(name)) {
+                return child;
+            }
+        }
+        return nullptr;
+    };
+    QQuickItem *const startGuide = guide("dragGuideStart");
+    QQuickItem *const endGuide = guide("dragGuideEnd");
+    if (startGuide == nullptr || endGuide == nullptr) {
+        std::cerr << "song end: the note has no drag guides\n";
+        return false;
+    }
+    if (startGuide->isVisible() || endGuide->isVisible()) {
+        std::cerr << "song end: the drag guides show without a drag\n";
+        return false;
+    }
+    const QPointF press = note->mapToScene(QPointF(note->width() / 2, note->height() / 2));
+    send_mouse(window, press, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 80000);
+    for (int step = 1; step <= 6; step++) {
+        send_mouse(window, press + QPointF(8.0 * step, 0.0), QEvent::MouseMove, Qt::LeftButton,
+                   Qt::NoButton, 80000 + 20 * step);
+    }
+    const double ghostX = note->property("ghostX").toDouble();
+    const double ghostWidth = std::max(2.0, note->property("ghostWidth").toDouble());
+    const double wantedStart = bg->mapToScene(QPointF(ghostX, 0)).x();
+    const double wantedEnd = bg->mapToScene(QPointF(ghostX + ghostWidth - 1.0, 0)).x();
+    const double startX = startGuide->mapToScene(QPointF(0, 0)).x();
+    const double endX = endGuide->mapToScene(QPointF(0, 0)).x();
+    const double guideBottom =
+        startGuide->mapToScene(QPointF(0, startGuide->height())).y();
+    const double sheetBottom = bg->mapToScene(QPointF(0, bg->height())).y();
+    const bool shown = startGuide->isVisible() && endGuide->isVisible();
+    send_mouse(window, press + QPointF(48.0, 0.0), QEvent::MouseButtonRelease, Qt::NoButton,
+               Qt::LeftButton, 80200);
+    pump_events(100);
+    if (!shown || std::abs(startX - wantedStart) > 1.0 || std::abs(endX - wantedEnd) > 1.0
+        || std::abs(guideBottom - sheetBottom) > 1.0) {
+        std::cerr << "song end: the drag guides are wrong (shown " << shown << ", start "
+                  << startX << " / " << wantedStart << ", end " << endX << " / " << wantedEnd
+                  << ", bottom " << guideBottom << " / " << sheetBottom << ")\n";
+        return false;
+    }
+    if (document->property("canUndo").toBool()) {
+        send_key(window, Qt::Key_Z, Qt::ControlModifier);
+    }
+    std::cout << "song end: ok" << std::endl;
     return true;
 }

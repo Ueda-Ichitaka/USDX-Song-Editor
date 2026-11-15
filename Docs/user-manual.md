@@ -139,8 +139,22 @@ not selected becomes the selection when you let go); Shift keeps the drag on the
 direction you moved, Alt turns the snapping to neighbouring notes off. A selected note shows
 small handles at both ends: within 5 px of an end the cursor turns into a double arrow, and a
 drag there moves only that end. The note follows the pointer while a thin outline shows where
-it lands; letting go applies the change as one undo step. The dashed line between two lines
-is the phrase end: drag it between the last note of one line and the first note of the next.
+it lands; letting go applies the change as one undo step. While you drag, two blue dashed
+lines drop from the outline's lower corners down to the waveform, so you can line the note
+up with where the singing actually starts and ends (a resize shows only the dragged end).
+The dashed line between two lines is the phrase end: drag it between the last note of one
+line and the first note of the next.
+
+**Song start, song end and endcards.** The sheet scrolls from 0:00 to 2 s after the end of
+the audio or the last note, whichever is later. **Go to song start** and **Go to song end**
+in the toolbar (or Home and End) move the playhead and the view to 0:00 and to the song's
+end. To cut off what follows the singing, for example a video endcard, pause with the
+playhead where the song should end and click the scissors next to the playhead in the ruler
+(or **End Song at Playhead** in the main menu): the editor writes `#END` there, which makes
+UltraStar stop the song at that time, and deletes the notes after it, in one undo step. The
+audio file stays untouched. The area after `#END` is shaded; its **Remove song end** button
+(or **Remove Song End** in the main menu) takes `#END` out again, and the song end jump
+and the scroll limit follow `#END` while it is set.
 
 The inspector below the sheet edits the selected note: **Start** moves the note to another
 beat and keeps its length, **Length** changes where it ends, **Pitch** transposes. The
@@ -314,6 +328,7 @@ pushed page, stops playback, or clears the selection):
 | Key | Action |
 |---|---|
 | Space | play / pause |
+| Home / End | go to song start / song end |
 | P / Shift+P | play line / play selection |
 | L | loop line on/off |
 | V | next track (skips missing ones) |

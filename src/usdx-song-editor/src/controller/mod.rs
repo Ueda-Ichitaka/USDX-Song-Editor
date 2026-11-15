@@ -7,8 +7,9 @@
 //! analysis state and the column layout of the waveform lanes, and the sheet
 //! viewport (beats and pitches to pixels, zoom and scroll), the rule that
 //! lets the list models update in place, and the line text editing (the
-//! Edit line dialog's preview and apply, the inline syllable edit); the
-//! repair and tap controllers are added in later tasks.
+//! Edit line dialog's preview and apply, the inline syllable edit), the
+//! song end rules (scroll bounds, the end jump, #END cuts); the repair and
+//! tap controllers are added in later tasks.
 
 pub mod editing;
 pub mod editor;
@@ -22,6 +23,7 @@ pub mod save;
 pub mod settings;
 pub mod sheet;
 pub mod shell;
+pub mod song_end;
 pub mod view;
 pub mod viewport;
 pub mod waveform;

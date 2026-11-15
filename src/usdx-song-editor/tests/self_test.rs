@@ -9,7 +9,8 @@
 //! reports binding and script errors only as warnings. On a multi-note song
 //! it also runs the regression checks of the sheet interaction, the
 //! playhead, the text editing (the Edit line dialog and the inline syllable
-//! field, task P6-02) and the main menu drawer.
+//! field, task P6-02), the song end (scroll limit, Home / End, End song
+//! here, the drag guides) and the main menu drawer.
 
 use std::process::Command;
 
@@ -178,6 +179,7 @@ fn self_test_runs_the_interaction_checks_on_a_multi_note_song() {
         "drawer check: ok",
         "playhead: ok",
         "text editing: ok",
+        "song end: ok",
     ] {
         assert!(
             stdout.contains(report),

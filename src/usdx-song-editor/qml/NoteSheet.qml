@@ -16,7 +16,11 @@
 // SheetBackground's viewport invokables: a plain wheel step scrolls time,
 // Ctrl+wheel zooms around the cursor, Shift+wheel scrolls the pitch rows, a
 // middle drag pans, and a visible horizontal scrollbar (recorded spec
-// deviation, user decision 2026-11-15) spans the whole song. The sheet
+// deviation, user decision 2026-11-15) spans the scroll bounds: 0:00 to the
+// song or audio end plus 2 s (user decision 2026-11-15). The area after
+// #END is shaded with a button that removes #END, the playhead carries the
+// "End song here" button in the ruler while paused, and showMs scrolls a
+// time into view for the song start and end jumps. The sheet
 // paints every line of the song (user decision 2026-11-15); the current
 // line's notes draw opaque, all other lines at 35 % opacity. The inline
 // syllable field (task P6-02, user decision 2026-11-15) opens over a note's
@@ -120,6 +124,11 @@ Rectangle {
         sheetPitchHigh: root.document ? root.document.sheetPitchHigh : -1
         startMs: root.document ? root.document.viewStartMs : 0
         endMs: root.document ? root.document.viewEndMs : 0
+        // The ends the time scroll is limited by (user decision
+        // 2026-11-15): the last note, #END and the player's audio length.
+        songEndBeat: root.document ? root.document.songEndBeat : 0
+        endMarkMs: root.document ? root.document.endMs : -1
+        audioEndMs: root.player ? root.player.durationMs : 0
         // The selected track draws the waveform, the vocals track the
         // activity (UI_SPEC 3.7). filePath takes part so a new song re-reads
         // the paths.
@@ -565,15 +574,81 @@ Rectangle {
         }
     }
 
-    // The last note end or phrase end beat of the song: the scrollbar's
-    // full range (user decision 2026-11-15).
-    readonly property real totalBeats:
-        root.document ? Math.max(0.0, root.document.songEndBeat) : 0.0
+    // showMs scrolls the view so the time is visible: near the left edge,
+    // or near the right edge with `atEnd` (the song start and end jumps);
+    // the viewport keeps the view inside the scroll bounds.
+    function showMs(ms: real, atEnd: bool) {
+        if (!root.document || root.document.bpm <= 0) {
+            return;
+        }
+        const beat = (ms - root.document.gapMs) * root.document.bpm / 15000;
+        const visible = (sheet.width - sheet.gutterWidth) / Math.max(sheet.pxPerBeat, 0.001);
+        sheet.scrollToBeat(atEnd ? beat - visible * 0.8 : beat - visible * 0.1);
+    }
+
+    // The area after #END (user decision 2026-11-15): shaded in the
+    // neutral colour with a 2 px line at the song end, a label and a
+    // button that removes #END. The shade passes every press through.
+    Item {
+        id: songEndArea
+
+        readonly property real endBeat:
+            root.document && root.document.endMs > 0 && root.document.bpm > 0
+            ? (root.document.endMs - root.document.gapMs) * root.document.bpm / 15000 : 0
+        readonly property real endX:
+            (endBeat - sheet.startBeat) * sheet.pxPerBeat
+
+        objectName: "songEndArea"
+        x: sheet.gutterWidth
+        width: Math.max(0, parent.width - sheet.gutterWidth)
+        height: parent.height
+        clip: true
+        z: 7
+        visible: root.songOpen && root.document.endMs > 0 && endX < width
+
+        Rectangle {
+            x: Math.max(0, songEndArea.endX)
+            width: songEndArea.width - x
+            height: parent.height
+            color: Qt.alpha(Kirigami.Theme.neutralTextColor, 0.12)
+        }
+
+        Rectangle {
+            x: songEndArea.endX - 1
+            width: 2
+            height: parent.height
+            color: Kirigami.Theme.neutralTextColor
+        }
+
+        RowLayout {
+            x: Math.max(0, songEndArea.endX) + Kirigami.Units.smallSpacing
+            y: sheet.rulerHeight + Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.Label {
+                text: qsTr("Song end (#END)")
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.neutralTextColor
+            }
+
+            QQC2.ToolButton {
+                objectName: "removeSongEndButton"
+                icon.name: "edit-delete-remove"
+                text: qsTr("Remove song end")
+                display: QQC2.AbstractButton.IconOnly
+                enabled: root.document && !root.document.readOnly
+                onClicked: root.document.removeSongEnd()
+                QQC2.ToolTip.text: qsTr("Remove song end (#END)")
+                QQC2.ToolTip.visible: hovered
+            }
+        }
+    }
 
     // The horizontal scrollbar (recorded deviation from UI_SPEC 3.2: the
     // spec asks for wheel, zoom and pan only; the user asked 2026-11-15 for
     // a visible bar as well). It overlays the bottom edge of the activity
-    // lane and spans the whole song's beat range.
+    // lane and spans the scroll bounds: 0:00 to the song or audio end plus
+    // the margin (user decision 2026-11-15).
     QQC2.ScrollBar {
         id: sheetHScroll
 
@@ -584,22 +659,23 @@ Rectangle {
         height: 12
         z: 12
         orientation: Qt.Horizontal
-        visible: root.songOpen && root.totalBeats > 0
+        visible: root.songOpen && sheet.maxBeat > sheet.minBeat
         enabled: visible
-        // The handle covers the visible beats of the whole song; a 2 %
+        // The handle covers the visible beats of the bounds; a 2 %
         // minimum keeps the extreme zoom levels draggable.
-        readonly property real contentBeats: Math.max(1.0, root.totalBeats)
+        readonly property real contentBeats: Math.max(1.0, sheet.maxBeat - sheet.minBeat)
         readonly property real viewBeats:
             (sheet.width - sheet.gutterWidth) / Math.max(sheet.pxPerBeat, 0.001)
         size: Math.min(1.0, Math.max(0.02, viewBeats / contentBeats))
-        position: Math.min(Math.max(sheet.startBeat / contentBeats, 0.0), 1.0 - size)
+        position: Math.min(Math.max((sheet.startBeat - sheet.minBeat) / contentBeats, 0.0),
+                           1.0 - size)
         onPositionChanged: {
             // The user's handle drag scrolls the view; the binding above
             // also fires this on view changes, so only a pressed handle
             // feeds back into the viewport (programmatic position changes
             // never emit while pressed).
             if (pressed) {
-                sheet.scrollToBeat(position * contentBeats);
+                sheet.scrollToBeat(sheet.minBeat + position * contentBeats);
             }
         }
     }
@@ -655,6 +731,29 @@ Rectangle {
                         y: playhead.height
                     }
                 }
+            }
+
+            // "End song here" (user decision 2026-11-15) rides the playhead
+            // in the ruler, right of the triangle: it writes #END at the
+            // playhead and removes the notes after it (one undo step).
+            QQC2.ToolButton {
+                objectName: "endSongButton"
+                x: 8
+                y: 0
+                width: sheet.rulerHeight
+                height: sheet.rulerHeight
+                padding: 2
+                icon.name: "edit-cut"
+                icon.width: Kirigami.Units.iconSizes.small
+                icon.height: Kirigami.Units.iconSizes.small
+                text: qsTr("End song here")
+                display: QQC2.AbstractButton.IconOnly
+                visible: root.document !== null && !root.document.readOnly
+                         && root.player !== null && !root.player.playing
+                         && root.player.positionMs > 0
+                onClicked: root.document.endSongAt(root.player.positionMs)
+                QQC2.ToolTip.text: qsTr("End the song here: sets #END at the playhead and deletes the notes after it")
+                QQC2.ToolTip.visible: hovered
             }
 
             Canvas {

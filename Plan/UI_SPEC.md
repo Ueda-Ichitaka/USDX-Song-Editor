@@ -238,6 +238,12 @@ lyrics lane is left out.
 - Ctrl+wheel zooms by a factor of 1.25 per wheel step around the beat under the cursor.
   Wheel scrolls time by 10 % of the visible width per step. Shift+wheel scrolls the pitch
   range by one row per step. Middle-drag pans.
+- Scroll bounds (user decision 2026-11-15): every gesture, fit and the scrollbar stay
+  between 0:00 (the beat at time 0, before beat 0 by `#GAP`) and the later of the audio end
+  and the last note or phrase end, plus 2 s; a `#END` takes the audio end's place. The audio
+  end is the player's length, else the analysed waveform's length; without audio the last
+  note decides. A view wider than the bounds starts at 0:00. The horizontal scrollbar spans
+  the bounds.
 
 ### 3.3 Pitch rows
 
@@ -277,6 +283,9 @@ lyrics lane is left out.
 | Dragged note | Moves with the pointer; no other visual change. Commit on release (build plan 8.4) |
 | Phrase end | Dashed vertical line, 1.4 px, dash 5 / gap 4, `disabledTextColor`, through the pitch rows; an 8 x 8 px square cap with radius 2 at the top of the pitch rows (2 px below the ruler). Cursor `Qt.SizeHorCursor` on the cap and line |
 | Playhead | 2 px dotted line (2 px dots, 4 px gaps) in `negativeTextColor` from the top of the ruler to the bottom of the activity lane, clipped at the gutter's right edge; a downward triangle 12 px wide, 8 px high at the top of the ruler (dotted: user decision 2026-11-15) |
+| Drag guides | While a note is dragged: 1 px dashed lines (dash 4 / gap 3) in `highlightColor` from the ghost's lower corners down to the bottom of the activity lane; a move shows both, a resize only the dragged edge (user decision 2026-11-15) |
+| Song end (`#END`) | The area after `#END` shaded in `neutralTextColor` at 12 %, a 2 px `neutralTextColor` line at `#END`, and at its top (4 px below the ruler) the label "Song end (#END)" (`smallFont`, `neutralTextColor`) with an icon button "Remove song end" (`edit-delete-remove`) (user decision 2026-11-15) |
+| End song here | While paused with the playhead after 0:00 in a writable song: a 22 x 22 px icon button (`edit-cut`, 16 px icon) in the ruler 8 px right of the playhead line, tooltip "End the song here: sets #END at the playhead and deletes the notes after it" (user decision 2026-11-15) |
 | Rubber band | `highlightColor` at 15 % opacity fill, 1 px `highlightColor` border |
 | Ghost note (preview) | Ghost outline (2.3) at the preview position, drawn above the notes |
 | Notes of a racing line in the repair sheets | Fill `negativeTextColor` instead of the type colour |
@@ -358,6 +367,9 @@ their checked state natively.
 | Save As… | Ctrl+Shift+S | song open, not read-only |
 | Reload from Disk | | song open |
 | separator | | |
+| End Song at Playhead (`edit-cut`; writes `#END` at the playhead and removes the notes after it, user decision 2026-11-15) | | song open, not read-only, playhead after 0:00 |
+| Remove Song End (`edit-undo`; removes `#END`) | | song open, not read-only, `#END` set |
+| separator | | |
 | Song Properties | | song open |
 | Repair Timing | Ctrl+R | song open, not read-only |
 | Export Anchors for the Factory… | | song open |
@@ -372,8 +384,11 @@ Layout (top to bottom): toolbar, then a `QQC2.SplitView` (horizontal) with the l
 and the editor column, then the status bar.
 
 **Toolbar**:
-`[Main menu, icon only] [Open] [Save] | [Undo] [Redo] | [Play] [Play line] [Loop] "Track" [ComboBox: Mix, Vocals, Instrumental] "Speed" [ComboBox: 0.5x, 0.75x, 1x] <-> [Repair timing] [Song properties]`
+`[Main menu, icon only] [Open] [Save] | [Undo] [Redo] | [Go to song start (media-skip-backward), icon only] [Go to song end (media-skip-forward), icon only] [Play] [Play line] [Loop] "Track" [ComboBox: Mix, Vocals, Instrumental] "Speed" [ComboBox: 0.5x, 0.75x, 1x] <-> [Repair timing] [Song properties]`
 
+- Go to song start / Go to song end (user decision 2026-11-15; Home / End; tooltips "Go to
+  song start (Home)" / "Go to song end (End)"): move the playhead and the view to 0:00 and to
+  the song end (`#END`, else the audio end, else the last note's end).
 - Play is checkable: unchecked shows "Play" with `media-playback-start`; checked shows
   "Pause" with `media-playback-pause`. Loop is checkable.
 - "Track" and "Speed" are `QQC2.Label`s in `disabledTextColor`, `smallFont`. The track combo

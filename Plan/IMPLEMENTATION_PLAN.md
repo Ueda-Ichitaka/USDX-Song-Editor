@@ -926,6 +926,7 @@ that order of precedence.
 | L | loop line on/off |
 | V | next track (Mix, Vocals, Instrumental; skips missing ones) |
 | [ / ] | slower / faster (0.5, 0.75, 1.0) |
+| Home / End | go to song start (0:00) / song end (`#END`, else audio end, else last note) |
 | Up / Down | previous / next line |
 | Left / Right | previous / next note; left of the first note selects the whole line |
 | N, G, F, R, Shift+R | normal, golden, freestyle (toggle), rap, rap golden |

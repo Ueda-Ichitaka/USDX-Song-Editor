@@ -14,7 +14,9 @@
 //! lines. The navigation gestures of UI_SPEC 3.2 (wheel time, Shift+wheel
 //! pitch, Ctrl+wheel zoom around the cursor, middle-drag pan, the
 //! scrollbar's scroll-to-beat) arrive as invokables that forward to the
-//! viewport and republish its state. The note data of
+//! viewport and republish its state; the time scroll stays between 0:00
+//! and the song or audio end plus a margin (sync_bounds, user decision
+//! 2026-11-15). The note data of
 //! every line arrives as properties SongDocument
 //! computes (user decision 2026-11-15: the sheet paints the whole song);
 //! the pitch range runs through pitch_rows here. When the
@@ -98,6 +100,17 @@ pub mod qobject {
         // The song timing the beat axis maps through (UI_SPEC 3.2).
         #[qproperty(f64, bpm)]
         #[qproperty(f64, gap_ms, cxx_name = "gapMs")]
+        // The song and audio ends the time scroll is limited by (user
+        // decision 2026-11-15): the last note or phrase end beat, #END in
+        // ms (0 or less: none) and the player's audio length in ms (0 or
+        // less: unknown; the waveform's length stands in).
+        #[qproperty(f64, song_end_beat, cxx_name = "songEndBeat")]
+        #[qproperty(f64, end_mark_ms, cxx_name = "endMarkMs")]
+        #[qproperty(f64, audio_end_ms, cxx_name = "audioEndMs")]
+        // The beat range the time scroll is limited to (the scrollbar's
+        // range); the bridge computes it from the ends above.
+        #[qproperty(f64, min_beat, cxx_name = "minBeat")]
+        #[qproperty(f64, max_beat, cxx_name = "maxBeat")]
         // The beat view the viewport computed from the millisecond view.
         #[qproperty(f64, start_beat, cxx_name = "startBeat")]
         #[qproperty(f64, px_per_beat, cxx_name = "pxPerBeat")]
@@ -199,6 +212,12 @@ pub mod qobject {
         #[cxx_name = "scrollToBeat"]
         fn scroll_to_beat(self: Pin<&mut Self>, beat: f64);
 
+        /// Recompute the time scroll bounds from the song and audio ends
+        /// (user decision 2026-11-15); the end properties call it on change.
+        #[qinvokable]
+        #[cxx_name = "syncBounds"]
+        fn sync_bounds(self: Pin<&mut Self>);
+
         /// Take the note data over, compute the pitch rows from the pitch
         /// area height and repaint; QML calls it when the note data or the
         /// item's size changes.
@@ -256,6 +275,7 @@ use crate::controller::lanes::{AnalysisJob, LaneAnalysis, LaneStatus};
 use crate::controller::sheet::{
     ColorRole, LyricNote, SheetGeometry, SheetInputs, SheetOp, TextFont, layout, pitch_rows,
 };
+use crate::controller::song_end::scroll_bounds;
 use crate::controller::viewport::{FitKey, SheetViewport};
 
 /// The peak bucket length of the analysis (plan section 7.2).
@@ -273,6 +293,12 @@ pub struct SheetBackgroundRust {
     /// The beat view: the viewport holds the real state, the properties
     /// mirror it for QML (the note delegates of task P5-03 read them).
     viewport: SheetViewport,
+    /// The song and audio ends and the scroll bounds (see the properties).
+    song_end_beat: f64,
+    end_mark_ms: f64,
+    audio_end_ms: f64,
+    min_beat: f64,
+    max_beat: f64,
     /// The fit key of the viewport's last fit: the converted beat range
     /// and the item size; the view refits when either changes.
     fit_key: FitKey,
@@ -447,6 +473,15 @@ impl cxx_qt::Initialize for qobject::SheetBackground {
             .release();
         self.as_mut()
             .on_gap_ms_changed(|item| item.sync_view())
+            .release();
+        self.as_mut()
+            .on_song_end_beat_changed(|item| item.sync_bounds())
+            .release();
+        self.as_mut()
+            .on_end_mark_ms_changed(|item| item.sync_bounds())
+            .release();
+        self.as_mut()
+            .on_audio_end_ms_changed(|item| item.sync_bounds())
             .release();
         self.as_mut()
             .on_sheet_note_starts_changed(|item| item.sync_lyrics())
@@ -640,6 +675,7 @@ impl qobject::SheetBackground {
     /// viewport when the converted range changed (UI_SPEC 3.2): zoom and
     /// pan survive unchanged ranges and resizes.
     pub fn sync_view(mut self: Pin<&mut Self>) {
+        self.as_mut().sync_bounds();
         let bpm = *self.bpm();
         if bpm <= 0.0 {
             return;
@@ -717,7 +753,36 @@ impl qobject::SheetBackground {
     /// scroll_to_beat shows the beat at the content's left edge (the
     /// horizontal scrollbar's position).
     pub fn scroll_to_beat(mut self: Pin<&mut Self>, beat: f64) {
-        self.as_mut().rust_mut().viewport.start_beat = beat;
+        self.as_mut().rust_mut().viewport.scroll_to(beat);
+        self.as_mut().publish_viewport();
+    }
+
+    /// sync_bounds limits the time scroll (user decision 2026-11-15): from
+    /// 0:00 to the later of the audio end (#END in its place) and the last
+    /// note, plus the margin. The audio end is the player's length, else
+    /// the analysed waveform's length. Without a tempo the scroll is free.
+    pub fn sync_bounds(mut self: Pin<&mut Self>) {
+        let bpm = *self.bpm();
+        if bpm <= 0.0 {
+            self.as_mut().rust_mut().viewport.set_bounds(None);
+            return;
+        }
+        let audio = Some(*self.audio_end_ms())
+            .filter(|ms| *ms > 0.0)
+            .or_else(|| {
+                self.rust()
+                    .lanes
+                    .peaks()
+                    .map(|peaks| peaks.min.len() as f64 * peaks.bucket_ms)
+            });
+        let end = Some(*self.end_mark_ms()).filter(|ms| *ms > 0.0);
+        let (min, max) = scroll_bounds(*self.gap_ms(), bpm, audio, end, *self.song_end_beat());
+        self.as_mut()
+            .rust_mut()
+            .viewport
+            .set_bounds(Some((min, max)));
+        self.as_mut().set_min_beat(min);
+        self.as_mut().set_max_beat(max);
         self.as_mut().publish_viewport();
     }
 
@@ -863,6 +928,8 @@ impl qobject::SheetBackground {
         self.as_mut().set_analysis_progress(progress);
         self.as_mut().set_show_activity(show_activity);
         self.as_mut().set_analysis_error(error);
+        // A finished waveform tells the audio length the scroll bounds use.
+        self.as_mut().sync_bounds();
         self.as_mut().update();
     }
 }

@@ -501,9 +501,12 @@ pub mod qobject {
         // (UI_SPEC 3.2), until the SheetViewport of P5-01 takes it over.
         #[qproperty(f64, view_start_ms, cxx_name = "viewStartMs")]
         #[qproperty(f64, view_end_ms, cxx_name = "viewEndMs")]
-        // The last note end or phrase end beat of the song: the horizontal
-        // scrollbar's full range (user decision 2026-11-15).
+        // The last note end or phrase end beat of the song: one of the ends
+        // the time scroll is limited by (user decision 2026-11-15).
         #[qproperty(f64, song_end_beat, cxx_name = "songEndBeat")]
+        // The song's #END in ms, -1 without one (the shaded area after it
+        // and the scroll limit, user decision 2026-11-15).
+        #[qproperty(f64, end_ms, cxx_name = "endMs")]
         #[qproperty(i32, current_line_note_count, cxx_name = "currentLineNoteCount")]
         #[qproperty(f64, current_line_rate, cxx_name = "currentLineRate")]
         #[qproperty(i32, current_line_health, cxx_name = "currentLineHealth")]
@@ -730,6 +733,23 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "setNoteText"]
         fn set_note_text(self: Pin<&mut SongDocument>, row_id: i64, text: QString) -> bool;
+
+        /// End the song at the time (user decision 2026-11-15): write #END
+        /// and remove the notes and phrase ends after it, one undo step.
+        #[qinvokable]
+        #[cxx_name = "endSongAt"]
+        fn end_song_at(self: Pin<&mut SongDocument>, ms: f64) -> bool;
+
+        /// Remove the #END header, one undo step.
+        #[qinvokable]
+        #[cxx_name = "removeSongEnd"]
+        fn remove_song_end(self: Pin<&mut SongDocument>) -> bool;
+
+        /// The time "Go to song end" jumps to: #END, else the audio length
+        /// (0 or less: unknown), else the last note's end.
+        #[qinvokable]
+        #[cxx_name = "songEndTargetMs"]
+        fn song_end_target_ms(self: &SongDocument, audio_end_ms: f64) -> f64;
 
         /// The line's text in the line text syntax for the Edit line
         /// dialog's field (global line index), empty past the last line.
@@ -1210,6 +1230,7 @@ pub struct SongDocumentRust {
     view_start_ms: f64,
     view_end_ms: f64,
     song_end_beat: f64,
+    end_ms: f64,
     current_line_note_count: i32,
     current_line_rate: f64,
     current_line_health: i32,
@@ -1296,6 +1317,7 @@ impl Default for SongDocumentRust {
             view_start_ms: 0.0,
             view_end_ms: 0.0,
             song_end_beat: 0.0,
+            end_ms: -1.0,
             view: None,
             current_line_note_count: snapshot.current_line_note_count,
             current_line_rate: snapshot.current_line_rate,
@@ -2007,6 +2029,40 @@ impl qobject::SongDocument {
         self.as_mut().finish_edit(result)
     }
 
+    /// end_song_at writes #END at the time and removes what follows it.
+    pub fn end_song_at(mut self: Pin<&mut Self>, ms: f64) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self.as_mut().rust_mut().controller.end_song_at(ms);
+        self.as_mut().finish_edit(result)
+    }
+
+    /// remove_song_end drops the #END header.
+    pub fn remove_song_end(mut self: Pin<&mut Self>) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let result = self.as_mut().rust_mut().controller.remove_song_end();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// song_end_target_ms returns the time "Go to song end" jumps to.
+    pub fn song_end_target_ms(&self, audio_end_ms: f64) -> f64 {
+        let rust = self.rust();
+        let Some(loaded) = rust.controller.loaded() else {
+            return 0.0;
+        };
+        let notes_end_ms = loaded.song.timing.map_or(0.0, |timing| {
+            timing.beat_to_ms(song_end_beat(&loaded.document, &loaded.song))
+        });
+        crate::controller::song_end::song_end_target_ms(
+            Some(audio_end_ms),
+            rust.controller.end_ms(),
+            notes_end_ms,
+        )
+    }
+
     /// line_text returns the line's text in the line text syntax.
     pub fn line_text(&self, line: i32) -> QString {
         usize::try_from(line)
@@ -2637,6 +2693,8 @@ impl qobject::SongDocument {
             None => 0.0,
         };
         self.as_mut().set_song_end_beat(end_beat);
+        let end_ms = self.controller.end_ms().unwrap_or(-1.0);
+        self.as_mut().set_end_ms(end_ms);
         self.as_mut()
             .set_current_line_note_count(snapshot.current_line_note_count);
         self.as_mut()

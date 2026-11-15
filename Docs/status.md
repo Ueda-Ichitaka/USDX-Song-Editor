@@ -29,6 +29,7 @@ Version 0.1.0, development build (15 November 2026).
 | Dotted playhead across ruler, notes, lyrics and waveform; seek by pressing or dragging in the ruler or the waveform lanes; the current line follows the playback while the whole song plays | mouse |
 | Note sheet: every line of the song on pitch rows (current line opaque), ruler, lyrics lane, zoom, pan and scrollbar | editor |
 | Note editing with mouse and keyboard: select, rubber band, drag, resize, split, merge, insert, delete, type keys, phrase ends, inspector, line type | editor |
+| Song start / end: scroll limited to 0:00 .. audio or song end + 2 s, Go to song start / end (Home / End), End song here (#END at the playhead, notes after it deleted), shaded #END area with Remove song end; dashed drag guides down to the waveform | editor |
 | Text editing: inline syllable field (double click, Enter) and the Edit line dialog with syllable chips and local split / merge (Ctrl+E) | editor |
 | Waveform lane (selected track) and vocal activity lane (#VOCALS) under the note sheet, for the current line's time view; "Reading the waveform... N %", "No audio" and the no-vocals note; analysis in the background with an on-disk cache | editor |
 | Offscreen self-test (`--self-test [SONG]`) that opens the song through the window's open guard, drives the dialogs, the recent menu and quit, and fails on any Qt warning | command line |

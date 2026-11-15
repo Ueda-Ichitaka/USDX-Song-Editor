@@ -10,7 +10,10 @@
 // editing shortcuts N, G, F, R, Shift+R, S, M, Delete, Insert and B (task
 // P5-05) act on the selection; Enter edits the selected note's syllable in
 // place and Ctrl+E opens the Edit line dialog of the current line (task
-// P6-02, also the line header's Edit text button); the navigation shortcuts Up, Down, Left,
+// P6-02, also the line header's Edit text button); Home and End and the
+// toolbar's skip buttons jump to the song start and end, and "End song here"
+// cuts the song at the playhead (user decisions 2026-11-15); the navigation
+// shortcuts Up, Down, Left,
 // Right, the Ctrl/Alt arrows and the autoplay Shift+A (task P5-06) step
 // through lines, notes, moves, pitches and lengths - the arrows stand back
 // while a text input holds the focus, and the autoplay signal plays the
@@ -134,6 +137,31 @@ Kirigami.Page {
             }
 
             Kirigami.Separator {}
+
+            // The song start and end jumps (user decision 2026-11-15): they
+            // move the playhead and the view to 0:00 and to the song end
+            // (#END, else the audio end, else the last note).
+            QQC2.ToolButton {
+                objectName: "goToStartButton"
+                icon.name: "media-skip-backward"
+                text: qsTr("Go to song start")
+                display: QQC2.AbstractButton.IconOnly
+                enabled: root.songOpen
+                onClicked: root.goToSongStart()
+                QQC2.ToolTip.text: qsTr("Go to song start (Home)")
+                QQC2.ToolTip.visible: hovered
+            }
+
+            QQC2.ToolButton {
+                objectName: "goToEndButton"
+                icon.name: "media-skip-forward"
+                text: qsTr("Go to song end")
+                display: QQC2.AbstractButton.IconOnly
+                enabled: root.songOpen
+                onClicked: root.goToSongEnd()
+                QQC2.ToolTip.text: qsTr("Go to song end (End)")
+                QQC2.ToolTip.visible: hovered
+            }
 
             // The playback controls run the Player bridge (UI_SPEC 4.3).
             QQC2.ToolButton {
@@ -465,6 +493,46 @@ Kirigami.Page {
         sequence: "Ctrl+E"
         enabled: root.canEditNotes && !root.textEditingFocus
         onActivated: root.editLineText()
+    }
+
+    // The song start and end jumps (user decision 2026-11-15, Home and
+    // End): the playhead and the view move to 0:00 and to the song end.
+    Shortcut {
+        sequence: "Home"
+        enabled: root.songOpen && !root.textEditingFocus
+        onActivated: root.goToSongStart()
+    }
+
+    Shortcut {
+        sequence: "End"
+        enabled: root.songOpen && !root.textEditingFocus
+        onActivated: root.goToSongEnd()
+    }
+
+    // goToSongStart moves the playhead and the view to 0:00.
+    function goToSongStart() {
+        if (root.player) {
+            root.player.seekMs(0);
+        }
+        noteSheet.showMs(0, false);
+    }
+
+    // goToSongEnd moves the playhead and the view to the song end: #END,
+    // else the audio end, else the last note's end.
+    function goToSongEnd() {
+        const ms = root.document.songEndTargetMs(root.player ? root.player.durationMs : 0);
+        if (root.player) {
+            root.player.seekMs(ms);
+        }
+        noteSheet.showMs(ms, true);
+    }
+
+    // endSongHere ends the song at the playhead (#END plus the removal of
+    // everything after it, one undo step).
+    function endSongHere() {
+        if (root.canEditNotes && root.player) {
+            root.document.endSongAt(root.player.positionMs);
+        }
     }
 
     // editLineText opens the Edit line dialog for the current line.

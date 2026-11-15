@@ -230,3 +230,78 @@ fn fit_key_defaults_to_the_zero_range_and_size() {
         "the first real range always fits"
     );
 }
+
+// ---- Scroll bounds (user decision 2026-11-15) ----
+
+/// A viewport of 1000 px at 20 px per beat (50 visible beats) bounded to
+/// beats -10 to 200.
+fn bounded() -> SheetViewport {
+    let mut v = viewport();
+    v.set_bounds(Some((-10.0, 200.0)));
+    v
+}
+
+#[test]
+fn wheel_scrolling_stops_at_both_bounds() {
+    let mut v = bounded();
+    v.wheel_time(-1000.0);
+    assert!(close(v.start_beat, -10.0), "{}", v.start_beat);
+    v.wheel_time(1000.0);
+    assert!(close(v.end_beat(), 200.0), "{}", v.end_beat());
+}
+
+#[test]
+fn panning_and_scrolling_to_a_beat_stop_at_the_bounds() {
+    let mut v = bounded();
+    v.pan_time(1_000_000.0);
+    assert!(close(v.start_beat, -10.0));
+    v.pan_time(-1_000_000.0);
+    assert!(close(v.end_beat(), 200.0));
+    v.scroll_to(-500.0);
+    assert!(close(v.start_beat, -10.0));
+    v.scroll_to(80.0);
+    assert!(close(v.start_beat, 80.0));
+}
+
+#[test]
+fn zooming_out_past_the_bounds_shows_them_from_the_start() {
+    let mut v = bounded();
+    v.scroll_to(100.0);
+    // 1 px per beat shows 1000 beats, more than the 210 the bounds hold.
+    v.zoom_around(0.01, 500.0);
+    assert!(close(v.start_beat, -10.0), "{}", v.start_beat);
+    // Zooming in again stays inside.
+    v.zoom_around(40.0, 999.0);
+    assert!(v.start_beat >= -10.0 && v.end_beat() <= 200.0 + 1e-9);
+}
+
+#[test]
+fn a_fitted_range_past_the_end_moves_inside() {
+    let mut v = bounded();
+    v.fit_range(190.0, 240.0);
+    assert!(close(v.end_beat(), 200.0), "{}", v.end_beat());
+}
+
+#[test]
+fn new_bounds_pull_the_view_inside_and_none_frees_it() {
+    let mut v = viewport();
+    v.scroll_to(500.0);
+    assert!(close(v.start_beat, 500.0), "unbounded by default");
+    v.set_bounds(Some((-10.0, 200.0)));
+    assert!(close(v.end_beat(), 200.0));
+    v.set_bounds(None);
+    v.scroll_to(500.0);
+    assert!(close(v.start_beat, 500.0));
+}
+
+#[test]
+fn bounds_survive_a_view_without_size() {
+    // Before the layout runs the sheet has no size; a fit of an empty range
+    // then yields no usable zoom, and the bounds must not panic on it.
+    let mut v = SheetViewport::new(0.0, 0.0);
+    v.fit_range(5.0, 5.0);
+    v.set_bounds(Some((-10.0, 200.0)));
+    v.wheel_time(3.0);
+    v.scroll_to(50.0);
+    assert!(v.start_beat.is_finite(), "{}", v.start_beat);
+}

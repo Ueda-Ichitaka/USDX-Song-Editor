@@ -89,3 +89,9 @@ bool usdx_playhead_check(const QQmlApplicationEngine &engine);
 // on a note or its lyric label, Enter commits, Esc cancels). Prints "text
 // editing: ok" on success.
 bool usdx_text_edit_check(const QQmlApplicationEngine &engine);
+
+// Checks the song end features (user decisions 2026-11-15) through real
+// input: the scroll bounds, Home / End, the End song here button with its
+// shaded #END area and undo, and the dashed drag guides. Prints "song end:
+// ok" on success.
+bool usdx_song_end_check(const QQmlApplicationEngine &engine);

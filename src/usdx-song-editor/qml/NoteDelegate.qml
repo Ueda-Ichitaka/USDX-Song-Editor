@@ -13,10 +13,13 @@
 // outline shows the snapped, committed result, and the release commits
 // once, so one drag is one undo step; Shift locks the first axis moved and
 // Alt turns the edge snapping off. The pointer deltas are taken in scene
-// coordinates because the note moves under the pointer. A double click
-// opens the sheet's inline syllable field for the note.
+// coordinates because the note moves under the pointer. While a drag runs,
+// dashed guides drop from the ghost's lower corners to the waveform lanes
+// (user decision 2026-11-15). A double click opens the sheet's inline
+// syllable field for the note.
 
 import QtQuick
+import QtQuick.Shapes
 import org.kde.kirigami as Kirigami
 import io.github.ueda_ichitaka.UsdxSongEditor as Usdx
 
@@ -306,6 +309,69 @@ Rectangle {
         color: "transparent"
         border.width: 1
         border.color: Kirigami.Theme.textColor
+    }
+
+    // The drag guides (user decision 2026-11-15): 1 px dashed lines (4 / 3)
+    // in the highlight colour from the ghost's lower corners down through
+    // the lyrics and waveform lanes to the sheet's bottom, so the landing
+    // position lines up with the audio. A move shows both corners, a
+    // resize only the dragged edge.
+    component Guide: Shape {
+        id: guide
+
+        // The guide's position relative to the note, its length and
+        // whether it shows; inline components cannot see the note's id, so
+        // the instances below bind them.
+        property real guideX: 0
+        property real topY: 0
+        property real length: 0
+        property bool shown: false
+        property color lineColor: "transparent"
+
+        visible: shown
+        x: guideX
+        y: topY
+        width: 1
+        height: Math.max(0, length)
+
+        ShapePath {
+            strokeColor: guide.lineColor
+            strokeWidth: 1
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [4, 3]
+            capStyle: ShapePath.FlatCap
+            fillColor: "transparent"
+            startX: 0.5
+            startY: 0
+
+            PathLine {
+                x: 0.5
+                y: guide.height
+            }
+        }
+    }
+
+    // The guides start at the ghost's bottom and end at the sheet's bottom
+    // (the note's y is in sheet coordinates).
+    readonly property real guideTop: ghostY - sheetY + height
+    readonly property real guideLength: (noteSheet ? noteSheet.height : 0) - sheetY - guideTop
+
+    Guide {
+        objectName: "dragGuideStart"
+        guideX: note.ghostX - note.sheetX
+        topY: note.guideTop
+        length: note.guideLength
+        lineColor: Kirigami.Theme.highlightColor
+        shown: note.dragging || note.startResizing
+    }
+
+    Guide {
+        objectName: "dragGuideEnd"
+        guideX: note.ghostX - note.sheetX + Math.max(2, note.ghostWidth) - 1
+        topY: note.guideTop
+        length: note.guideLength
+        lineColor: Kirigami.Theme.highlightColor
+        shown: note.dragging || note.endResizing
     }
 
     // The edge handles of a selected note (UI_SPEC 3.5): 4 x 12 px, radius

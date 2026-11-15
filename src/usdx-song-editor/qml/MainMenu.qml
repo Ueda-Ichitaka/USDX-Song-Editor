@@ -1,7 +1,9 @@
 // About me: the main menu of the shell (UI_SPEC 4.2): an isMenu
 // Kirigami.GlobalDrawer owned by the application window and opened by the
 // toolbar's Main menu button. It carries the file, edit and navigation
-// actions with their shortcuts and the Open Recent submenu, which rebuilds
+// actions with their shortcuts, the song end actions (End Song at Playhead
+// writes #END there and removes the notes after it, Remove Song End drops
+// #END; user decision 2026-11-15) and the Open Recent submenu, which rebuilds
 // itself from the recent songs model whenever the list changes. The
 // not-yet-built pages (Repair timing, Song properties, Settings, Export
 // anchors) show a temporary passive notification until their tasks land.
@@ -121,6 +123,27 @@ Kirigami.GlobalDrawer {
             icon.name: "view-refresh"
             enabled: drawer.shell && drawer.shell.songDocument.isLoaded
             onTriggered: drawer.shell.requestReload()
+        },
+        Kirigami.Action {
+            separator: true
+        },
+        Kirigami.Action {
+            objectName: "endSongAction"
+            text: qsTr("End Song at Playhead")
+            icon.name: "edit-cut"
+            enabled: drawer.shell && drawer.shell.songDocument.isLoaded
+                     && !drawer.shell.songDocument.readOnly
+                     && drawer.shell.player.positionMs > 0
+            onTriggered: drawer.shell.songDocument.endSongAt(drawer.shell.player.positionMs)
+        },
+        Kirigami.Action {
+            objectName: "removeSongEndAction"
+            text: qsTr("Remove Song End")
+            icon.name: "edit-undo"
+            enabled: drawer.shell && drawer.shell.songDocument.isLoaded
+                     && !drawer.shell.songDocument.readOnly
+                     && drawer.shell.songDocument.endMs > 0
+            onTriggered: drawer.shell.songDocument.removeSongEnd()
         },
         Kirigami.Action {
             separator: true

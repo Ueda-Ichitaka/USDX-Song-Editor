@@ -56,7 +56,17 @@ pub enum EditError {
     /// The line text holds no syllable, so no note would keep a text.
     #[error("the line text holds no syllable")]
     EmptyLineText,
-    // Later tasks add their own variants (AnchorsOutOfOrder).
+    /// The anchor target times do not increase, two anchors pin one line
+    /// or two anchors stand on lines with the same start (plan section
+    /// 6.7).
+    #[error("the anchor times must increase and pin different lines")]
+    AnchorsOutOfOrder,
+    /// The stretch would move a note before the song start: #GAP must go
+    /// down by the given beats and every note of the song shift by them.
+    #[error(
+        "the first note would fall before the song start: #GAP must go down by {0} beats and every note shift by them"
+    )]
+    NeedsGapShift(crate::collisions::NeedsGapShift),
 }
 
 /// One row operation. The ids and the carried rows refer to the document

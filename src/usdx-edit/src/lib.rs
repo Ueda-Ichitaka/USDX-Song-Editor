@@ -12,10 +12,12 @@
 //! adds the retiming, health, export and upgrade modules.
 
 pub mod changes;
+pub mod collisions;
 pub mod header_ops;
 pub mod history;
 pub mod ops;
 pub mod patch;
+pub mod retime;
 pub mod text;
 
 pub use history::History;

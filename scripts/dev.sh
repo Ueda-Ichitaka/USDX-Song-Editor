@@ -5,8 +5,8 @@
 # systemd user scope so an out-of-memory situation kills the build and not the
 # desktop, and reports an out-of-memory kill as such instead of a test failure.
 # Subcommands: check [--release], test [crate] [filter], build [--release],
-# run [-- args], corpus (the byte-identical round trip and the line text
-# check over the approved Factory folders). The guard functions are sourced and tested by
+# run [-- args], corpus (the byte-identical round trip, the line text check
+# and the collision pass report over the approved Factory folders). The guard functions are sourced and tested by
 # scripts/tests/dev_guard_test.sh.
 
 set -euo pipefail
@@ -123,6 +123,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       export USDX_CORPUS="${USDX_CORPUS:-/home/ueda/workspace/USDX-Song-Factory/stack/output/new:/home/ueda/workspace/USDX-Song-Factory/stack/output/repaired/recreated:/home/ueda/workspace/USDX-Song-Factory/stack/output/repaired/sync}"
       run_guarded cargo test -p usdx-format --test corpus -- --ignored
       run_guarded cargo test -p usdx-edit --test text_corpus -- --ignored --nocapture
+      run_guarded cargo test -p usdx-edit --test repair_corpus -- --ignored --nocapture
       ;;
     *)
       usage 2

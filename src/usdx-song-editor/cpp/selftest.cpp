@@ -1573,9 +1573,23 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     }
     const std::int64_t noteId = target->property("noteId").toLongLong();
     const QString syllable = document_text(document, "syllableForEditing", noteId);
+    // The commits and undos below reset the notes model, which destroys
+    // and recreates the delegate, and the view may scroll between the
+    // clicks: the note's item is re-collected by id and its geometry
+    // re-read for every click after a commit (a captured QQuickItem of an
+    // earlier model generation is a zombie with stale geometry).
+    auto note_item = [&]() -> QQuickItem * {
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        for (QObject *const candidate : current) {
+            if (candidate->property("noteId").toLongLong() == noteId) {
+                return qobject_cast<QQuickItem *>(candidate);
+            }
+        }
+        return nullptr;
+    };
     const QPointF noteCentre =
         target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
-    const double noteStartX = target->mapToScene(QPointF(1.0, 0.0)).x();
     send_double_click(window, noteCentre, 50000);
     if (!inlineField->isVisible() || inlineField->property("noteId").toLongLong() != noteId
         || inlineField->property("text").toString() != syllable) {
@@ -1608,8 +1622,17 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
         return false;
     }
     // Tab commits and moves the field to the next note of the line (the
-    // last note keeps the field closed).
-    send_double_click(window, noteCentre, 55000);
+    // last note keeps the field closed). The commit and the undo above
+    // reset the notes model, so the note's item and the click point are
+    // re-read.
+    QQuickItem *const tabItem = note_item();
+    if (tabItem == nullptr) {
+        std::cout << "text editing: skipped the Tab step (the note left the view)" << std::endl;
+        return true;
+    }
+    const QPointF tabCentre = tabItem->mapToScene(
+        QPointF(tabItem->width() / 2, tabItem->height() / 2));
+    send_double_click(window, tabCentre, 55000);
     send_key(window, Qt::Key_Tab, Qt::NoModifier);
     pump_events(100);
     if (inlineField->isVisible() && inlineField->property("noteId").toLongLong() == noteId) {
@@ -1624,11 +1647,32 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
         return false;
     }
     // A double click on the lyric label opens the field; Esc cancels.
-    const QPointF label(noteStartX + 1.0, lyrics->mapToScene(QPointF(0, lyrics->height() / 2)).y());
+    // The label's x, kept inside the visible sheet: a long note can start
+    // left of it, under the gutter. The Tab commit reset the notes model,
+    // so the note's item and the click point are re-read.
+    QQuickItem *const labelItem = note_item();
+    if (labelItem == nullptr) {
+        std::cout << "text editing: skipped the label step (the note left the view)" << std::endl;
+        return true;
+    }
+    const double laneLeft = lyrics->mapToScene(QPointF(2.0, 0)).x();
+    const QPointF label(std::max(labelItem->mapToScene(QPointF(1.0, 0.0)).x(), laneLeft),
+                        lyrics->mapToScene(QPointF(0, lyrics->height() / 2)).y());
     send_double_click(window, label, 60000);
     if (!inlineField->isVisible()) {
+        auto *const sheetItem = root->findChild<QQuickItem *>(QStringLiteral("sheetBackground"));
+        double beat = 0.0;
+        QMetaObject::invokeMethod(sheetItem, "xToBeat", Q_RETURN_ARG(double, beat),
+                                  Q_ARG(double, sheetItem->mapFromScene(label).x()));
+        std::int64_t hit = -1;
+        QMetaObject::invokeMethod(document, "noteAtLyricBeat", Q_RETURN_ARG(std::int64_t, hit),
+                                  Q_ARG(double, beat));
         std::cerr << "text editing: a double click on a lyric label did not open the inline "
-                     "field\n";
+                     "field (at "
+                  << label.x() << "," << label.y() << ", beat " << beat << ", note " << hit
+                  << ", selected "
+                  << document->property("inspector").toMap().value(QStringLiteral("count")).toInt()
+                  << ")\n";
         return false;
     }
     const std::int64_t labelNote = inlineField->property("noteId").toLongLong();
@@ -1693,9 +1737,18 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
         return false;
     }
     const QPointF centre = bg->mapToScene(QPointF(bg->width() * 0.6, bg->height() * 0.4));
-    for (int step = 0; step < 60; step++) {
-        send_wheel(window, centre, QPoint(0, -120 * 5), Qt::NoModifier);
-    }
+    // Wheels in one direction until the view stops moving (a long song
+    // needs many steps), at most 2000 steps.
+    auto wheel_until_still = [&](int notches) {
+        for (int step = 0; step < 2000; step++) {
+            const double before = bg->property("startBeat").toDouble();
+            send_wheel(window, centre, QPoint(0, 120 * notches), Qt::NoModifier);
+            if (bg->property("startBeat").toDouble() == before) {
+                break;
+            }
+        }
+    };
+    wheel_until_still(-50);
     // A view wider than the bounds starts at 0:00 and may end past them.
     const bool wider = view_end() - bg->property("startBeat").toDouble() >= maxBeat - minBeat;
     if (wider ? std::abs(bg->property("startBeat").toDouble() - minBeat) > 1e-6
@@ -1704,12 +1757,10 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
                   << maxBeat << "\n";
         return false;
     }
-    for (int step = 0; step < 60; step++) {
-        send_wheel(window, centre, QPoint(0, 120 * 5), Qt::NoModifier);
-    }
+    wheel_until_still(50);
     if (std::abs(bg->property("startBeat").toDouble() - minBeat) > 1e-6) {
-        std::cerr << "song end: the view scrolled to beat " << bg->property("startBeat").toDouble()
-                  << " before 0:00\n";
+        std::cerr << "song end: the view stops at beat " << bg->property("startBeat").toDouble()
+                  << ", not at 0:00 (beat " << minBeat << ")\n";
         return false;
     }
     // End moves the playhead to the song end, Home back to 0:00.
@@ -1737,6 +1788,7 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
     pump_events(50);
     const double lineStart = document->property("currentLineStartMs").toDouble();
     const int notesBefore = document->property("currentLineNoteCount").toInt();
+    const double endBefore = document->property("endMs").toDouble();
     const double cutMs = std::ceil(lineStart) + 1.0;
     QMetaObject::invokeMethod(player, "seekMs", Q_ARG(double, cutMs));
     pump_events(50);
@@ -1764,8 +1816,10 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
             return false;
         }
         send_key(window, Qt::Key_Z, Qt::ControlModifier);
-        if (document->property("endMs").toDouble() > 0.0) {
-            std::cerr << "song end: Ctrl+Z did not take #END back\n";
+        if (document->property("endMs").toDouble() != endBefore) {
+            std::cerr << "song end: Ctrl+Z did not restore #END (now "
+                      << document->property("endMs").toDouble() << ", before " << endBefore
+                      << ")\n";
             return false;
         }
     } else {

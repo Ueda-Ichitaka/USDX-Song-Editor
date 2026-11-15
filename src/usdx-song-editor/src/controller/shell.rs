@@ -414,8 +414,8 @@ pub fn save_failure_reason(error: &SaveError, path: &Path) -> String {
 }
 
 /// edit_failure_reason renders a refused edit as the user-facing passive
-/// notification text (UI_SPEC 6.4, task P5-04). The four specified
-/// situations have their verbatim texts; the remaining variants are internal
+/// notification text (UI_SPEC 6.4, task P5-04). The specified situations
+/// have their verbatim texts; the remaining variants are internal
 /// guard errors that share one neutral text. The relative-mode text is the
 /// user decision of 2026-11-14: it says what still works (converting).
 pub fn edit_failure_reason(error: &EditError) -> String {
@@ -435,11 +435,15 @@ pub fn edit_failure_reason(error: &EditError) -> String {
         EditError::NeedsDecision(_) => String::from(
             "The syllable count differs from the note count: pick the notes to split or merge.",
         ),
+        EditError::NeedsGapShift(_) => String::from(
+            "The repair would move a note before the song start. Lower #GAP in Song properties first.",
+        ),
         EditError::UnknownRow(_)
         | EditError::StalePatch(_)
         | EditError::PhraseEndBetween
         | EditError::NoTiming
-        | EditError::InvalidHeaderValue => String::from("This edit cannot be applied to the song."),
+        | EditError::InvalidHeaderValue
+        | EditError::AnchorsOutOfOrder => String::from("This edit cannot be applied to the song."),
     }
 }
 

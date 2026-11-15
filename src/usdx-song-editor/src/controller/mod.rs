@@ -5,7 +5,8 @@
 //! fingerprint, the save service, the settings and the shell state (titles,
 //! enablement, guarded transitions), the default time view of the sheet, the
 //! analysis state and the column layout of the waveform lanes, and the sheet
-//! viewport (beats and pitches to pixels, zoom and scroll); the repair and
+//! viewport (beats and pitches to pixels, zoom and scroll), and the rule
+//! that lets the list models update in place; the repair and
 //! tap controllers are added in later tasks.
 
 pub mod editing;
@@ -13,6 +14,7 @@ pub mod editor;
 pub mod fingerprint;
 pub mod inspector;
 pub mod lanes;
+pub mod model_update;
 pub mod notes;
 pub mod save;
 pub mod settings;

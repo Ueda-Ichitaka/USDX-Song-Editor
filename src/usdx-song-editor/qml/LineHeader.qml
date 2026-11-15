@@ -2,10 +2,10 @@
 // shows the line position, the time span with duration (or "Whole line
 // selected" while the selection is exactly the current line's notes, task
 // P5-06), note count and syllable rate, the timing health pill and the line
-// type combo with the Edit text button. The health stays "timing ok" (the
-// analysis arrives with P7) and the line type selection is a no-op until
-// the line operations of P6 exist; both render their final texts and
-// enablement already.
+// type combo with the Edit text button. The combo shows the line's type and
+// sets it for every note of the line. The health stays "timing ok" (the
+// analysis arrives with P7) and the Edit text dialog arrives with P6-02;
+// both render their final texts and enablement already.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -121,8 +121,12 @@ Rectangle {
         QQC2.ComboBox {
             id: lineTypeCombo
 
-            // The combo lists the note types; a line with mixed types shows
-            // "Mixed" (UI_SPEC 4.3). The selection is a no-op until P6.
+            objectName: "lineTypeCombo"
+
+            // The combo lists the note types and shows the current line's
+            // type; a line with mixed types shows "Mixed" (UI_SPEC 4.3).
+            // Choosing a type sets it for every note of the line in one undo
+            // step (user decision 2026-11-15).
             textRole: "label"
             valueRole: "type"
             model: [
@@ -135,6 +139,14 @@ Rectangle {
             enabled: document && document.isLoaded && !document.readOnly
             displayText: document && document.currentLineType === "mixed"
                          ? qsTr("Mixed") : currentText
+            currentIndex: document ? indexOfValue(document.currentLineType) : 0
+            onActivated: (index) => {
+                document.setLineType(valueAt(index));
+                // The activation overwrote the binding; the line's type stays
+                // the source of truth (a refused edit keeps the old type).
+                lineTypeCombo.currentIndex = Qt.binding(
+                    () => document ? lineTypeCombo.indexOfValue(document.currentLineType) : 0);
+            }
         }
 
         QQC2.Button {
@@ -142,7 +154,7 @@ Rectangle {
             text: qsTr("Edit text…")
             enabled: document && document.isLoaded && !document.readOnly
             onClicked: {
-                // The Edit line dialog arrives with P5.
+                // The Edit line dialog arrives with P6-02.
             }
         }
     }

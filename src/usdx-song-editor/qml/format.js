@@ -2,7 +2,8 @@
 // in the line list are m:ss.s, times everywhere else m:ss.ss, durations are
 // seconds with one decimal and rates are syllables per second with one
 // decimal; every number uses a dot as the decimal separator regardless of
-// the locale, because these are file values. Files import this with
+// the locale, because these are file values. The path helpers turn plain
+// paths into file urls and pick the song file of a drop. Files import this with
 // `import "format.js" as Time`.
 
 function timeText(ms, decimals) {
@@ -64,4 +65,13 @@ function folderUrlOf(path) {
         return "";
     }
     return fileUrlOf(path.slice(0, cut));
+}
+
+// songUrlOf picks the song file of a drop: the first url ending in .txt in
+// any letter case, or null when the drop carries none (no urls at all for
+// dragged text).
+function songUrlOf(urls) {
+    const found = (urls || []).find(
+        candidate => String(candidate).toLowerCase().endsWith(".txt"));
+    return found !== undefined ? found : null;
 }

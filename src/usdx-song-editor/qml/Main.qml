@@ -233,10 +233,8 @@ Kirigami.ApplicationWindow {
     DropArea {
         anchors.fill: parent
         onDropped: (drop) => {
-            const url = drop.hasUrls
-                ? drop.urls.find(candidate => candidate.toString().endsWith(".txt"))
-                : null;
-            if (url !== undefined) {
+            const url = Time.songUrlOf(drop.hasUrls ? drop.urls : []);
+            if (url !== null) {
                 root.requestOpen(url);
             } else {
                 root.showPassiveNotification(

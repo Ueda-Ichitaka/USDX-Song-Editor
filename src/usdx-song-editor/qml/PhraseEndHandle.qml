@@ -58,8 +58,15 @@ Item {
         onTranslationChanged: {
             // The line centre follows the pointer; the beat rounds to a
             // whole beat and clamps to the marker's bounds, so the preview
-            // and the commit agree.
-            const sheetX = handle.lineX + translation.x;
+            // and the commit agree. The travel is measured in scene
+            // coordinates from the committed beat's x: the handle itself
+            // moves with the preview, so neither its own coordinates nor
+            // its previewed x are a fixed origin.
+            const travel = centroid.scenePosition.x - centroid.scenePressPosition.x;
+            const sheetX = handle.bg
+                ? handle.bg.gutterWidth
+                  + (handle.beat - handle.bg.startBeat) * handle.bg.pxPerBeat + travel
+                : 0;
             const raw = handle.bg ? handle.bg.xToBeat(sheetX) : 0;
             handle.previewBeat = Math.min(
                 handle.max, Math.max(handle.min, Math.round(raw)));

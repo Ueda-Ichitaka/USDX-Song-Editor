@@ -147,11 +147,12 @@ fn self_test_drives_the_ui_paths_without_qt_warnings() {
 #[test]
 fn self_test_runs_the_interaction_checks_on_a_multi_note_song() {
     // Two lines of three notes (240 BPM, GAP 100 ms): enough notes for the
-    // sheet interaction check and a second line for the playback follow.
+    // sheet interaction check, a second line for the playback follow, and a
+    // four-beat gap before it so the phrase end marker can move.
     let text = concat!(
         "#TITLE:T\n#ARTIST:A\n#BPM:240\n#GAP:100\n",
         ": 0 4 0 a\n: 4 4 2 b\n: 8 4 4 c\n- 12\n",
-        ": 12 4 0 d\n: 16 4 2 e\n: 20 4 4 f\n- 24\nE\n",
+        ": 16 4 0 d\n: 20 4 2 e\n: 24 4 4 f\n- 28\nE\n",
     );
     let dir = tempfile::tempdir().expect("the temporary directory is created");
     let path = dir.path().join("song.txt");
@@ -175,6 +176,107 @@ fn self_test_runs_the_interaction_checks_on_a_multi_note_song() {
             "the self-test must report {report:?}, got: {stdout}\n{stderr}"
         );
     }
+}
+
+#[test]
+fn self_test_resizes_a_note_whose_end_touches_the_phrase_end() {
+    // Line 1's widest note (beats 4 to 12) ends exactly at the phrase end
+    // marker (12): the marker's grab area overlaps the note's end edge
+    // zone, and the selected note's end edge must still resize.
+    let text = concat!(
+        "#TITLE:T\n#ARTIST:A\n#BPM:240\n",
+        ": 0 2 0 a\n: 2 2 2 b\n: 4 8 4 c\n- 12\n",
+        ": 16 2 0 d\n: 18 2 2 e\n: 20 2 4 f\n- 22\nE\n",
+    );
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success()
+            && stdout.contains("sheet interaction: end edge resized")
+            && stdout.contains("sheet interaction: ok"),
+        "--self-test failed or skipped the end edge:\n{stdout}\n{stderr}"
+    );
+}
+
+#[test]
+fn self_test_never_writes_the_song_it_is_given() {
+    // The interaction check edits and saves (Ctrl+S); it must do that on a
+    // copy, so the user's song and its folder stay untouched.
+    let text = concat!(
+        "#TITLE:T\n#ARTIST:A\n#BPM:240\n#GAP:100\n",
+        ": 0 4 0 a\n: 4 4 2 b\n: 8 4 4 c\n- 12\n",
+        ": 16 4 0 d\n: 20 4 2 e\n: 24 4 4 f\n- 28\nE\n",
+    );
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    assert!(
+        out.status.success(),
+        "--self-test failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let after = std::fs::read_to_string(&path).expect("the song is still there");
+    assert_eq!(after, text, "the self-test changed the song file");
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .expect("the folder is readable")
+        .map(|entry| entry.expect("the entry is readable").file_name())
+        .collect();
+    assert_eq!(
+        entries,
+        vec![std::ffi::OsString::from("song.txt")],
+        "the folder changed"
+    );
+}
+
+#[test]
+fn self_test_keeps_the_lines_pane_scroll_on_a_long_song() {
+    // Sixty two-note lines: the lines pane scrolls, and a selection change
+    // must not move it.
+    let mut text = String::from("#TITLE:T\n#ARTIST:A\n#BPM:240\n");
+    for line in 0..60 {
+        let beat = line * 8;
+        text.push_str(&format!(
+            ": {} 2 0 a\n: {} 2 2 b\n- {}\n",
+            beat,
+            beat + 2,
+            beat + 6
+        ));
+    }
+    text.push_str("E\n");
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && stdout.contains("playhead: ok"),
+        "--self-test with a long song failed:\n{stdout}\n{stderr}"
+    );
 }
 
 #[test]

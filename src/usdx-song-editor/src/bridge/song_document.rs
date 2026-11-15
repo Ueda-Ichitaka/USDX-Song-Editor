@@ -32,6 +32,7 @@ use usdx_format::rows::{NoteType, RowId};
 use crate::bridge::player::PlayerCore;
 use crate::controller::editing::{Edge, SelectionMode, snapped_move, snapped_resize};
 use crate::controller::inspector::{InspectorState, inspector_state};
+use crate::controller::model_update::{RowUpdate, row_update};
 use crate::controller::notes::{
     PhraseEndRow, VisibleNote, all_lines, song_end_beat, type_char, visible_notes,
     visible_phrase_ends,
@@ -237,12 +238,43 @@ pub mod qobject {
         #[cxx_name = "index"]
         fn index_of(self: &NotesModel, row: i32, column: i32) -> QModelIndex;
 
-        /// Emit the ghost roles' dataChanged in place: a reset during a
-        /// drag would destroy the delegate that is being dragged.
+        /// Emit a dataChanged in place: the in-place update of a rebuild
+        /// with the same rows (user decision 2026-11-15) and the ghost
+        /// roles keep the delegates alive.
         #[inherit]
         #[cxx_name = "dataChanged"]
         fn notes_data_changed(
             self: Pin<&mut NotesModel>,
+            top_left: &QModelIndex,
+            bottom_right: &QModelIndex,
+            roles: &QList_i32,
+        );
+
+        /// The model index of one lines pane row.
+        #[inherit]
+        #[cxx_name = "index"]
+        fn lines_index_of(self: &LinesModel, row: i32, column: i32) -> QModelIndex;
+
+        /// The lines pane's in-place dataChanged.
+        #[inherit]
+        #[cxx_name = "dataChanged"]
+        fn lines_data_changed(
+            self: Pin<&mut LinesModel>,
+            top_left: &QModelIndex,
+            bottom_right: &QModelIndex,
+            roles: &QList_i32,
+        );
+
+        /// The model index of one phrase end row.
+        #[inherit]
+        #[cxx_name = "index"]
+        fn phrase_ends_index_of(self: &PhraseEndsModel, row: i32, column: i32) -> QModelIndex;
+
+        /// The phrase end handles' in-place dataChanged.
+        #[inherit]
+        #[cxx_name = "dataChanged"]
+        fn phrase_ends_data_changed(
+            self: Pin<&mut PhraseEndsModel>,
             top_left: &QModelIndex,
             bottom_right: &QModelIndex,
             roles: &QList_i32,
@@ -623,8 +655,8 @@ pub mod qobject {
 
         /// Compute the snapped committed deltas of a body drag (plan 8.4,
         /// user decision 2026-11-14: the ghost preview and the commit agree,
-        /// the rounding happens after the snap), show them as the dragged
-        /// note's ghost and return them in the hash keys dBeat and dPitch.
+        /// the rounding happens after the snap) and return them in the hash
+        /// keys dBeat and dPitch; the delegate draws its ghost from them.
         #[qinvokable]
         #[cxx_name = "previewMove"]
         fn preview_move(
@@ -636,8 +668,8 @@ pub mod qobject {
             px_per_beat: f64,
         ) -> QHash_QString_QVariant;
 
-        /// Compute the snapped committed delta of an edge drag, show the
-        /// resized ghost and return the delta. An unknown id or no song
+        /// Compute the snapped committed delta of an edge drag and return
+        /// it; the delegate draws its ghost from it. An unknown id or no song
         /// returns the plain rounded delta.
         #[qinvokable]
         #[cxx_name = "previewResize"]
@@ -678,6 +710,12 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "setSelectionType"]
         fn set_selection_type(self: Pin<&mut SongDocument>, code: QString) -> bool;
+
+        /// Set the type of every note of the current line (the line
+        /// header's type combo); "F" sets freestyle.
+        #[qinvokable]
+        #[cxx_name = "setLineType"]
+        fn set_line_type(self: Pin<&mut SongDocument>, code: QString) -> bool;
 
         /// Toggle every selected note between freestyle and normal (the F
         /// key; setSelectionType("F") routes here too).
@@ -998,7 +1036,7 @@ impl SongDocumentRust {
 }
 
 /// One row of the lines pane model (plan section 8.3).
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct LineRow {
     line_number: i32,
     start_ms: f64,
@@ -1042,6 +1080,7 @@ pub struct RecentSongsModelRust {
 
 /// One row of the notes model: the controller's visible note plus whether
 /// it sits in the selection.
+#[derive(PartialEq)]
 pub struct NoteRow {
     note: VisibleNote,
     selected: bool,
@@ -1294,10 +1333,22 @@ impl qobject::LinesModel {
             }
             None => (Vec::new(), -1),
         };
-        unsafe {
-            self.as_mut().begin_reset_model();
-            self.as_mut().rust_mut().rows = rows;
-            self.as_mut().end_reset_model();
+        // The same lines in the same order update in place, so the lines
+        // pane keeps its delegates (user decision 2026-11-15).
+        match row_update(&self.rows, &rows, |row| row.line_number) {
+            RowUpdate::Unchanged => {}
+            RowUpdate::Changed { first, last } => {
+                self.as_mut().rust_mut().rows = rows;
+                let top = self.lines_index_of(first as i32, 0);
+                let bottom = self.lines_index_of(last as i32, 0);
+                self.as_mut()
+                    .lines_data_changed(&top, &bottom, &QList::<i32>::default());
+            }
+            RowUpdate::Reset => unsafe {
+                self.as_mut().begin_reset_model();
+                self.as_mut().rust_mut().rows = rows;
+                self.as_mut().end_reset_model();
+            },
         }
         self.as_mut().set_current_row_index(current);
     }
@@ -1453,10 +1504,24 @@ impl qobject::NotesModel {
             }
             None => Vec::new(),
         };
-        unsafe {
-            self.as_mut().notes_begin_reset_model();
-            self.as_mut().rust_mut().rows = rows;
-            self.as_mut().notes_end_reset_model();
+        // The same notes in the same order (a selection, a line change, a
+        // move, a resize, a type change) update in place, so no note
+        // delegate is recreated (user decision 2026-11-15); inserts,
+        // deletes, splits and merges reset.
+        match row_update(&self.rows, &rows, |row| row.note.row_id) {
+            RowUpdate::Unchanged => {}
+            RowUpdate::Changed { first, last } => {
+                self.as_mut().rust_mut().rows = rows;
+                let top = self.index_of(first as i32, 0);
+                let bottom = self.index_of(last as i32, 0);
+                self.as_mut()
+                    .notes_data_changed(&top, &bottom, &QList::<i32>::default());
+            }
+            RowUpdate::Reset => unsafe {
+                self.as_mut().notes_begin_reset_model();
+                self.as_mut().rust_mut().rows = rows;
+                self.as_mut().notes_end_reset_model();
+            },
         }
     }
 
@@ -1527,10 +1592,21 @@ impl qobject::PhraseEndsModel {
             }
             None => Vec::new(),
         };
-        unsafe {
-            self.as_mut().phrase_ends_begin_reset_model();
-            self.as_mut().rust_mut().rows = rows;
-            self.as_mut().phrase_ends_end_reset_model();
+        // The same markers in the same order update in place.
+        match row_update(&self.rows, &rows, |row| row.row_id) {
+            RowUpdate::Unchanged => {}
+            RowUpdate::Changed { first, last } => {
+                self.as_mut().rust_mut().rows = rows;
+                let top = self.phrase_ends_index_of(first as i32, 0);
+                let bottom = self.phrase_ends_index_of(last as i32, 0);
+                self.as_mut()
+                    .phrase_ends_data_changed(&top, &bottom, &QList::<i32>::default());
+            }
+            RowUpdate::Reset => unsafe {
+                self.as_mut().phrase_ends_begin_reset_model();
+                self.as_mut().rust_mut().rows = rows;
+                self.as_mut().phrase_ends_end_reset_model();
+            },
         }
     }
 }
@@ -1703,11 +1779,12 @@ impl qobject::SongDocument {
         self.as_mut().finish_edit(result)
     }
 
-    /// preview_move computes the snapped committed deltas of a body drag,
-    /// shows them as the dragged note's ghost and returns them (plan 8.4:
-    /// the ghost and the commit agree). The keys are dBeat and dPitch.
+    /// preview_move computes the snapped committed deltas of a body drag and
+    /// returns them (plan 8.4: the ghost and the commit agree). The keys are
+    /// dBeat and dPitch. It touches no model: a data change on every move
+    /// would make every note delegate of the song rebind per mouse move.
     pub fn preview_move(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         row_id: i64,
         d_beat: f64,
         d_pitch: i64,
@@ -1715,10 +1792,9 @@ impl qobject::SongDocument {
         px_per_beat: f64,
     ) -> QHash<QHashPair_QString_QVariant> {
         let id = row_id_of(row_id);
-        let (committed, ghost) = {
+        let committed = {
             let rust = self.rust();
-            let loaded = rust.controller.loaded();
-            let committed = match (&id, loaded) {
+            match (&id, rust.controller.loaded()) {
                 (Some(id), Some(loaded)) => snapped_move(
                     &loaded.document,
                     &loaded.song,
@@ -1729,17 +1805,8 @@ impl qobject::SongDocument {
                     px_per_beat,
                 ),
                 _ => (d_beat.round() as i64, d_pitch),
-            };
-            let ghost = match (&id, loaded) {
-                (Some(id), Some(loaded)) => loaded
-                    .song
-                    .note(&loaded.document, *id)
-                    .map(|note| (row_id, note.start + committed.0 as f64, note.length)),
-                _ => None,
-            };
-            (committed, ghost)
+            }
         };
-        self.as_mut().show_ghost(ghost);
         let mut hash = QHash::<QHashPair_QString_QVariant>::default();
         hash.insert(QString::from("dBeat"), QVariant::from(&committed.0));
         hash.insert(QString::from("dPitch"), QVariant::from(&committed.1));
@@ -1747,9 +1814,9 @@ impl qobject::SongDocument {
     }
 
     /// preview_resize computes the snapped committed delta of an edge drag
-    /// and shows the resized ghost; returns the delta.
+    /// and returns it; like preview_move it touches no model.
     pub fn preview_resize(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         row_id: i64,
         edge: ResizeEdge,
         d_beat: f64,
@@ -1765,51 +1832,17 @@ impl qobject::SongDocument {
         let Some(edge) = edge else {
             return d_beat.round() as i64;
         };
-        let committed = {
-            let rust = self.rust();
-            match (&id, rust.controller.loaded()) {
-                (Some(id), Some(loaded)) => snapped_resize(
-                    &loaded.document,
-                    &loaded.song,
-                    *id,
-                    edge,
-                    d_beat,
-                    snap_on,
-                    px_per_beat,
-                ),
-                _ => d_beat.round() as i64,
-            }
-        };
-        let ghost = {
-            let rust = self.rust();
-            match (&id, rust.controller.loaded()) {
-                (Some(id), Some(loaded)) => {
-                    loaded
-                        .song
-                        .note(&loaded.document, *id)
-                        .map(|note| match edge {
-                            Edge::Start => (
-                                row_id,
-                                note.start + committed as f64,
-                                note.length - committed,
-                            ),
-                            Edge::End => (row_id, note.start, note.length + committed),
-                        })
-                }
-                _ => None,
-            }
-        };
-        self.as_mut().show_ghost(ghost);
-        committed
-    }
-
-    /// show_ghost puts one drag preview onto the notes model; without a
-    /// preview it clears the ghost.
-    fn show_ghost(self: Pin<&mut Self>, ghost: Option<(i64, f64, i64)>) {
-        if let Some(model) = unsafe { self.as_ref().notes_model().as_mut() } {
-            let pinned = unsafe { Pin::new_unchecked(model) };
-            let (row_id, start, length) = ghost.unwrap_or((-1, 0.0, -1));
-            pinned.set_ghost(row_id, start, length);
+        match (&id, self.rust().controller.loaded()) {
+            (Some(id), Some(loaded)) => snapped_resize(
+                &loaded.document,
+                &loaded.song,
+                *id,
+                edge,
+                d_beat,
+                snap_on,
+                px_per_beat,
+            ),
+            _ => d_beat.round() as i64,
         }
     }
 
@@ -1856,6 +1889,23 @@ impl qobject::SongDocument {
 
     /// set_selection_type sets the type of every selected note; the code
     /// "F" toggles freestyle instead (UI_SPEC: the F key toggles).
+    /// set_line_type sets the type of every note of the current line
+    /// (user decision 2026-11-15); one undo step.
+    pub fn set_line_type(mut self: Pin<&mut Self>, code: QString) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let Some(first) = code.to_string().chars().next() else {
+            return false;
+        };
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .set_current_line_type(first);
+        self.as_mut().finish_edit(result)
+    }
+
     pub fn set_selection_type(mut self: Pin<&mut Self>, code: QString) -> bool {
         if code.to_string() == "F" {
             return self.as_mut().toggle_freestyle();

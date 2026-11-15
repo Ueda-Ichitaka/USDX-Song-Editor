@@ -49,6 +49,7 @@ ColumnLayout {
     ListView {
         id: listView
 
+        objectName: "linesList"
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true

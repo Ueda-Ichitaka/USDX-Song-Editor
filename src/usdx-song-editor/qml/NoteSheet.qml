@@ -297,6 +297,7 @@ Rectangle {
             clip: true
 
             Repeater {
+                objectName: "noteRepeater"
                 model: root.document ? root.document.notesModel : null
 
                 Usdx.NoteDelegate {
@@ -308,6 +309,7 @@ Rectangle {
             // The end-of-phrase markers (UI_SPEC 3.5): dashed lines with
             // square caps, draggable through PhraseEndHandle.
             Repeater {
+                objectName: "phraseEndRepeater"
                 model: root.document ? root.document.phraseEndsModel : null
 
                 Usdx.PhraseEndHandle {

@@ -132,6 +132,21 @@ keyboard-editable. It opens on the current line with at least 1.5 s around it (h
 line's length for long lines) and stays put while you step through lines that are already
 visible.
 
+**Editing notes with the mouse.** Click a note to select it; Ctrl+click adds a note to the
+selection, Shift+click selects every note from the last clicked one to this one. Drag on the
+empty sheet to select every note inside the rectangle. Drag a note to move it (a note that is
+not selected becomes the selection when you let go); Shift keeps the drag on the first
+direction you moved, Alt turns the snapping to neighbouring notes off. A selected note shows
+small handles at both ends: within 5 px of an end the cursor turns into a double arrow, and a
+drag there moves only that end. The note follows the pointer while a thin outline shows where
+it lands; letting go applies the change as one undo step. The dashed line between two lines
+is the phrase end: drag it between the last note of one line and the first note of the next.
+
+The inspector below the sheet edits the selected note: **Start** moves the note to another
+beat and keeps its length, **Length** changes where it ends, **Pitch** transposes. The
+**Line type** box in the line header shows the type of the current line ("Mixed" when its
+notes differ); choosing a type there sets it for every note of the line in one undo step.
+
 **Playhead.** A dotted red line with a small triangle on the ruler marks the playback
 position. It runs from the ruler through the notes and the lyrics down to the waveform, so
 you can line up a note's start with what you hear and see. To move it, press anywhere in the

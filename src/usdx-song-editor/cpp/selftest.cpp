@@ -24,11 +24,14 @@
 #include <QEventLoop>
 #include <QImage>
 #include <QMouseEvent>
+#include <QPointer>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlError>
+#include <QSet>
 #include <QStringList>
 // The self-test's input helpers send mouse events through the qpa
 // QWindowSystemInterface with synchronous delivery, the way a platform
@@ -63,10 +66,16 @@ QObject *selftest_root(const QQmlApplicationEngine &engine) {
 // The number of warnings, criticals and fatals the message handler saw.
 int g_qt_warning_count = 0;
 
+// The live delegates of the note and phrase end Repeaters, cached until the
+// next event pump (see live_delegate).
+QSet<QQuickItem *> g_live_items;
+bool g_live_items_valid = false;
+
 // Runs the event loop for the given time, so bindings settle, the window
 // renders and lazily created delegates exist; the self-test does not run the
 // application event loop.
 void pump_events(int milliseconds) {
+    g_live_items_valid = false;
     QEventLoop loop;
     QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
     loop.exec();
@@ -76,10 +85,11 @@ void pump_events(int milliseconds) {
 // synchronous delivery - the way a platform plugin does - and pumps the
 // event loop afterwards; queued QTest helpers never drain offscreen.
 void send_mouse(QWindow *window, const QPointF &local, QEvent::Type type,
-                Qt::MouseButtons buttons, Qt::MouseButton button, ulong timestamp) {
+                Qt::MouseButtons buttons, Qt::MouseButton button, ulong timestamp,
+                Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
     QWindowSystemInterface::handleMouseEvent<QWindowSystemInterface::SynchronousDelivery>(
         window, timestamp, local, window->mapToGlobal(local), buttons, button, type,
-        Qt::NoModifier, Qt::MouseEventNotSynthesized);
+        modifiers, Qt::MouseEventNotSynthesized);
     pump_events(10);
 }
 
@@ -480,12 +490,40 @@ namespace {
 // chain does not reach them through findChildren (Repeater keeps the
 // QObject parenting). Returns the delegates of the current line (opaque,
 // lineOffset 0), first first.
+// The items the note and phrase end Repeaters currently hold. A model reset
+// leaves the old delegates in the item tree until their deferred deletion,
+// which never runs here: the self-test works before the application event
+// loop starts. Only the Repeaters' own items are live. The set is cached
+// until the next event pump, which is where models change.
+bool live_delegate(QQuickItem *item) {
+    if (!g_live_items_valid && item->window() != nullptr) {
+        g_live_items.clear();
+        // The QML objects are QObject children of the window, not of its
+        // content item.
+        QQuickWindow *const window = item->window();
+        for (const char *name : {"noteRepeater", "phraseEndRepeater"}) {
+            QObject *const repeater = window->findChild<QObject *>(QLatin1String(name));
+            const int count = repeater != nullptr ? repeater->property("count").toInt() : 0;
+            for (int index = 0; index < count; index++) {
+                QQuickItem *member = nullptr;
+                QMetaObject::invokeMethod(repeater, "itemAt", Q_RETURN_ARG(QQuickItem *, member),
+                                          Q_ARG(int, index));
+                if (member != nullptr) {
+                    g_live_items.insert(member);
+                }
+            }
+        }
+        g_live_items_valid = true;
+    }
+    return g_live_items.contains(item);
+}
+
 void find_current_line_delegates(QQuickWindow *window, QList<QObject *> &out) {
     std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
         for (QQuickItem *const child : item->childItems()) {
             const QVariant note_id = child->property("noteId");
-            if (note_id.isValid() && note_id.toLongLong() >= 0 && child->isVisible()
-                && child->opacity() >= 1.0 && child->property("lineOffset").toInt() == 0) {
+            if (live_delegate(child) && note_id.isValid() && note_id.toLongLong() >= 0
+                && child->isVisible() && child->opacity() >= 1.0 && child->property("lineOffset").toInt() == 0) {
                 out.append(child);
             }
             walk(child);
@@ -547,9 +585,39 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         }
     }
     if (pressable.size() < 2) {
-        std::cerr << "sheet interaction: fewer than two pressable current-line notes\n";
-        return false;
+        // A line wider than the pitch rows scrolls vertically (UI_SPEC
+        // 3.3), so its notes can lie outside the visible rows.
+        std::cout << "sheet interaction: skipped (fewer than two current-line notes on screen)"
+                  << std::endl;
+        return true;
     }
+
+    // Songs can hold notes stacked on the same beats and pitch (Factory
+    // output); a note the check presses must be the only live note under
+    // its centre, or the press lands on the other one.
+    auto uncovered = [&](QObject *note) -> bool {
+        QList<QObject *> every_note;
+        std::function<void(QQuickItem *)> collect = [&](QQuickItem *item) {
+            for (QQuickItem *const child : item->childItems()) {
+                if (live_delegate(child) && child->isVisible()
+                    && child->property("noteId").isValid()) {
+                    every_note.append(child);
+                }
+                collect(child);
+            }
+        };
+        collect(window->contentItem());
+        const QPointF centre = centre_of(note);
+        for (QObject *const other : every_note) {
+            auto *const item = qobject_cast<QQuickItem *>(other);
+            if (other != note
+                && item->mapRectToScene(QRectF(0, 0, item->width(), item->height()))
+                       .contains(centre)) {
+                return false;
+            }
+        }
+        return true;
+    };
 
     // Tap the first note: the TapHandler must select it (UI_SPEC 3.5). The
     // tap is verified on the same noteId, because the selection change
@@ -567,7 +635,18 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         }
         return nullptr;
     };
-    QObject *const tapped = pressable[0];
+    QObject *tapped = nullptr;
+    for (QObject *const note : pressable) {
+        if (uncovered(note)) {
+            tapped = note;
+            break;
+        }
+    }
+    if (tapped == nullptr) {
+        std::cout << "sheet interaction: skipped (every current-line note is covered by another)"
+                  << std::endl;
+        return true;
+    }
     const qint64 tapped_id = note_id_of(tapped);
     const QPointF tap_point = centre_of(tapped);
     send_mouse(window, tap_point, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 10);
@@ -581,6 +660,50 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
     } else {
         std::cerr << "sheet interaction: the tapped note did not survive the tap\n";
         return false;
+    }
+    // Ctrl+click adds the second note to the selection (plan 8.4); both
+    // notes are selected afterwards.
+    {
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        QObject *second = nullptr;
+        for (QObject *note : current) {
+            if (note_id_of(note) != tapped_id && on_screen(note) && uncovered(note)) {
+                second = note;
+                break;
+            }
+        }
+        // Without an uncovered second note the Ctrl+click step is skipped.
+        const qint64 second_id = second != nullptr ? note_id_of(second) : -1;
+        if (second != nullptr) {
+        const QPointF point = centre_of(second);
+        send_mouse(window, point, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 3000,
+                   Qt::ControlModifier);
+        send_mouse(window, point, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton, 3010,
+                   Qt::ControlModifier);
+        pump_events(50);
+        QObject *const first_after = find_by_id(tapped_id);
+        QObject *const second_after = find_by_id(second_id);
+        if (first_after == nullptr || second_after == nullptr ||
+            !first_after->property("selected").toBool() ||
+            !second_after->property("selected").toBool()) {
+            std::cerr << "sheet interaction: Ctrl+click did not add the note to the selection\n";
+            return false;
+        }
+        // A plain click on the first note makes it the only selected note
+        // again, so the drag below finds an unselected note.
+        const QPointF first_point = centre_of(first_after);
+        send_mouse(window, first_point, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                   4000);
+        send_mouse(window, first_point, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                   4010);
+        pump_events(50);
+        QObject *const second_cleared = find_by_id(second_id);
+        if (second_cleared == nullptr || second_cleared->property("selected").toBool()) {
+            std::cerr << "sheet interaction: a plain click did not replace the selection\n";
+            return false;
+        }
+        }
     }
 
     // Drag an on-screen unselected note 60 px right: the bodyDrag must
@@ -601,14 +724,16 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
     }
     QObject *dragged = nullptr;
     for (QObject *note : pressable) {
-        if (note_id_of(note) != tapped_id && !note->property("selected").toBool()) {
+        if (note_id_of(note) != tapped_id && !note->property("selected").toBool()
+            && uncovered(note)) {
             dragged = note;
             break;
         }
     }
     if (dragged == nullptr) {
-        std::cerr << "sheet interaction: no unselected pressable note for the drag\n";
-        return false;
+        std::cout << "sheet interaction: skipped (no uncovered unselected note to drag)"
+                  << std::endl;
+        return true;
     }
     const qint64 dragged_id = note_id_of(dragged);
     const QPointF drag_start = centre_of(dragged);
@@ -620,6 +745,16 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
                    QEvent::MouseMove, Qt::LeftButton, Qt::NoButton, 30 + step * 20);
     }
     const bool dragging = dragged->property("dragging").toBool();
+    // The dragged note follows the pointer: its offset is the pointer's
+    // travel since the press. A delta measured in the moving note's own
+    // coordinates would swing back and forth between events (flicker).
+    const double followed = dragged->property("dragOffsetX").toDouble();
+    if (std::abs(followed - (drag_end.x() - drag_start.x())) > 1.0) {
+        std::cerr << "sheet interaction: the dragged note does not follow the pointer (offset "
+                  << followed << " px, pointer moved " << (drag_end.x() - drag_start.x())
+                  << " px)\n";
+        return false;
+    }
     // Reports whether the rubber band Rectangle (z 10) is visible right
     // now. During a note drag it must stay hidden: the ancestor bandDrag
     // must not steal the bodyDrag's grab. On the empty pitch area it must
@@ -661,6 +796,9 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         std::cerr << "sheet interaction: the dragged note did not survive the drag\n";
         return false;
     }
+    // The timestamps of the later synthesized events keep growing, far
+    // apart, so no press reads as a double click.
+    ulong next_time = 10000;
     // Ctrl+Z undoes the drag and Ctrl+Shift+Z redoes it (plan 8.6).
     window->requestActivate();
     pump_events(20);
@@ -706,6 +844,199 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         std::cerr << "sheet interaction: Esc did not clear the selection\n";
         return false;
     }
+    // The edge drags of a selected note (UI_SPEC 3.5): a press within 5 px
+    // of an edge resizes from that edge, the edge follows the pointer (it
+    // moves with the note, so a delta in the note's own coordinates would
+    // swing back and forth), and the release commits one resize.
+    auto select_by_tap = [&](qint64 id) -> QPointer<QObject> {
+        if (QObject *const note = find_by_id(id)) {
+            const QPointF centre = centre_of(note);
+            send_mouse(window, centre, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                       next_time += 1000);
+            send_mouse(window, centre, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                       next_time += 10);
+            pump_events(50);
+        }
+        return QPointer<QObject>(find_by_id(id));
+    };
+    // The widest on-screen note of the current line carries the edge
+    // drags; the handles exist only from 12 px width (UI_SPEC 3.5), so a
+    // song whose notes are all narrower at the fit zoom skips them.
+    qint64 edge_id = -1;
+    double edge_width = 0.0;
+    {
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        for (QObject *const candidate : current) {
+            auto *const item = qobject_cast<QQuickItem *>(candidate);
+            if (on_screen(candidate) && uncovered(candidate) && item->width() > edge_width) {
+                edge_width = item->width();
+                edge_id = note_id_of(candidate);
+            }
+        }
+    }
+    auto edge_drag = [&](bool startEdge, qint64 target_id) -> bool {
+        const char *const edgeName = startEdge ? "start" : "end";
+        // Real songs can push the note partly out of the window or under
+        // another note (an earlier edge drag lengthened it); such a note
+        // skips the drag instead of pressing beside it.
+        auto in_window = [&](const QPointF &point) {
+            return point.x() > 0.0 && point.y() > 0.0 && point.x() < window->width()
+                && point.y() < window->height();
+        };
+        if (QObject *const before = find_by_id(target_id);
+            before == nullptr || !uncovered(before) || !in_window(centre_of(before))) {
+            return true;
+        }
+        const QPointer<QObject> note = select_by_tap(target_id);
+        auto *const item = note ? qobject_cast<QQuickItem *>(note.data()) : nullptr;
+        if (item != nullptr && note->property("selected").toBool() && item->width() >= 12) {
+            const QPointF edge = item->mapToScene(
+                QPointF(startEdge ? 2.0 : item->width() - 2.0, item->height() / 2));
+            const QPointF target = edge + QPointF(startEdge ? -40.0 : 40.0, 0.0);
+            if (!in_window(edge) || !in_window(target)) {
+                return true;
+            }
+        }
+        if (item == nullptr || !note->property("selected").toBool() || item->width() < 12) {
+            std::cerr << "sheet interaction: no selected note wide enough for the " << edgeName
+                      << " edge drag\n";
+            return false;
+        }
+        const qint64 lengthBefore = note->property("length").toLongLong();
+        const double startBefore = note->property("start").toDouble();
+        const QPointF from = item->mapToScene(
+            QPointF(startEdge ? 2.0 : item->width() - 2.0, item->height() / 2));
+        const QPointF to = from + QPointF(startEdge ? -40.0 : 40.0, 0.0);
+        send_mouse(window, from, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                   next_time += 1000);
+        for (int step = 1; step <= 8; step++) {
+            send_mouse(window, from + (to - from) * (step / 8.0), QEvent::MouseMove,
+                       Qt::LeftButton, Qt::NoButton, next_time += 20);
+        }
+        if (note.isNull()) {
+            std::cerr << "sheet interaction: the note was destroyed during the " << edgeName
+                      << " edge drag\n";
+            return false;
+        }
+        const bool resizing = note->property("resizing").toBool();
+        const bool moving = note->property("dragging").toBool();
+        // The committed delta the preview reported; snapping can make it 0
+        // where notes touch.
+        const qint64 pending = note->property("pendingDBeat").toLongLong();
+        const double followed =
+            note->property(startEdge ? "startEdgeOffsetX" : "endEdgeOffsetX").toDouble();
+        send_mouse(window, to, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                   next_time += 20);
+        pump_events(50);
+        if (!resizing || moving || std::abs(followed - (to.x() - from.x())) > 1.0) {
+            std::cerr << "sheet interaction: the " << edgeName
+                      << " edge does not follow the pointer (resizing " << resizing
+                      << ", moving " << moving << ", offset " << followed
+                      << " px, pointer moved " << (to.x() - from.x()) << " px)\n";
+            return false;
+        }
+        // The resize operations refuse a start before beat 0 and a length
+        // below 1 (usdx-edit ops); a refused commit changes nothing.
+        const qint64 newLength = lengthBefore + (startEdge ? -pending : pending);
+        const bool refused = newLength < 1 || (startEdge && startBefore + pending < 0.0);
+        QObject *const after = find_by_id(target_id);
+        const qint64 wantedLength = refused ? lengthBefore : newLength;
+        if (after == nullptr || after->property("length").toLongLong() != wantedLength) {
+            std::cerr << "sheet interaction: the " << edgeName << " edge drag committed length "
+                      << (after != nullptr ? after->property("length").toLongLong() : -1)
+                      << ", the preview showed " << wantedLength << "\n";
+            return false;
+        }
+        std::cout << "sheet interaction: " << edgeName << " edge resized" << std::endl;
+        return true;
+    };
+    if (edge_width >= 12.0 && (!edge_drag(true, edge_id) || !edge_drag(false, edge_id))) {
+        return false;
+    }
+    // The end edge of the line's last note, which usually ends at the
+    // phrase end marker: the selected note's edge wins over the marker's
+    // grab area there.
+    {
+        qint64 last_id = -1;
+        double last_start = -1.0e9;
+        double last_width = 0.0;
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        for (QObject *const candidate : current) {
+            const double start = candidate->property("start").toDouble();
+            if (on_screen(candidate) && start > last_start) {
+                last_start = start;
+                last_id = note_id_of(candidate);
+                last_width = qobject_cast<QQuickItem *>(candidate)->width();
+            }
+        }
+        if (last_id >= 0 && last_width >= 12.0 && !edge_drag(false, last_id)) {
+            return false;
+        }
+    }
+    // The inspector's Start field moves the selected note and keeps its
+    // length (user decision 2026-11-15).
+    if (QObject *const startField = root->findChild<QObject *>(QStringLiteral("inspectorStart"))) {
+        const QPointer<QObject> picked = select_by_tap(edge_id >= 0 ? edge_id : dragged_id);
+        const qint64 picked_id = edge_id >= 0 ? edge_id : dragged_id;
+        if (picked.isNull() || !picked->property("selected").toBool()) {
+            std::cerr << "sheet interaction: no single selected note for the Start field\n";
+            return false;
+        }
+        const double startBefore = picked->property("start").toDouble();
+        const qint64 lengthBefore = picked->property("length").toLongLong();
+        startField->setProperty("value", static_cast<int>(startBefore) + 1);
+        QMetaObject::invokeMethod(startField, "valueModified");
+        pump_events(50);
+        QObject *const moved = find_by_id(picked_id);
+        if (moved == nullptr || moved->property("start").toDouble() != startBefore + 1.0
+            || moved->property("length").toLongLong() != lengthBefore) {
+            std::cerr << "sheet interaction: the Start field did not move the note by one beat "
+                         "(start "
+                      << (moved ? moved->property("start").toDouble() : -1.0) << ", length "
+                      << (moved ? moved->property("length").toLongLong() : -1) << ")\n";
+            return false;
+        }
+    } else {
+        std::cerr << "sheet interaction: the inspector Start field was not found\n";
+        return false;
+    }
+    // The line type combo shows the current line's type and sets it for
+    // every note of the line (user decision 2026-11-15).
+    if (QObject *const combo = root->findChild<QObject *>(QStringLiteral("lineTypeCombo"))) {
+        QObject *const doc = root->property("songDocument").value<QObject *>();
+        const QString lineType = doc->property("currentLineType").toString();
+        const QString shown = combo->property("currentValue").toString();
+        if (lineType != QStringLiteral("mixed") && shown != lineType) {
+            std::cerr << "sheet interaction: the line type combo shows " << shown.toStdString()
+                      << " for a " << lineType.toStdString() << " line\n";
+            return false;
+        }
+        const int golden = 1;
+        combo->setProperty("currentIndex", golden);
+        QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, golden));
+        pump_events(50);
+        QList<QObject *> line_notes;
+        find_current_line_delegates(window, line_notes);
+        bool all_golden = !line_notes.isEmpty();
+        for (QObject *const note : line_notes) {
+            all_golden = all_golden && note->property("type").toString() == QStringLiteral("*");
+        }
+        if (!all_golden || doc->property("currentLineType").toString() != QStringLiteral("*")
+            || combo->property("currentValue").toString() != QStringLiteral("*")) {
+            std::cerr << "sheet interaction: choosing Golden in the line type combo did not "
+                         "make the line golden (notes golden "
+                      << all_golden << ", line type "
+                      << doc->property("currentLineType").toString().toStdString()
+                      << ", combo " << combo->property("currentValue").toString().toStdString()
+                      << ", notes " << line_notes.size() << ")\n";
+            return false;
+        }
+    } else {
+        std::cerr << "sheet interaction: the line type combo was not found\n";
+        return false;
+    }
 
     // Rubber band on the empty pitch area: a fresh grab is not a takeover,
     // so the band must still grow (TakeOverForbidden only blocks steals).
@@ -716,7 +1047,8 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
     std::function<void(QQuickItem *)> collect_notes = [&](QQuickItem *item) {
         for (QQuickItem *const child : item->childItems()) {
             const QVariant note_id = child->property("noteId");
-            if (note_id.isValid() && note_id.toLongLong() >= 0 && child->isVisible()) {
+            if (live_delegate(child) && note_id.isValid() && note_id.toLongLong() >= 0
+                && child->isVisible()) {
                 all_notes.append(child);
             }
             collect_notes(child);
@@ -797,7 +1129,10 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
     const qreal pxb_after = bg->property("pxPerBeat").toReal();
     const qreal startb_after = bg->property("startBeat").toReal();
     const qreal ptop_after = bg->property("pitchTop").toReal();
-    if (qAbs(pxb_after - pxb * 1.953125) > pxb * 0.01) {
+    // Three steps zoom x1.953125, capped at the viewport's maximum of 40 px
+    // per beat (MAX_PX_PER_BEAT in controller/viewport.rs).
+    const qreal pxb_wanted = std::min(pxb * 1.953125, 40.0);
+    if (qAbs(pxb_after - pxb_wanted) > pxb * 0.01) {
         std::cerr << "sheet interaction: Ctrl+wheel did not zoom x1.25 per step ("
                   << pxb << " -> " << pxb_after << ")\n";
         return false;
@@ -822,6 +1157,80 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
     if (bar->property("size").toReal() <= 0.0 || bar->property("size").toReal() > 1.0) {
         std::cerr << "sheet interaction: the scrollbar handle size is out of range\n";
         return false;
+    }
+    // A phrase end marker with room to move follows the pointer: the
+    // preview beat is the beat under the pointer's travel from the press,
+    // rounded and clamped, and the release commits it. Songs without a
+    // movable marker skip this step.
+    // The marker travel in whole beats: at least two beats and at least
+    // 30 px, so the drag passes the drag threshold at any zoom.
+    auto marker_beats = [&](QQuickItem *) -> double {
+        const double pxPerBeat = std::max(0.001, bg->property("pxPerBeat").toDouble());
+        return std::max(2.0, std::ceil(30.0 / pxPerBeat));
+    };
+    auto find_marker = [&]() -> QQuickItem * {
+        QQuickItem *found = nullptr;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            for (QQuickItem *const child : item->childItems()) {
+                // Finite bounds at least two beats apart, and the marker
+                // plus two beats of travel inside the window.
+                const double min = child->property("min").toDouble();
+                const double max = child->property("max").toDouble();
+                const double sceneX = child->mapToScene(QPointF(child->width() / 2, 0)).x();
+                const double travel =
+                    marker_beats(child) * bg->property("pxPerBeat").toDouble();
+                const double beat = child->property("beat").toDouble();
+                if (found == nullptr && child->property("previewBeat").isValid()
+                    && child->isVisible() && std::isfinite(min) && std::isfinite(max)
+                    && beat >= min && beat + marker_beats(child) <= max && sceneX > 0.0
+                    && sceneX + travel < window->width()) {
+                    found = child;
+                }
+                walk(child);
+            }
+        };
+        walk(window->contentItem());
+        return found;
+    };
+    if (QQuickItem *const marker = find_marker()) {
+        const qint64 markerId = marker->property("rowId").toLongLong();
+        const double beatBefore = marker->property("beat").toDouble();
+        const double maxBeat = marker->property("max").toDouble();
+        const double pxPerBeat = bg->property("pxPerBeat").toDouble();
+        const double wantedBeat = std::min(maxBeat, beatBefore + marker_beats(marker));
+        const QPointF from = marker->mapToScene(QPointF(marker->width() / 2, 40.0));
+        const QPointF to = from + QPointF((wantedBeat - beatBefore) * pxPerBeat, 0.0);
+        send_mouse(window, from, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                   next_time += 1000);
+        for (int step = 1; step <= 8; step++) {
+            send_mouse(window, from + (to - from) * (step / 8.0), QEvent::MouseMove,
+                       Qt::LeftButton, Qt::NoButton, next_time += 20);
+        }
+        const double preview = marker->property("previewBeat").toDouble();
+        send_mouse(window, to, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                   next_time += 20);
+        pump_events(50);
+        if (preview != wantedBeat) {
+            std::cerr << "sheet interaction: the phrase end preview is beat " << preview
+                      << ", the pointer is at beat " << wantedBeat << "\n";
+            return false;
+        }
+        double committed = -1.0;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            for (QQuickItem *const child : item->childItems()) {
+                if (child->property("previewBeat").isValid()
+                    && child->property("rowId").toLongLong() == markerId) {
+                    committed = child->property("beat").toDouble();
+                }
+                walk(child);
+            }
+        };
+        walk(window->contentItem());
+        if (committed != wantedBeat) {
+            std::cerr << "sheet interaction: the phrase end committed beat " << committed
+                      << ", wanted " << wantedBeat << "\n";
+            return false;
+        }
     }
     std::cout << "sheet interaction: ok" << std::endl;
     return true;
@@ -860,6 +1269,15 @@ bool usdx_playhead_check(const QQmlApplicationEngine &engine) {
     auto *const bgItem = qobject_cast<QQuickItem *>(bg);
     const double gutter = bg->property("gutterWidth").toDouble();
     // A press in the waveform lane seeks there, a drag scrubs.
+    // Passive notifications of the earlier checks (a save, a refused edit)
+    // sit at the bottom of the window over the waveform lane for 2 to 4 s;
+    // they are closed first, as a user would wait for them.
+    for (int shown = 0; shown < 5; shown++) {
+        QVariant ignored;
+        QMetaObject::invokeMethod(root, "hidePassiveNotification",
+                                  Q_RETURN_ARG(QVariant, ignored), Q_ARG(QVariant, QVariant(0)));
+    }
+    pump_events(500);
     const QPointF pressLocal(gutter + (strip->width() - gutter) * 0.4, strip->height() / 2);
     const QPointF press = strip->mapToScene(pressLocal);
     send_mouse(window, press, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 1000);
@@ -900,6 +1318,25 @@ bool usdx_playhead_check(const QQmlApplicationEngine &engine) {
         pump_events(50);
         if (document->property("currentLine").toInt() != 1) {
             std::cerr << "playhead: following the playback did not reach the second line\n";
+            return false;
+        }
+        QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
+        pump_events(50);
+    }
+    // The lines pane keeps its scroll position when the selection changes
+    // (a long song scrolled to a late line must not jump back to line 1).
+    if (QObject *const list = root->findChild<QObject *>(QStringLiteral("linesList"));
+        list != nullptr && document->property("lineCount").toInt() >= 40) {
+        QMetaObject::invokeMethod(document, "goToLine",
+                                  Q_ARG(int, document->property("lineCount").toInt() - 1));
+        pump_events(100);
+        const double scrolled = list->property("contentY").toDouble();
+        QMetaObject::invokeMethod(document, "clearSelection");
+        pump_events(100);
+        const double after = list->property("contentY").toDouble();
+        if (scrolled <= 0.0 || std::abs(after - scrolled) > 1.0) {
+            std::cerr << "playhead: the lines pane scrolled from " << scrolled << " to " << after
+                      << " on a selection change\n";
             return false;
         }
         QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));

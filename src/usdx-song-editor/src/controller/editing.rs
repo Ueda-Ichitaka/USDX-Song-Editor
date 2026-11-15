@@ -467,6 +467,30 @@ impl EditorController {
         self.commit(patch)
     }
 
+    /// set_current_line_type sets every note of the current line to the
+    /// type with the chip code (the line header's type combo, user decision
+    /// 2026-11-15): ':', '*', 'F', 'R' or 'G'; 'F' sets freestyle instead of
+    /// toggling. One history step; an unknown code or an empty line changes
+    /// nothing, and the selection stays.
+    pub fn set_current_line_type(&mut self, code: char) -> Result<(), EditError> {
+        let note_type = match code {
+            'F' => Some(usdx_format::rows::NoteType::Freestyle),
+            other => type_of_code(other),
+        };
+        let Some(note_type) = note_type else {
+            return Ok(());
+        };
+        let ids: Vec<RowId> = match self.current_line_data() {
+            Some(line) if !line.notes.is_empty() => line.notes.clone(),
+            _ => return Ok(()),
+        };
+        let patch = {
+            let loaded = self.require_loaded()?;
+            ops::set_type(&loaded.document, &loaded.song, &ids, note_type)?
+        };
+        self.commit(patch)
+    }
+
     /// set_note_text sets one note's syllable (the inspector's Text field,
     /// a double-click on a note or label). One history step.
     pub fn set_note_text(&mut self, id: RowId, text: &str) -> Result<(), EditError> {

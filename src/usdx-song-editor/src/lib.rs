@@ -153,17 +153,17 @@ fn parse_size(value: &str) -> Option<(i32, i32)> {
 
 /// Copies the song into a temporary folder and, with `link_audio`, symlinks
 /// the audio files it names beside the copy, so the original file and its
-/// media stay untouched and the demo states still find the audio (UI_SPEC
-/// 8.1: a copy in a temp folder, never the original); the
-/// audio-states-missing state copies the song alone. Returns the copy's path
-/// and the folder to remove when the run ends.
-#[cfg(debug_assertions)]
+/// media stay untouched while the copy still finds the audio. The screenshot
+/// harness (UI_SPEC 8.1: a copy in a temp folder, never the original; the
+/// audio-states-missing state copies the song alone) and the self-test,
+/// which edits and saves, both open such a copy. Returns the copy's path and
+/// the folder to remove when the run ends.
 fn copy_song_with_audio(
     path: &std::path::Path,
     link_audio: bool,
 ) -> std::io::Result<(std::path::PathBuf, std::path::PathBuf)> {
     let folder = std::env::temp_dir().join(format!(
-        "usdx-screenshot-song-{}-{}",
+        "usdx-song-copy-{}-{}",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -449,7 +449,21 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
     }
 
     if self_test {
-        let code = if let Some(path) = positional.first() {
+        // The self-test edits and saves its song (the interaction check
+        // presses Ctrl+S), so it opens a copy; the given file and its folder
+        // stay untouched.
+        let song_copy = match positional.first() {
+            Some(path) => match copy_song_with_audio(std::path::Path::new(path.as_str()), true) {
+                Ok(copy) => Some(copy),
+                Err(error) => {
+                    eprintln!("self-test failed: the song could not be copied: {error}");
+                    return 1;
+                }
+            },
+            None => None,
+        };
+        let code = if let Some((path, _)) = song_copy.as_ref() {
+            let path = path.to_string_lossy().into_owned();
             let ok = engine.as_ref().is_some_and(|engine| {
                 bridge::selftest::usdx_selftest_load_song(engine, &QString::from(path.as_str()))
                     && bridge::selftest::usdx_selftest_ui_paths(engine)
@@ -512,6 +526,9 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
         };
         if let Some(config_home) = config_home {
             let _ = std::fs::remove_dir_all(config_home);
+        }
+        if let Some((_, folder)) = song_copy {
+            let _ = std::fs::remove_dir_all(folder);
         }
         return code;
     }

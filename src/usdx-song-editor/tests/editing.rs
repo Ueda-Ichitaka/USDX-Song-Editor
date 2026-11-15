@@ -612,6 +612,49 @@ fn the_type_keys_set_the_type_of_every_selected_note() {
 }
 
 #[test]
+fn the_line_type_sets_every_note_of_the_current_line() {
+    // The line type combo (user decision 2026-11-15): every note of the
+    // current line, one undo step, the other lines and the selection stay.
+    let (_dir, mut controller) = controller();
+    controller.select_note(RowId(6), SelectionMode::Set);
+    controller
+        .set_current_line_type('*')
+        .expect("the type is set");
+    for id in [2, 3, 4] {
+        assert_eq!(note_type(&controller, RowId(id)), '*');
+    }
+    assert_eq!(note_type(&controller, RowId(6)), ':', "line 2 stays");
+    assert_eq!(selected(&controller), vec![RowId(6)]);
+    controller.undo();
+    for id in [2, 3, 4] {
+        assert_eq!(note_type(&controller, RowId(id)), ':');
+    }
+}
+
+#[test]
+fn the_line_type_sets_freestyle_instead_of_toggling() {
+    let (_dir, mut controller) = controller();
+    controller
+        .set_current_line_type('F')
+        .expect("the type is set");
+    controller
+        .set_current_line_type('F')
+        .expect("the type is set again");
+    for id in [2, 3, 4] {
+        assert_eq!(note_type(&controller, RowId(id)), 'F');
+    }
+}
+
+#[test]
+fn an_unknown_line_type_changes_nothing() {
+    let (_dir, mut controller) = controller();
+    controller
+        .set_current_line_type('x')
+        .expect("nothing to do");
+    assert!(!controller.is_dirty());
+}
+
+#[test]
 fn the_freestyle_key_toggles_all_selected_notes() {
     let (_dir, mut controller) = controller();
     controller.select_note(RowId(2), SelectionMode::Set);

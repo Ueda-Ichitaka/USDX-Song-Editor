@@ -6,8 +6,8 @@
 // Several selected notes disable Start, Length and Text and transpose on a
 // pitch change; nothing selected disables everything; a read-only song
 // disables the fields through the hash's editable key. Start commits as a
-// resize of the start edge, Length as a resize of the end edge, so the
-// changes are one undo step each. The type buttons take their checked
+// move of the note that keeps its length (user decision 2026-11-15), Length
+// as a resize of the end edge, so the changes are one undo step each. The type buttons take their checked
 // state from the hash imperatively: a click commits only a type change, so
 // pressing the current type again creates no empty undo step.
 
@@ -27,11 +27,11 @@ Rectangle {
     // The inspector hash of the current selection; before the document
     // publishes it the property reads as undefined, so an empty hash stands
     // in (everything disabled, every field empty).
-    readonly property var state:
+    readonly property var info:
         document && document.inspector !== undefined ? document.inspector : ({})
-    readonly property bool single: state.single === true
-    readonly property bool editable: state.editable === true
-    readonly property int noteId: state.noteId !== undefined ? state.noteId : -1
+    readonly property bool single: info.single === true
+    readonly property bool editable: info.editable === true
+    readonly property int noteId: info.noteId !== undefined ? info.noteId : -1
 
     Kirigami.Theme.colorSet: Kirigami.Theme.Window
     Kirigami.Theme.inherit: false
@@ -48,8 +48,10 @@ Rectangle {
             root.Kirigami.Theme.textColor, 0.10)
     }
 
+    // An inline component cannot see this file's ids; the label inherits
+    // the Window colour set from the Flow it sits in.
     component GroupLabel: QQC2.Label {
-        color: root.Kirigami.Theme.disabledTextColor
+        color: Kirigami.Theme.disabledTextColor
         font.pointSize: Kirigami.Theme.smallFont.pointSize
     }
 
@@ -67,14 +69,14 @@ Rectangle {
         // syllable appended in DemiBold (spaces as U+2423); the multi and
         // empty states show their one label alone.
         QQC2.Label {
-            text: root.state.label !== undefined ? root.state.label : ""
+            text: root.info.label !== undefined ? root.info.label : ""
             color: root.Kirigami.Theme.disabledTextColor
         }
 
         QQC2.Label {
             visible: root.single
-            text: root.single && root.state.text !== undefined
-                  ? '"' + root.state.text.replace(/ /g, "\u2423") + '"' : ""
+            text: root.single && root.info.text !== undefined
+                  ? '"' + root.info.text.replace(/ /g, "\u2423") + '"' : ""
             font.bold: true
             color: root.Kirigami.Theme.textColor
         }
@@ -98,7 +100,7 @@ Rectangle {
                 flat: true
                 font.family: Kirigami.Theme.fixedWidthFont.family
                 implicitWidth: 32
-                enabled: root.editable && root.state.count > 0
+                enabled: root.editable && root.info.count > 0
                 text: code
                 QQC2.ToolTip.visible: hovered
                 QQC2.ToolTip.text: tooltip
@@ -117,12 +119,12 @@ Rectangle {
                     target: root.document
 
                     function onInspectorChanged() {
-                        typeButton.checked = root.state.typeCode === typeButton.code;
+                        typeButton.checked = root.info.typeCode === typeButton.code;
                     }
                 }
 
                 Component.onCompleted:
-                    checked = root.state.typeCode === typeButton.code
+                    checked = root.info.typeCode === typeButton.code
             }
 
             TypeButton {
@@ -159,22 +161,25 @@ Rectangle {
             }
 
             QQC2.SpinBox {
+                objectName: "inspectorStart"
                 editable: true
                 from: 0
                 to: 99999
-                value: root.state.start !== undefined ? root.state.start : 0
+                value: root.info.start !== undefined ? root.info.start : 0
 
+                // A new start moves the note and keeps its length (user
+                // decision 2026-11-15); the field is enabled only for a
+                // single selected note, so the selection is that note.
                 onValueModified: {
-                    const delta = value - root.state.start;
-                    root.document.resizeNote(
-                        root.noteId, Usdx.SongDocument.ResizeEdge.Start, delta);
+                    const delta = value - root.info.start;
+                    root.document.moveSelection(delta, 0);
                 }
             }
 
             QQC2.Label {
-                text: root.document && root.document.bpm > 0 && root.state.start !== undefined
+                text: root.document && root.document.bpm > 0 && root.info.start !== undefined
                       ? Time.longTime(root.document.gapMs
-                                      + root.state.start * 15000 / root.document.bpm)
+                                      + root.info.start * 15000 / root.document.bpm)
                       : ""
                 font.family: Kirigami.Theme.fixedWidthFont.family
                 color: root.Kirigami.Theme.textColor
@@ -196,10 +201,10 @@ Rectangle {
                 editable: true
                 from: 1
                 to: 99999
-                value: root.state.length !== undefined ? root.state.length : 1
+                value: root.info.length !== undefined ? root.info.length : 1
 
                 onValueModified: {
-                    const delta = value - root.state.length;
+                    const delta = value - root.info.length;
                     root.document.resizeNote(
                         root.noteId, Usdx.SongDocument.ResizeEdge.End, delta);
                 }
@@ -210,8 +215,8 @@ Rectangle {
         // notes; a multi selection transposes by the delta.
         RowLayout {
             enabled: root.editable
-                     && (root.state.pitchEditable === true
-                         || (root.state.pitchCommon === true && !root.single))
+                     && (root.info.pitchEditable === true
+                         || (root.info.pitchCommon === true && !root.single))
             spacing: 6
 
             GroupLabel {
@@ -222,16 +227,16 @@ Rectangle {
                 editable: true
                 from: 0
                 to: 127
-                value: root.state.pitch !== undefined ? root.state.pitch : 60
+                value: root.info.pitch !== undefined ? root.info.pitch : 60
 
                 onValueModified: {
-                    const delta = value - root.state.pitch;
+                    const delta = value - root.info.pitch;
                     root.document.transposeSelection(delta);
                 }
             }
 
             QQC2.Label {
-                text: root.state.pitchName !== undefined ? root.state.pitchName : ""
+                text: root.info.pitchName !== undefined ? root.info.pitchName : ""
                 font.family: Kirigami.Theme.fixedWidthFont.family
                 color: root.Kirigami.Theme.textColor
             }
@@ -249,10 +254,10 @@ Rectangle {
 
             QQC2.TextField {
                 implicitWidth: 90
-                text: root.state.text !== undefined ? root.state.text : ""
+                text: root.info.text !== undefined ? root.info.text : ""
 
                 onEditingFinished: {
-                    if (text !== root.state.text) {
+                    if (text !== root.info.text) {
                         root.document.setNoteText(root.noteId, text);
                     }
                 }

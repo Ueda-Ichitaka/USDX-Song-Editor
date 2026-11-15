@@ -45,3 +45,8 @@ QString usdx_settle_lanes(const QQmlApplicationEngine &engine, int timeoutMs);
 // or row. The editor demo state uses it so the screenshot shows the
 // selection and the populated inspector like the mockup.
 bool usdx_select_demo_note(const QQmlApplicationEngine &engine, int position);
+
+// Seeks the player to the given fraction of the current line's time span,
+// so the editor screenshot shows the playhead inside the view like the
+// mockup; false without a document or player.
+bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fraction);

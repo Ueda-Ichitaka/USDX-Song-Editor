@@ -1,28 +1,29 @@
 // About me: the note sheet area (UI_SPEC 3): the painted SheetBackground
 // fills it with the ruler, the pitch rows, the lyrics lane, the gap and the
 // waveform and activity lanes including the gutter (the lane labels are
-// painted, not QML elements). On top sit the note delegates of the current
-// line and its global neighbours (task P5-04, fed by the SongDocument
-// NotesModel), the phrase end handles of the PhraseEndsModel (task P5-05,
-// draggable through movePhraseEnd), the rubber band of a drag on the empty
-// pitch area and the playhead. A click or drag in the ruler seeks live
-// (UI_SPEC 3.4, user decision 2026-11-14). A drag on a note body previews
-// through the SongDocument previewMove (the ghost outline shows the snapped
-// result) and commits once on release, so one drag is one undo step (plan
-// 8.4); an edge drag resizes through previewResize and resizeNote. A
-// refused edit arrives through the document's editRefused signal, which
-// EditorPage routes to a passive notification. The navigation gestures of
-// UI_SPEC 3.2 run through the SheetBackground's viewport invokables: a
-// plain wheel step scrolls time, Ctrl+wheel zooms around the cursor,
-// Shift+wheel scrolls the pitch rows, a middle drag pans, and a visible
-// horizontal scrollbar (recorded spec deviation, user decision 2026-11-15)
-// spans the whole song. The sheet paints every line of the song (user
-// decision 2026-11-15); the current line's notes draw opaque, all other
-// lines at 35 % opacity.
+// painted, not QML elements). On top sit the note delegates of every line
+// of the song (task P5-04, fed by the SongDocument NotesModel), the phrase
+// end handles of the PhraseEndsModel (task P5-05, draggable through
+// movePhraseEnd), the rubber band of a drag on the empty pitch area and the
+// dotted playhead. A click or drag in the ruler or in the waveform lanes
+// seeks live (UI_SPEC 3.4, user decisions 2026-11-14 and 2026-11-15). A
+// drag on a note body previews through the SongDocument previewMove (the
+// ghost outline shows the snapped result) and commits once on release, so
+// one drag is one undo step (plan 8.4); an edge drag resizes through
+// previewResize and resizeNote. A refused edit arrives through the
+// document's editRefused signal, which EditorPage routes to a passive
+// notification. The navigation gestures of UI_SPEC 3.2 run through the
+// SheetBackground's viewport invokables: a plain wheel step scrolls time,
+// Ctrl+wheel zooms around the cursor, Shift+wheel scrolls the pitch rows, a
+// middle drag pans, and a visible horizontal scrollbar (recorded spec
+// deviation, user decision 2026-11-15) spans the whole song. The sheet
+// paints every line of the song (user decision 2026-11-15); the current
+// line's notes draw opaque, all other lines at 35 % opacity.
 
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
+import QtQuick.Shapes
 import org.kde.kirigami as Kirigami
 import io.github.ueda_ichitaka.UsdxSongEditor as Usdx
 
@@ -41,6 +42,19 @@ Rectangle {
     property bool moveActive: false
     property real moveDBeat: 0
     property int moveDPitch: 0
+
+    // True while a press in the ruler or the waveform lanes seeks: the
+    // playback follow of the current line pauses meanwhile, so the view
+    // does not move under the pointer.
+    readonly property bool seeking: rulerSeek.pressed || waveformSeek.pressed
+
+    // seekTo moves the playback to the time under a sheet x (the ruler and
+    // the waveform lanes, UI_SPEC 3.4 and user decision 2026-11-15).
+    function seekTo(sheetX: real) {
+        const beat = sheet.xToBeat(sheetX);
+        root.player.seekMs(Math.max(
+            0, root.document.gapMs + beat * 15000 / root.document.bpm));
+    }
 
     Layout.fillWidth: true
     Layout.fillHeight: true
@@ -382,22 +396,53 @@ Rectangle {
                  && root.document !== null && root.document.bpm > 0
         z: 6
 
-        function seekTo(sheetX: real) {
-            const beat = sheet.xToBeat(sheetX);
-            root.player.seekMs(Math.max(
-                0, root.document.gapMs + beat * 15000 / root.document.bpm));
-        }
-
         MouseArea {
+            id: rulerSeek
+
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton
             hoverEnabled: false
             cursorShape: Qt.PointingHandCursor
 
-            onPressed: (mouse) => rulerStrip.seekTo(mouse.x)
+            onPressed: (mouse) => root.seekTo(mouse.x)
             onPositionChanged: (mouse) => {
                 if (mouse.buttons & Qt.LeftButton) {
-                    rulerStrip.seekTo(mouse.x);
+                    root.seekTo(mouse.x);
+                }
+            }
+        }
+    }
+
+    // The waveform seek strip (user decision 2026-11-15): a press anywhere
+    // in the waveform and activity lanes right of the gutter moves the
+    // playhead there, a drag scrubs live, while playing or paused. It sits
+    // above the pitch area like the ruler strip; the scrollbar overlay
+    // (z 12) keeps its own bottom edge.
+    Item {
+        id: waveformStrip
+
+        objectName: "waveformSeekStrip"
+        x: 0
+        y: root.height - sheet.waveformHeight - sheet.activityHeight
+        width: parent.width
+        height: sheet.waveformHeight + sheet.activityHeight
+        enabled: rulerStrip.enabled
+        z: 6
+
+        MouseArea {
+            id: waveformSeek
+
+            x: sheet.gutterWidth
+            width: parent.width - sheet.gutterWidth
+            height: parent.height
+            acceptedButtons: Qt.LeftButton
+            hoverEnabled: false
+            cursorShape: Qt.SizeHorCursor
+
+            onPressed: (mouse) => root.seekTo(waveformSeek.x + mouse.x)
+            onPositionChanged: (mouse) => {
+                if (mouse.buttons & Qt.LeftButton) {
+                    root.seekTo(waveformSeek.x + mouse.x);
                 }
             }
         }
@@ -442,43 +487,73 @@ Rectangle {
         }
     }
 
-    // The playhead (UI_SPEC 3.5): a 2 px line in the negative colour from
-    // the ruler top to the activity lane's bottom, with a downward triangle
-    // at the ruler top. Its x follows the player's position mapped through
-    // the beat axis the sheet shows.
+    // The playhead (UI_SPEC 3.5, user decision 2026-11-15: dotted): a 2 px
+    // dotted line in the negative colour from the ruler top through the
+    // pitch rows, the lyrics lane and the waveform lanes to the activity
+    // lane's bottom, with a downward triangle at the ruler top. Its x
+    // follows the player's position mapped through the beat axis the sheet
+    // shows; the clip area starts at the gutter's right edge, so a playhead
+    // outside the view never paints over the gutter or the lines pane.
     Item {
-        objectName: "playhead"
-        visible: root.songOpen && root.player !== null
-                 && root.document !== null && root.document.bpm > 0
-        x: root.player !== null && root.document !== null
-           ? sheet.gutterWidth
-             + ((root.player.positionMs - root.document.gapMs)
-                * root.document.bpm / 15000 - sheet.startBeat)
-               * sheet.pxPerBeat - 1
-           : -1
-        y: 0
-        width: 2
-        height: parent.height
+        id: playheadClip
 
-        Rectangle {
+        x: sheet.gutterWidth
+        y: 0
+        width: Math.max(0, parent.width - sheet.gutterWidth)
+        height: parent.height
+        clip: true
+        z: 8
+
+        Item {
+            id: playhead
+
+            objectName: "playhead"
+            visible: root.songOpen && root.player !== null
+                     && root.document !== null && root.document.bpm > 0
+            x: root.player !== null && root.document !== null
+               ? ((root.player.positionMs - root.document.gapMs)
+                  * root.document.bpm / 15000 - sheet.startBeat)
+                 * sheet.pxPerBeat - 1
+               : -1
+            y: 0
             width: 2
             height: parent.height
-            color: root.Kirigami.Theme.negativeTextColor
-        }
 
-        Canvas {
-            x: -5
-            width: 12
-            height: 8
-            onPaint: {
-                const context = getContext("2d");
-                context.fillStyle = root.Kirigami.Theme.negativeTextColor;
-                context.beginPath();
-                context.moveTo(0, 0);
-                context.lineTo(12, 0);
-                context.lineTo(6, 8);
-                context.closePath();
-                context.fill();
+            Shape {
+                anchors.fill: parent
+
+                ShapePath {
+                    strokeColor: root.Kirigami.Theme.negativeTextColor
+                    strokeWidth: 2
+                    strokeStyle: ShapePath.DashLine
+                    // In units of the stroke width: 2 px dots, 4 px gaps.
+                    dashPattern: [1, 2]
+                    capStyle: ShapePath.FlatCap
+                    fillColor: "transparent"
+                    startX: 1
+                    startY: 0
+
+                    PathLine {
+                        x: 1
+                        y: playhead.height
+                    }
+                }
+            }
+
+            Canvas {
+                x: -5
+                width: 12
+                height: 8
+                onPaint: {
+                    const context = getContext("2d");
+                    context.fillStyle = root.Kirigami.Theme.negativeTextColor;
+                    context.beginPath();
+                    context.moveTo(0, 0);
+                    context.lineTo(12, 0);
+                    context.lineTo(6, 8);
+                    context.closePath();
+                    context.fill();
+                }
             }
         }
     }

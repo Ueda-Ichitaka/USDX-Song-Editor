@@ -177,11 +177,70 @@ fn a_core_without_a_player_ignores_playback_calls() {
     assert!(core.play().is_empty());
     assert!(core.pause().is_empty());
     assert!(core.toggle().is_empty());
-    assert!(core.seek_ms(2000.0).is_empty());
     assert!(core.play_range(100.0, 500.0).is_empty());
     assert_eq!(core.position_ms(), 0.0);
     assert!(!core.playing());
     assert!(core.tick().is_empty());
+}
+
+/// A seek before the audio is loaded (the ruler or waveform click before
+/// the first Play) moves the playhead at once and positions the player
+/// when it attaches, so Play starts there.
+#[test]
+fn a_seek_before_the_load_applies_when_the_player_attaches() {
+    use_test_sink();
+    let mut core = PlayerCore::new();
+    assert!(core.seek_ms(2000.0).is_empty());
+    assert_eq!(
+        core.position_ms(),
+        2000.0,
+        "the playhead moves without a player"
+    );
+    assert!(core.seek_ms(-50.0).is_empty());
+    assert_eq!(
+        core.position_ms(),
+        0.0,
+        "a seek before the start clamps to 0"
+    );
+    core.seek_ms(2000.0);
+
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("tone.opus");
+    testmedia::tone_opus(&path).expect("the tone is generated");
+    let mut player = Player::new().expect("the player is built");
+    player.load(&path).expect("the tone is loaded");
+    core.attach_player(player, 0, false);
+    assert_eq!(
+        core.position_ms(),
+        2000.0,
+        "the attach keeps the sought position"
+    );
+
+    core.play();
+    tick_until(&mut core, |core| core.playing());
+    tick_until(&mut core, |core| core.position_ms() > 2000.0);
+    assert!(
+        core.position_ms() < 3500.0,
+        "the playback starts at the sought position, measured {} ms",
+        core.position_ms()
+    );
+}
+
+/// A new song drops a seek that waited for the old song's audio.
+#[test]
+fn a_reset_drops_a_waiting_seek() {
+    use_test_sink();
+    let (mut core, _path_a, _path_b, _dir) = attached_core();
+    let player = core.detach_player().expect("the player is attached");
+    core.seek_ms(2000.0);
+    core.reset();
+    assert_eq!(core.position_ms(), 0.0);
+    core.attach_player(player, 0, false);
+    assert!(
+        core.position_ms() < 100.0,
+        "the old seek must not apply, measured {} ms",
+        core.position_ms()
+    );
 }
 
 /// The rate choice is stored even without a player and applies to players
@@ -265,6 +324,32 @@ fn play_range_reports_range_done_and_pauses() {
         "the playhead holds at the range end, measured {} ms",
         core.position_ms()
     );
+}
+
+/// A range playback is active from play_range until Play, a seek or its
+/// RangeDone; the playback follow of the current line skips it (user
+/// decision 2026-11-15).
+#[test]
+fn range_active_tracks_the_play_range() {
+    let (mut core, _path_a, _path_b, _dir) = attached_core();
+    assert!(!core.range_active(), "no range before play_range");
+    core.play_range(1000.0, 1500.0).expect_set_up();
+    assert!(core.range_active(), "play_range starts a range");
+    core.play();
+    assert!(!core.range_active(), "Play drops the range");
+    core.play_range(1000.0, 1500.0).expect_set_up();
+    core.seek_ms(200.0);
+    assert!(!core.range_active(), "a seek drops the range");
+    core.play_range(1000.0, 1200.0).expect_set_up();
+    let deadline = Instant::now() + WAIT;
+    while !core.tick().contains(&CoreSignal::RangeDone) {
+        assert!(
+            Instant::now() < deadline,
+            "the range did not end within {WAIT:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!core.range_active(), "the range end drops the range");
 }
 
 /// Pressing Play during a range playback drops the range: the position

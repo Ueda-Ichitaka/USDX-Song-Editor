@@ -260,7 +260,11 @@ lyrics lane is left out.
 - Tick interval: the smallest of 0.5, 1, 2, 5, 10, 30, 60 s that keeps ticks at least 70 px
   apart. Each tick draws a 1 px grid line from 6 px above the ruler's bottom through the
   pitch rows.
-- A click or drag in the ruler moves the playhead (seek).
+- A click or drag in the ruler moves the playhead (seek). The same press and drag works in
+  the waveform and activity lanes right of the gutter (user decision 2026-11-15).
+- While the whole song plays (no Play line, Loop or autoplay range), the current line
+  follows the playback: it becomes the last line of the current voice whose first note has
+  started (user decision 2026-11-15, "Follow line").
 
 ### 3.5 Notes and markers
 
@@ -272,7 +276,7 @@ lyrics lane is left out.
 | Hover | Cursor `Qt.SizeAllCursor` on the body, `Qt.SizeHorCursor` within 5 px of an edge |
 | Dragged note | Moves with the pointer; no other visual change. Commit on release (build plan 8.4) |
 | Phrase end | Dashed vertical line, 1.4 px, dash 5 / gap 4, `disabledTextColor`, through the pitch rows; an 8 x 8 px square cap with radius 2 at the top of the pitch rows (2 px below the ruler). Cursor `Qt.SizeHorCursor` on the cap and line |
-| Playhead | 2 px line in `negativeTextColor` from the top of the ruler to the bottom of the activity lane; a downward triangle 12 px wide, 8 px high at the top of the ruler |
+| Playhead | 2 px dotted line (2 px dots, 4 px gaps) in `negativeTextColor` from the top of the ruler to the bottom of the activity lane, clipped at the gutter's right edge; a downward triangle 12 px wide, 8 px high at the top of the ruler (dotted: user decision 2026-11-15) |
 | Rubber band | `highlightColor` at 15 % opacity fill, 1 px `highlightColor` border |
 | Ghost note (preview) | Ghost outline (2.3) at the preview position, drawn above the notes |
 | Notes of a racing line in the repair sheets | Fill `negativeTextColor` instead of the type colour |

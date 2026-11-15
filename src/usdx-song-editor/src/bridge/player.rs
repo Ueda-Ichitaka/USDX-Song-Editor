@@ -84,6 +84,9 @@ pub struct PlayerCore {
     duration_ms: f64,
     /// The stop position of the active play range, if any.
     range_end_ms: Option<f64>,
+    /// A seek made while no player was attached (before the first load or
+    /// during a load or switch); attach_player applies it.
+    pending_seek_ms: Option<f64>,
     has_vocals: bool,
     has_instrumental: bool,
 }
@@ -98,6 +101,7 @@ impl Default for PlayerCore {
             position_ms: 0.0,
             duration_ms: 0.0,
             range_end_ms: None,
+            pending_seek_ms: None,
             has_vocals: false,
             has_instrumental: false,
         }
@@ -134,6 +138,12 @@ impl PlayerCore {
         self.duration_ms
     }
 
+    /// Whether a range playback (Play line, autoplay) is running: from
+    /// play_range until Play, a seek or the range end.
+    pub fn range_active(&self) -> bool {
+        self.range_end_ms.is_some()
+    }
+
     /// Whether a GStreamer player is attached.
     pub fn has_player(&self) -> bool {
         self.player.is_some()
@@ -154,6 +164,7 @@ impl PlayerCore {
         self.position_ms = 0.0;
         self.duration_ms = 0.0;
         self.range_end_ms = None;
+        self.pending_seek_ms = None;
     }
 
     /// Installs a (re)loaded player for the track. The position comes from
@@ -175,9 +186,21 @@ impl PlayerCore {
             .as_ref()
             .and_then(AudioPlayer::position_ms)
             .unwrap_or(self.position_ms);
+        // A seek made while no player was attached positions the new one.
+        let mut signals = Vec::new();
+        if let Some(ms) = self.pending_seek_ms.take() {
+            let ms = self.clamp_into_duration(ms);
+            if let Some(player) = self.player.as_mut()
+                && let Err(error) = player.seek_ms(ms)
+            {
+                signals.push(error_signal(&error));
+            }
+            self.position_ms = ms;
+        }
         // The bus holds the state messages from before the attach (the
-        // load's transition to PAUSED, an old switch); they would report a
-        // long-gone state on the next tick, so they are drained here.
+        // load's transition to PAUSED, an old switch, the seek above); they
+        // would report a long-gone state on the next tick, so they are
+        // drained here.
         if let Some(player) = self.player.as_mut() {
             player.poll();
         }
@@ -185,9 +208,9 @@ impl PlayerCore {
         // applies again (the speed combo keeps its choice across loads).
         let rate = self.rate;
         if rate != 1.0 {
-            return self.set_rate(rate);
+            signals.extend(self.set_rate(rate));
         }
-        Vec::new()
+        signals
     }
 
     /// Plays the whole song from the current position; an active play
@@ -234,12 +257,16 @@ impl PlayerCore {
     }
 
     /// Seeks to `ms`, clamped into the known duration; the playhead
-    /// property follows at once and the next tick confirms it.
+    /// property follows at once and the next tick confirms it. Without an
+    /// attached player the position waits for attach_player.
     pub fn seek_ms(&mut self, ms: f64) -> Vec<CoreSignal> {
+        let ms = self.clamp_into_duration(ms);
         if self.player.is_none() {
+            self.position_ms = ms;
+            self.pending_seek_ms = Some(ms);
+            self.range_end_ms = None;
             return Vec::new();
         }
-        let ms = self.clamp_into_duration(ms);
         let mut signals = Vec::new();
         if let Some(player) = self.player.as_mut()
             && let Err(error) = player.seek_ms(ms)
@@ -426,9 +453,6 @@ impl qobject::Player {
     /// confirm the position.
     pub fn seek_ms(mut self: Pin<&mut Self>, ms: f64) {
         self.as_mut().sync_document();
-        if self.as_ref().loading {
-            return;
-        }
         let signals = self.as_mut().rust_mut().core.seek_ms(ms);
         self.as_mut().emit_signals(signals);
         self.as_mut().publish();
@@ -734,6 +758,8 @@ impl qobject::Player {
         self.as_mut().set_position_ms(position_ms);
         self.as_mut().set_duration_ms(duration_ms);
         self.as_mut().set_playing(playing);
+        let range_active = self.core.range_active();
+        self.as_mut().set_range_active(range_active);
         self.as_mut().set_has_vocals(has_vocals);
         self.as_mut().set_has_instrumental(has_instrumental);
         if self.rate != rate {

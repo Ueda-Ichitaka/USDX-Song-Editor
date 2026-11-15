@@ -14,8 +14,8 @@ use usdx_format::rows::{Document, RowId, classify};
 use usdx_format::song::{Line, Song};
 use usdx_song_editor::controller::EditorController;
 use usdx_song_editor::controller::notes::{
-    PhraseEndRow, VisibleNote, all_lines, neighbour_lines, song_end_beat, type_char,
-    visible_notes, visible_phrase_ends,
+    PhraseEndRow, VisibleNote, all_lines, neighbour_lines, song_end_beat, type_char, visible_notes,
+    visible_phrase_ends,
 };
 
 /// song decodes a song text into the document and its song view.

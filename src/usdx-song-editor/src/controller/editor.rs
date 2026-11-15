@@ -7,7 +7,9 @@
 //! as a method, the cxx-qt bridge forwards it, and it is testable without
 //! Qt. Line navigation is global - the lines pane numbers all lines of all
 //! voices from 1, so moving past the last line of one voice continues into
-//! the next voice - and clamps at both ends.
+//! the next voice - and clamps at both ends. While the whole song plays, the
+//! playback follow moves the current line to the line being sung within the
+//! current voice (`line_at_ms`, `follow_playback`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -219,6 +221,55 @@ impl EditorController {
                 self.current_line = next;
                 self.arm_autoplay();
             }
+        }
+    }
+
+    /// line_at_ms returns the global index of the line being sung at `ms`
+    /// in the current line's voice: the last line whose first note starts
+    /// at or before `ms`. `None` before that voice's first line and without
+    /// a song.
+    pub fn line_at_ms(&self, ms: f64) -> Option<usize> {
+        let loaded = self.loaded.as_ref()?;
+        let voice_index = self.current_voice_index()?;
+        let offset: usize = loaded.song.voices[..voice_index]
+            .iter()
+            .map(|voice| voice.lines.len())
+            .sum();
+        let to_ms = |beat: f64| {
+            loaded
+                .song
+                .timing
+                .map(|value| value.beat_to_ms(beat))
+                .unwrap_or(beat)
+        };
+        let mut found = None;
+        for (index, line) in loaded.song.voices[voice_index].lines.iter().enumerate() {
+            let Some(first) = line
+                .notes
+                .first()
+                .and_then(|id| loaded.song.note(&loaded.document, *id))
+            else {
+                continue;
+            };
+            if to_ms(first.start) <= ms {
+                found = Some(offset + index);
+            } else {
+                break;
+            }
+        }
+        found
+    }
+
+    /// follow_playback makes the line being sung at `ms` the current line
+    /// (user decision 2026-11-15, "Follow line") and tells whether the line
+    /// changed. It never arms the autoplay: the player already plays.
+    pub fn follow_playback(&mut self, ms: f64) -> bool {
+        match self.line_at_ms(ms) {
+            Some(index) if index != self.current_line => {
+                self.current_line = index;
+                true
+            }
+            _ => false,
         }
     }
 

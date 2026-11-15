@@ -700,7 +700,10 @@ impl qobject::SheetBackground {
     /// anchor maps right of it like xToBeat does.
     pub fn zoom_around(mut self: Pin<&mut Self>, factor: f64, cursor_x: f64) {
         let gutter = *self.gutter_width();
-        self.as_mut().rust_mut().viewport.zoom_around(factor, cursor_x - gutter);
+        self.as_mut()
+            .rust_mut()
+            .viewport
+            .zoom_around(factor, cursor_x - gutter);
         self.as_mut().publish_viewport();
     }
 

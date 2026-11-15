@@ -737,6 +737,12 @@ pub mod qobject {
         #[cxx_name = "goToLine"]
         fn go_to_line(self: Pin<&mut SongDocument>, index: i32);
 
+        /// Make the line being sung at the playback position the current
+        /// line (the playback follow); never starts the autoplay.
+        #[qinvokable]
+        #[cxx_name = "followPlayback"]
+        fn follow_playback(self: Pin<&mut SongDocument>, position_ms: f64);
+
         /// Move to the following line, clamped at the last one.
         #[qinvokable]
         #[cxx_name = "nextLine"]
@@ -820,6 +826,7 @@ pub mod qobject {
         #[qproperty(f64, position_ms, cxx_name = "positionMs")]
         #[qproperty(f64, duration_ms, cxx_name = "durationMs")]
         #[qproperty(bool, playing)]
+        #[qproperty(bool, range_active, cxx_name = "rangeActive")]
         // The WRITE setters are the setRate and setTrack invokables below:
         // a generated setter would collide with them on the Rust side.
         #[qproperty(f64, rate, READ, WRITE = set_rate, NOTIFY)]
@@ -944,6 +951,7 @@ pub struct PlayerRust {
     pub(crate) position_ms: f64,
     pub(crate) duration_ms: f64,
     pub(crate) playing: bool,
+    pub(crate) range_active: bool,
     pub(crate) rate: f64,
     pub(crate) track: i32,
     pub(crate) has_vocals: bool,
@@ -959,6 +967,7 @@ impl Default for PlayerRust {
             position_ms: core.position_ms(),
             duration_ms: core.duration_ms(),
             playing: core.playing(),
+            range_active: core.range_active(),
             rate: core.rate(),
             track: core.track(),
             has_vocals: false,
@@ -2099,6 +2108,20 @@ impl qobject::SongDocument {
         }
         self.as_mut().emit_pending_play_range();
         self.as_mut().refresh();
+    }
+
+    /// follow_playback moves the current line to the line being sung at
+    /// `position_ms` and refreshes only when it changed, so the per-frame
+    /// calls during playback cost nothing between line changes.
+    pub fn follow_playback(mut self: Pin<&mut Self>, position_ms: f64) {
+        if self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .follow_playback(position_ms)
+        {
+            self.as_mut().refresh();
+        }
     }
 
     /// next_line moves to the following line.

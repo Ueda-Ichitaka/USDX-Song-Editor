@@ -145,6 +145,66 @@ fn self_test_drives_the_ui_paths_without_qt_warnings() {
 }
 
 #[test]
+fn self_test_runs_the_interaction_checks_on_a_multi_note_song() {
+    // Two lines of three notes (240 BPM, GAP 100 ms): enough notes for the
+    // sheet interaction check and a second line for the playback follow.
+    let text = concat!(
+        "#TITLE:T\n#ARTIST:A\n#BPM:240\n#GAP:100\n",
+        ": 0 4 0 a\n: 4 4 2 b\n: 8 4 4 c\n- 12\n",
+        ": 12 4 0 d\n: 16 4 2 e\n: 20 4 4 f\n- 24\nE\n",
+    );
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "--self-test with a song failed:\n{stdout}\n{stderr}"
+    );
+    for report in ["sheet interaction: ok", "drawer check: ok", "playhead: ok"] {
+        assert!(
+            stdout.contains(report),
+            "the self-test must report {report:?}, got: {stdout}\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn self_test_skips_the_sheet_interaction_on_a_one_note_line() {
+    // One note in the line: the interaction check needs two notes and
+    // reports that it skipped (user decision 2026-11-15) instead of failing.
+    let text = "#TITLE:T\n#ARTIST:A\n#BPM:240\n: 0 4 0 a\n- 4\nE\n";
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("song.txt");
+    std::fs::write(&path, text).expect("the fixture is written");
+
+    let out = binary()
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .arg("--self-test")
+        .arg(&path)
+        .output()
+        .expect("the binary was built and --self-test could run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "--self-test with a one-note song failed:\n{stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("sheet interaction: skipped"),
+        "the skipped interaction check must be reported, got: {stdout}"
+    );
+}
+
+#[test]
 fn self_test_reports_the_track_chosen_when_the_song_opens() {
     // The default setting picks Vocals when the song has a vocals file
     // (UI_SPEC 4.10), right when the song opens, before any playback.

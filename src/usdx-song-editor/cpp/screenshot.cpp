@@ -200,3 +200,20 @@ bool usdx_select_demo_note(const QQmlApplicationEngine &engine, int position) {
     }
     return false;
 }
+
+bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fraction) {
+    const auto roots = engine.rootObjects();
+    if (roots.isEmpty()) {
+        return false;
+    }
+    QObject *const root = roots.first();
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    QObject *const player = root->findChild<QObject *>(QStringLiteral("player"));
+    if (document == nullptr || player == nullptr) {
+        return false;
+    }
+    const double start = document->property("currentLineStartMs").toDouble();
+    const double end = document->property("currentLineEndMs").toDouble();
+    return QMetaObject::invokeMethod(player, "seekMs",
+                                     Q_ARG(double, start + (end - start) * fraction));
+}

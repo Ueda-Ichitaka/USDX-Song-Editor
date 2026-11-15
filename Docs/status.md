@@ -26,6 +26,7 @@ Version 0.1.0, development build (13 November 2026).
 | Settings persistence (recent songs, window size, the full 4.10 field set) | settings file |
 | About page with version and licence | menu |
 | Playback: Play, Play line (0.3 s padding), Loop of the current line, Track (Mix, Vocals, Instrumental, chosen per song from the settings), Speed (0.5x, 0.75x, 1x, pitch kept), playhead time and beat in the status bar | toolbar, Space / P / L / V / [ / ] |
+| Dotted playhead across ruler, notes, lyrics and waveform; seek by pressing or dragging in the ruler or the waveform lanes; the current line follows the playback while the whole song plays | mouse |
 | Waveform lane (selected track) and vocal activity lane (#VOCALS) under the note sheet, for the current line's time view; "Reading the waveform... N %", "No audio" and the no-vocals note; analysis in the background with an on-disk cache | editor |
 | Offscreen self-test (`--self-test [SONG]`) that opens the song through the window's open guard, drives the dialogs, the recent menu and quit, and fails on any Qt warning | command line |
 | Screenshot harness (`--screenshot`, `--demo-state`, debug builds) for the UI acceptance check | command line, `scripts/ui-shots.sh` |

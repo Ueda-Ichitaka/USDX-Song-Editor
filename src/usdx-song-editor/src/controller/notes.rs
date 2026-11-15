@@ -188,10 +188,10 @@ pub fn song_end_beat(doc: &Document, song: &Song) -> f64 {
                     end = end.max(note.start + note.length as f64);
                 }
             }
-            if let Some(row_id) = line.end {
-                if let Some(beat) = song.phrase_end_beat(doc, row_id) {
-                    end = end.max(beat);
-                }
+            if let Some(row_id) = line.end
+                && let Some(beat) = song.phrase_end_beat(doc, row_id)
+            {
+                end = end.max(beat);
             }
         }
     }

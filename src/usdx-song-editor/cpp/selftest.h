@@ -73,3 +73,10 @@ bool usdx_drawer_check(const QQmlApplicationEngine &engine);
 // Shift+wheel scrolls one pitch row, and the horizontal scrollbar tracks
 // the view. Prints "sheet interaction: ok" on success.
 bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine);
+
+// Checks the playhead (user decisions 2026-11-15): a press in the waveform
+// lane seeks to the time under the pointer, a drag scrubs, the dotted
+// playhead line stands under the pointer afterwards, and following the
+// playback makes the line being sung the current line. Prints
+// "playhead: ok" on success.
+bool usdx_playhead_check(const QQmlApplicationEngine &engine);

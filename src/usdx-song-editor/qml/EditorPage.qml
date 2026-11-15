@@ -277,10 +277,19 @@ Kirigami.Page {
     }
 
     // The playhead follows while the player plays: every frame drains the
-    // GStreamer bus events into the player's properties.
+    // GStreamer bus events into the player's properties. While the whole
+    // song plays, the current line follows the playback (user decision
+    // 2026-11-15, "Follow line"); a range playback (Play line, Loop,
+    // autoplay) and a seek drag in the sheet leave the current line alone.
     FrameAnimation {
         running: root.player ? root.player.playing : false
-        onTriggered: root.player.tick()
+        onTriggered: {
+            root.player.tick();
+            if (root.player.playing && !root.player.rangeActive
+                    && !noteSheet.seeking && root.document) {
+                root.document.followPlayback(root.player.positionMs);
+            }
+        }
     }
 
     // The rangeDone signal replays the line while Loop is on (UI_SPEC 4.3).
@@ -341,12 +350,34 @@ Kirigami.Page {
         onActivated: root.changeSpeed(1)
     }
 
-    // Esc stops the playback (plan 8.6); closing dialogs and leaving pages
-    // keep their precedence.
+    // Undo and redo of the key table (plan 8.6). A focused text input keeps
+    // its own undo for the text it edits.
+    Shortcut {
+        sequence: "Ctrl+Z"
+        enabled: root.document && root.document.canUndo && !root.textEditingFocus
+        onActivated: root.document.undo()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+Z"
+        enabled: root.document && root.document.canRedo && !root.textEditingFocus
+        onActivated: root.document.redo()
+    }
+
+    // Esc stops the playback, or else clears the selection (plan 8.6);
+    // closing dialogs and leaving pages keep their precedence.
     Shortcut {
         sequence: "Esc"
-        enabled: root.player && root.player.playing
-        onActivated: root.player.pause()
+        enabled: (root.player && root.player.playing)
+                 || (root.songOpen && root.document.inspector !== undefined
+                     && root.document.inspector.count > 0)
+        onActivated: {
+            if (root.player && root.player.playing) {
+                root.player.pause();
+            } else {
+                root.document.clearSelection();
+            }
+        }
     }
 
     // The note-editing shortcuts of the key table (plan 8.6, task P5-05):
@@ -553,6 +584,7 @@ Kirigami.Page {
 
         // Without a song the page shows the start screen (UI_SPEC 4.1).
         Item {
+            objectName: "startScreen"
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !root.document || !root.document.isLoaded
@@ -595,6 +627,7 @@ Kirigami.Page {
                 ListView {
                     id: recentList
 
+                    objectName: "startRecentList"
                     Layout.fillWidth: true
                     Layout.preferredHeight: contentHeight
                     interactive: false
@@ -604,6 +637,7 @@ Kirigami.Page {
                     delegate: QQC2.ItemDelegate {
                         id: recentRow
 
+                        objectName: "startRecentRow"
                         required property int index
                         required property string title
                         required property string openedText
@@ -659,7 +693,7 @@ Kirigami.Page {
                                      < (root.document ? root.document.recentCount : 0) - 1
                         }
 
-                        onClicked: root.shell && root.shell.openRecentSong(recentRow.pathUrl)
+                        onClicked: root.shell && root.shell.openSong(recentRow.pathUrl)
                     }
                 }
             }
@@ -754,6 +788,8 @@ Kirigami.Page {
                 // handles, the rubber band, the ruler seek strip and the
                 // playhead (tasks P5-04, P5-05).
                 Usdx.NoteSheet {
+                    id: noteSheet
+
                     objectName: "sheetArea"
 
                     document: root.document

@@ -126,13 +126,21 @@ dialog.
 
 ### 4.4 The note sheet (right, centre)
 
-The sheet shows the notes of the current line on their pitch rows, with the ruler, the
-lyrics lane and the waveform lane, all drag- and keyboard-editable. This is the heart of
-the editor and arrives with the note sheet phase.
+The sheet shows the notes of the song on their pitch rows (the current line opaque, the
+other lines faded), with the ruler, the lyrics lane and the waveform lanes, all drag- and
+keyboard-editable. It opens on the current line with at least 1.5 s around it (half the
+line's length for long lines) and stays put while you step through lines that are already
+visible.
 
-The waveform lanes at the bottom of the sheet are already there. They show the current line
-with at least 1.5 s around it (half the line's length for long lines), and stay put while you
-step through lines that are already visible:
+**Playhead.** A dotted red line with a small triangle on the ruler marks the playback
+position. It runs from the ruler through the notes and the lyrics down to the waveform, so
+you can line up a note's start with what you hear and see. To move it, press anywhere in the
+ruler or in the waveform lanes; keep the button down and drag to scrub. This works before the
+first Play, while playing and while paused; Play then starts where the playhead stands.
+While the whole song plays, the current line follows the playback: the lines pane and the
+sheet move on to the line being sung. Play line, Loop and autoplay keep the current line.
+
+The waveform lanes at the bottom of the sheet show:
 
 - the waveform of the selected track (the gutter names it: Mix, Vocals or Instr.), scaled so
   the loudest moment of the song fills the lane;

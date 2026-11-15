@@ -8,8 +8,11 @@
 // window's requestOpen() guard, the way the Open button and drag and drop do,
 // and usdx_selftest_ui_paths drives the rest of the QML paths a user reaches.
 // usdx_drawer_check locks in the main-menu fix and usdx_sheet_interaction_check
-// locks in the note drag, rubber band and sheet navigation fixes, both driven
-// through synthesized mouse and wheel events (send_mouse/send_wheel). The
+// locks in the note drag, rubber band and sheet navigation fixes (skipped on
+// a song whose current line has fewer than two notes), usdx_playhead_check
+// covers the waveform-lane seek, the playhead line and the playback follow,
+// all driven through synthesized mouse and wheel events (send_mouse/
+// send_wheel). The
 // installed message handler counts every Qt warning, so the self-test can
 // fail on QML binding and script errors, which QML reports only as warnings.
 
@@ -37,6 +40,8 @@
 #include <QVariant>
 #include <functional>
 #include <initializer_list>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <iostream>
 
@@ -76,6 +81,17 @@ void send_mouse(QWindow *window, const QPointF &local, QEvent::Type type,
         window, timestamp, local, window->mapToGlobal(local), buttons, button, type,
         Qt::NoModifier, Qt::MouseEventNotSynthesized);
     pump_events(10);
+}
+
+// Sends one key press and release through the window system interface with
+// synchronous delivery and pumps the event loop afterwards, so window
+// shortcuts see the key the way a keyboard produces it.
+void send_key(QWindow *window, int key, Qt::KeyboardModifiers modifiers) {
+    QWindowSystemInterface::handleKeyEvent<QWindowSystemInterface::SynchronousDelivery>(
+        window, QEvent::KeyPress, key, modifiers);
+    QWindowSystemInterface::handleKeyEvent<QWindowSystemInterface::SynchronousDelivery>(
+        window, QEvent::KeyRelease, key, modifiers);
+    pump_events(20);
 }
 
 // Sends one wheel event straight to the window and pumps the event loop
@@ -273,6 +289,44 @@ bool usdx_selftest_ui_paths(const QQmlApplicationEngine &engine) {
         std::cerr << "self-test failed: the Open Recent menu has no entry for the opened song\n";
         return false;
     }
+    // A click on a recent song of the start screen opens it through the same
+    // guard as the menu entry. The start screen builds its rows only while
+    // it is shown, so it is shown for the click and hidden again afterwards
+    // (the song stays loaded, which is what its visibility binding says).
+    QObject *const startScreen = root->findChild<QObject *>(QStringLiteral("startScreen"));
+    if (startScreen == nullptr) {
+        std::cerr << "self-test failed: the start screen was not found\n";
+        return false;
+    }
+    startScreen->setProperty("visible", true);
+    pump_events(300);
+    // ListView delegates have no QObject parent, so the row is reached
+    // through the list's itemAtIndex().
+    QObject *const startList = root->findChild<QObject *>(QStringLiteral("startRecentList"));
+    QQuickItem *startRow = nullptr;
+    if (startList != nullptr) {
+        QMetaObject::invokeMethod(startList, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, startRow),
+                                  Q_ARG(int, 0));
+    }
+    if (startRow == nullptr || startRow->objectName() != QStringLiteral("startRecentRow")) {
+        std::cerr << "self-test failed: the start screen lists no recent song\n";
+        return false;
+    }
+    const int warningsBeforeClick = usdx_qt_warning_count();
+    QMetaObject::invokeMethod(startRow, "click");
+    pump_events(300);
+    startScreen->setProperty("visible", false);
+    pump_events(50);
+    if (usdx_qt_warning_count() != warningsBeforeClick) {
+        std::cerr << "self-test failed: clicking a recent song on the start screen raised a "
+                     "QML error\n";
+        return false;
+    }
+    QObject *const openedDocument = root->property("songDocument").value<QObject *>();
+    if (openedDocument == nullptr || !openedDocument->property("isLoaded").toBool()) {
+        std::cerr << "self-test failed: the recent song of the start screen did not open\n";
+        return false;
+    }
     // The editor shows every playback control and the song facts instead of
     // the start screen's status text.
     if (!check_song_only_controls(root, true, "editor") ||
@@ -465,6 +519,14 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         std::cerr << "sheet interaction: no sheetBackground object\n";
         return false;
     }
+    // The check needs two notes in the current line; a smaller song skips
+    // it (user decision 2026-11-15) instead of failing.
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    if (document != nullptr && document->property("currentLineNoteCount").toInt() < 2) {
+        std::cout << "sheet interaction: skipped (the current line has fewer than two notes)"
+                  << std::endl;
+        return true;
+    }
     QList<QObject *> delegates;
     find_current_line_delegates(window, delegates);
     auto centre_of = [](QObject *note) -> QPointF {
@@ -599,6 +661,51 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         std::cerr << "sheet interaction: the dragged note did not survive the drag\n";
         return false;
     }
+    // Ctrl+Z undoes the drag and Ctrl+Shift+Z redoes it (plan 8.6).
+    window->requestActivate();
+    pump_events(20);
+    auto start_of = [&](qint64 id) -> qreal {
+        QObject *const note = find_by_id(id);
+        return note != nullptr ? note->property("start").toReal() : -1.0;
+    };
+    const qreal moved_start = start_of(dragged_id);
+    send_key(window, Qt::Key_Z, Qt::ControlModifier);
+    if (start_of(dragged_id) != start_before) {
+        std::cerr << "sheet interaction: Ctrl+Z did not undo the drag (start "
+                  << start_of(dragged_id) << ", wanted " << start_before << ")\n";
+        return false;
+    }
+    send_key(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    if (start_of(dragged_id) != moved_start) {
+        std::cerr << "sheet interaction: Ctrl+Shift+Z did not redo the drag (start "
+                  << start_of(dragged_id) << ", wanted " << moved_start << ")\n";
+        return false;
+    }
+    // Ctrl+S of the main menu saves the song (the self-test song is a
+    // temporary copy).
+    QObject *const songDocument = root->property("songDocument").value<QObject *>();
+    if (!songDocument->property("dirty").toBool()) {
+        std::cerr << "sheet interaction: the redone drag left the song clean\n";
+        return false;
+    }
+    send_key(window, Qt::Key_S, Qt::ControlModifier);
+    pump_events(100);
+    if (songDocument->property("dirty").toBool()) {
+        std::cerr << "sheet interaction: Ctrl+S did not save the song\n";
+        return false;
+    }
+    // Esc clears the selection while nothing plays (plan 8.6).
+    if (QObject *const note = find_by_id(dragged_id); note == nullptr ||
+        !note->property("selected").toBool()) {
+        std::cerr << "sheet interaction: the dragged note is not selected before Esc\n";
+        return false;
+    }
+    send_key(window, Qt::Key_Escape, Qt::NoModifier);
+    if (QObject *const note = find_by_id(dragged_id); note == nullptr ||
+        note->property("selected").toBool()) {
+        std::cerr << "sheet interaction: Esc did not clear the selection\n";
+        return false;
+    }
 
     // Rubber band on the empty pitch area: a fresh grab is not a takeover,
     // so the band must still grow (TakeOverForbidden only blocks steals).
@@ -717,5 +824,87 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         return false;
     }
     std::cout << "sheet interaction: ok" << std::endl;
+    return true;
+}
+
+bool usdx_playhead_check(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    QObject *const bg = root->findChild<QObject *>(QStringLiteral("sheetBackground"));
+    QObject *const player = root->findChild<QObject *>(QStringLiteral("player"));
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    auto *const playhead = root->findChild<QQuickItem *>(QStringLiteral("playhead"));
+    auto *const strip = root->findChild<QQuickItem *>(QStringLiteral("waveformSeekStrip"));
+    if (window == nullptr || bg == nullptr || player == nullptr || document == nullptr ||
+        playhead == nullptr || strip == nullptr) {
+        std::cerr << "playhead: a sheet object is missing (window, sheetBackground, player, "
+                     "songDocument, playhead or waveformSeekStrip)\n";
+        return false;
+    }
+    const double bpm = document->property("bpm").toDouble();
+    const double gapMs = document->property("gapMs").toDouble();
+    if (bpm <= 0.0) {
+        std::cout << "playhead: skipped (the song has no BPM)" << std::endl;
+        return true;
+    }
+    // The ms a sheet x maps to, through the SheetBackground's own axis.
+    auto ms_at = [&](double sheetX) -> double {
+        double beat = 0.0;
+        QMetaObject::invokeMethod(bg, "xToBeat", Q_RETURN_ARG(double, beat),
+                                  Q_ARG(double, sheetX));
+        return std::max(0.0, gapMs + beat * 15000.0 / bpm);
+    };
+    auto *const bgItem = qobject_cast<QQuickItem *>(bg);
+    const double gutter = bg->property("gutterWidth").toDouble();
+    // A press in the waveform lane seeks there, a drag scrubs.
+    const QPointF pressLocal(gutter + (strip->width() - gutter) * 0.4, strip->height() / 2);
+    const QPointF press = strip->mapToScene(pressLocal);
+    send_mouse(window, press, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 1000);
+    const double wanted = ms_at(bgItem->mapFromScene(press).x());
+    if (std::abs(player->property("positionMs").toDouble() - wanted) > 1.0) {
+        std::cerr << "playhead: a press in the waveform lane did not seek to " << wanted
+                  << " ms, the position is " << player->property("positionMs").toDouble()
+                  << " ms\n";
+        return false;
+    }
+    const QPointF dragged = press + QPointF(60.0, 0.0);
+    send_mouse(window, press + QPointF(20.0, 0.0), QEvent::MouseMove, Qt::LeftButton,
+               Qt::NoButton, 1010);
+    send_mouse(window, dragged, QEvent::MouseMove, Qt::LeftButton, Qt::NoButton, 1020);
+    const double wantedDrag = ms_at(bgItem->mapFromScene(dragged).x());
+    if (std::abs(player->property("positionMs").toDouble() - wantedDrag) > 1.0) {
+        std::cerr << "playhead: dragging in the waveform lane did not scrub to " << wantedDrag
+                  << " ms, the position is " << player->property("positionMs").toDouble()
+                  << " ms\n";
+        return false;
+    }
+    send_mouse(window, dragged, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton, 1030);
+    pump_events(50);
+    // The playhead line stands where the pointer let go.
+    const double playheadX = playhead->mapToScene(QPointF(playhead->width() / 2, 0)).x();
+    if (!playhead->isVisible() || std::abs(playheadX - dragged.x()) > 2.0) {
+        std::cerr << "playhead: the line is not under the pointer (visible "
+                  << playhead->isVisible() << ", x " << playheadX << ", pointer "
+                  << dragged.x() << ")\n";
+        return false;
+    }
+    // Following the playback makes the line being sung the current line.
+    if (document->property("lineCount").toInt() >= 2) {
+        QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 1));
+        const double secondStart = document->property("currentLineStartMs").toDouble();
+        QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
+        QMetaObject::invokeMethod(document, "followPlayback", Q_ARG(double, secondStart + 1.0));
+        pump_events(50);
+        if (document->property("currentLine").toInt() != 1) {
+            std::cerr << "playhead: following the playback did not reach the second line\n";
+            return false;
+        }
+        QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
+        pump_events(50);
+    }
+    std::cout << "playhead: ok" << std::endl;
     return true;
 }

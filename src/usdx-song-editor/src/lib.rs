@@ -275,6 +275,10 @@ fn apply_demo_state(
         if !bridge::screenshot::usdx_select_demo_note(engine, 2) {
             return Err(String::from("no note of the current line was selected"));
         }
+        // The playhead stands inside the current line, as in the mockup.
+        if !bridge::screenshot::usdx_seek_demo_playhead(engine, 0.6) {
+            return Err(String::from("the playhead could not be placed"));
+        }
     }
     Ok(())
 }
@@ -455,19 +459,22 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                 1
             } else {
                 // The permanent regression checks run only with a song
-                // loaded: the drawer, the note drag and the sheet
-                // navigation all need a real document. The interaction
+                // loaded: the drawer, the note drag, the sheet navigation
+                // and the playhead all need a real document. The interaction
                 // check runs first: the drawer check opens and closes the
                 // GlobalDrawer, whose close animation leaves the modal
                 // overlay swallowing synthesized presses for a moment.
                 let interaction_ok = engine.as_ref().is_some_and(|engine| {
                     bridge::selftest::usdx_sheet_interaction_check(engine)
+                        && bridge::selftest::usdx_playhead_check(engine)
                         && bridge::selftest::usdx_drawer_check(engine)
                 });
                 if interaction_ok {
                     0
                 } else {
-                    eprintln!("self-test failed: the drawer or sheet interaction check failed");
+                    eprintln!(
+                        "self-test failed: the drawer, sheet interaction or playhead check failed"
+                    );
                     1
                 }
             }

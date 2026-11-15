@@ -1,10 +1,12 @@
 //! About me: the visible note and phrase end sets of the note sheet (plan
 //! 8.3, task P5-03). The NotesModel and PhraseEndsModel bridges rebuild
 //! their rows from these plain functions, and the lyrics lane's note data
-//! (P5-02) shares the neighbour gathering. The visible set is the current
-//! line plus its global previous and next line (user decision 2026-11-13),
-//! exactly the neighbours the sheet draws. Pitches are MIDI (C4 = 60,
-//! UI_SPEC 3.3) while the USDX file stores relative pitches; the phrase
+//! (P5-02) shares the line gathering. The gathering comes in two sizes:
+//! `neighbour_lines` is the current line plus its global previous and next
+//! line (user decision 2026-11-13), and `all_lines` is the whole song (user
+//! decision 2026-11-15, so scrolling and the scrollbar reach every line).
+//! Pitches are MIDI (C4 = 60, UI_SPEC 3.3) while the USDX file stores
+//! relative pitches; the phrase
 //! ends carry the same bounds `usdx_edit::ops::move_phrase_end` enforces:
 //! between the previous note's end and the next note's start, unbounded
 //! where no note sits on that side.
@@ -34,7 +36,10 @@ pub struct VisibleNote {
     pub kind: &'static str,
     /// The syllable text, a tab read as a space, trimmed.
     pub text: String,
-    /// The line the note belongs to: -1 previous, 0 current, +1 next.
+    /// The distance in lines from the current line to the note's own line
+    /// (0 for the current line, negative for earlier lines, positive for
+    /// later ones). The delegate's click navigation adds it to the current
+    /// line index.
     pub line_offset: i32,
 }
 
@@ -157,4 +162,38 @@ pub fn neighbour_lines(controller: &EditorController) -> (Vec<&Line>, usize) {
         lines.push(next);
     }
     (lines, current_index)
+}
+
+/// all_lines gathers every line of the song in global order and reports the
+/// current line's index within them (user decision 2026-11-15: the sheet
+/// paints the whole song, so scrolling and the scrollbar reach every line).
+/// An empty controller or an empty song gathers nothing.
+pub fn all_lines(controller: &EditorController) -> (Vec<&Line>, usize) {
+    let lines: Vec<&Line> = (0..controller.line_count())
+        .filter_map(|index| controller.line_data(index))
+        .collect();
+    let current = controller.current_line().min(lines.len().saturating_sub(1));
+    (lines, current)
+}
+
+/// song_end_beat returns the last note end or phrase end beat across all
+/// voices: the full range the sheet's horizontal scrollbar spans. An empty
+/// song returns 0.
+pub fn song_end_beat(doc: &Document, song: &Song) -> f64 {
+    let mut end: f64 = 0.0;
+    for voice in &song.voices {
+        for line in &voice.lines {
+            for row_id in &line.notes {
+                if let Some(note) = song.note(doc, *row_id) {
+                    end = end.max(note.start + note.length as f64);
+                }
+            }
+            if let Some(row_id) = line.end {
+                if let Some(beat) = song.phrase_end_beat(doc, row_id) {
+                    end = end.max(beat);
+                }
+            }
+        }
+    }
+    end
 }

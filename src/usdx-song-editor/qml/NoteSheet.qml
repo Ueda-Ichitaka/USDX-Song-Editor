@@ -11,8 +11,14 @@
 // result) and commits once on release, so one drag is one undo step (plan
 // 8.4); an edge drag resizes through previewResize and resizeNote. A
 // refused edit arrives through the document's editRefused signal, which
-// EditorPage routes to a passive notification. Wheel, zoom and pan arrive
-// when the sheet gets a real viewport bridge object (deferred from P5-04).
+// EditorPage routes to a passive notification. The navigation gestures of
+// UI_SPEC 3.2 run through the SheetBackground's viewport invokables: a
+// plain wheel step scrolls time, Ctrl+wheel zooms around the cursor,
+// Shift+wheel scrolls the pitch rows, a middle drag pans, and a visible
+// horizontal scrollbar (recorded spec deviation, user decision 2026-11-15)
+// spans the whole song. The sheet paints every line of the song (user
+// decision 2026-11-15); the current line's notes draw opaque, all other
+// lines at 35 % opacity.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -85,8 +91,9 @@ Rectangle {
         // The song timing the beat axis maps through.
         bpm: root.document ? root.document.bpm : 0
         gapMs: root.document ? root.document.gapMs : 0
-        // The note data of the current line and its global neighbours,
-        // which SongDocument computes.
+        // The note data of every line of the song, which SongDocument
+        // computes (user decision 2026-11-15: the sheet paints the whole
+        // song).
         sheetNoteStarts: root.document ? root.document.sheetNoteStarts : []
         sheetNoteTexts: root.document ? root.document.sheetNoteTexts : []
         sheetNoteCurrents: root.document ? root.document.sheetNoteCurrents : []
@@ -222,15 +229,23 @@ Rectangle {
 
             acceptedButtons: Qt.LeftButton
             target: null
+            // The band never steals an exclusive grab from a deeper handler:
+            // a press on a note must stay with the note's bodyDrag (or an
+            // edge handle), while a press on empty area grabs freely because
+            // a fresh grab is not a takeover.
+            grabPermissions: PointerHandler.TakeOverForbidden
 
             onActiveChanged: {
                 if (active) {
-                    pitchArea.bandValid = point.pressPosition.y >= sheet.rulerHeight
-                                          && point.pressPosition.y <= root.pitchBottom;
+                    // DragHandler is a multi-point handler: the event point
+                    // is `centroid`; `point` exists only on the single-point
+                    // handlers (TapHandler, HoverHandler).
+                    pitchArea.bandValid = centroid.pressPosition.y >= sheet.rulerHeight
+                                          && centroid.pressPosition.y <= root.pitchBottom;
                     band.visible = pitchArea.bandValid;
                     if (pitchArea.bandValid) {
-                        band.x = point.pressPosition.x;
-                        band.y = point.pressPosition.y;
+                        band.x = centroid.pressPosition.x;
+                        band.y = centroid.pressPosition.y;
                         band.width = 0;
                         band.height = 0;
                     }
@@ -251,10 +266,10 @@ Rectangle {
                 if (!pitchArea.bandValid) {
                     return;
                 }
-                band.x = Math.min(point.pressPosition.x, point.position.x);
-                band.y = Math.min(point.pressPosition.y, point.position.y);
-                band.width = Math.abs(point.position.x - point.pressPosition.x);
-                band.height = Math.abs(point.position.y - point.pressPosition.y);
+                band.x = Math.min(centroid.pressPosition.x, centroid.position.x);
+                band.y = Math.min(centroid.pressPosition.y, centroid.position.y);
+                band.width = Math.abs(centroid.position.x - centroid.pressPosition.x);
+                band.height = Math.abs(centroid.position.y - centroid.pressPosition.y);
             }
         }
 
@@ -297,6 +312,58 @@ Rectangle {
             border.color: Kirigami.Theme.highlightColor
             border.width: 1
         }
+
+        // The navigation gestures of UI_SPEC 3.2, over the whole sheet: a
+        // plain wheel step scrolls time (10 % of the visible width), wheel
+        // down moves forward; Ctrl+wheel zooms by 1.25 per step around the
+        // beat under the cursor; Shift+wheel scrolls the pitch range one
+        // row per step, wheel down moves it down.
+        WheelHandler {
+            id: sheetWheel
+
+            // KeyboardModifierMask accepts every modifier (the handler
+            // compares them for exact equality otherwise); the dispatch
+            // below reads the modifiers itself.
+            acceptedModifiers: Qt.KeyboardModifierMask
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+
+            onWheel: (wheel) => {
+                if (wheel.modifiers & Qt.ControlModifier) {
+                    sheet.zoomAround(wheel.angleDelta.y > 0 ? 1.25 : 0.8, wheel.x);
+                } else if (wheel.modifiers & Qt.ShiftModifier) {
+                    sheet.wheelPitch(wheel.angleDelta.y > 0 ? -1 : 1);
+                } else {
+                    sheet.wheelTime(-wheel.angleDelta.y / 120.0);
+                }
+                wheel.accepted = true;
+            }
+        }
+
+        // The middle-drag pan (UI_SPEC 3.2): dragging the sheet with the
+        // middle button moves the view with the pointer, dragging right
+        // shows earlier beats; each move applies its own delta.
+        DragHandler {
+            id: panDrag
+
+            acceptedButtons: Qt.MiddleButton
+            target: null
+
+            property real lastX: 0
+
+            onActiveChanged: {
+                if (active) {
+                    lastX = centroid.position.x;
+                }
+            }
+
+            onTranslationChanged: {
+                const dx = centroid.position.x - lastX;
+                if (dx !== 0) {
+                    sheet.panTime(dx);
+                    lastX = centroid.position.x;
+                }
+            }
+        }
     }
 
     // The ruler seek strip (UI_SPEC 3.4, task P5-05): a click and a drag
@@ -332,6 +399,45 @@ Rectangle {
                 if (mouse.buttons & Qt.LeftButton) {
                     rulerStrip.seekTo(mouse.x);
                 }
+            }
+        }
+    }
+
+    // The last note end or phrase end beat of the song: the scrollbar's
+    // full range (user decision 2026-11-15).
+    readonly property real totalBeats:
+        root.document ? Math.max(0.0, root.document.songEndBeat) : 0.0
+
+    // The horizontal scrollbar (recorded deviation from UI_SPEC 3.2: the
+    // spec asks for wheel, zoom and pan only; the user asked 2026-11-15 for
+    // a visible bar as well). It overlays the bottom edge of the activity
+    // lane and spans the whole song's beat range.
+    QQC2.ScrollBar {
+        id: sheetHScroll
+
+        objectName: "sheetScrollBar"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 12
+        z: 12
+        orientation: Qt.Horizontal
+        visible: root.songOpen && root.totalBeats > 0
+        enabled: visible
+        // The handle covers the visible beats of the whole song; a 2 %
+        // minimum keeps the extreme zoom levels draggable.
+        readonly property real contentBeats: Math.max(1.0, root.totalBeats)
+        readonly property real viewBeats:
+            (sheet.width - sheet.gutterWidth) / Math.max(sheet.pxPerBeat, 0.001)
+        size: Math.min(1.0, Math.max(0.02, viewBeats / contentBeats))
+        position: Math.min(Math.max(sheet.startBeat / contentBeats, 0.0), 1.0 - size)
+        onPositionChanged: {
+            // The user's handle drag scrolls the view; the binding above
+            // also fires this on view changes, so only a pressed handle
+            // feeds back into the viewport (programmatic position changes
+            // never emit while pressed).
+            if (pressed) {
+                sheet.scrollToBeat(position * contentBeats);
             }
         }
     }

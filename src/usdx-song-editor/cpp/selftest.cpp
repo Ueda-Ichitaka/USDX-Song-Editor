@@ -7,17 +7,35 @@
 // probe in tests/g08_drawer_probe.rs. The self-test opens its song through the
 // window's requestOpen() guard, the way the Open button and drag and drop do,
 // and usdx_selftest_ui_paths drives the rest of the QML paths a user reaches.
-// The installed message handler counts every Qt warning, so the self-test can
+// usdx_drawer_check locks in the main-menu fix and usdx_sheet_interaction_check
+// locks in the note drag, rubber band and sheet navigation fixes, both driven
+// through synthesized mouse and wheel events (send_mouse/send_wheel). The
+// installed message handler counts every Qt warning, so the self-test can
 // fail on QML binding and script errors, which QML reports only as warnings.
 
 #include "selftest.h"
 
 #include <QAbstractItemModel>
 #include <QColor>
+#include <QCoreApplication>
 #include <QEventLoop>
+#include <QImage>
+#include <QMouseEvent>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQmlError>
+#include <QStringList>
+// The self-test's input helpers send mouse events through the qpa
+// QWindowSystemInterface with synchronous delivery, the way a platform
+// plugin does; the queued QTest helpers never drain in the offscreen
+// session.
+#include <QtGui/qpa/qwindowsysteminterface.h>
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
+#include <functional>
 #include <initializer_list>
 #include <cstdio>
 #include <iostream>
@@ -47,6 +65,29 @@ void pump_events(int milliseconds) {
     QEventLoop loop;
     QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
     loop.exec();
+}
+
+// Sends one mouse event through the window system interface with
+// synchronous delivery - the way a platform plugin does - and pumps the
+// event loop afterwards; queued QTest helpers never drain offscreen.
+void send_mouse(QWindow *window, const QPointF &local, QEvent::Type type,
+                Qt::MouseButtons buttons, Qt::MouseButton button, ulong timestamp) {
+    QWindowSystemInterface::handleMouseEvent<QWindowSystemInterface::SynchronousDelivery>(
+        window, timestamp, local, window->mapToGlobal(local), buttons, button, type,
+        Qt::NoModifier, Qt::MouseEventNotSynthesized);
+    pump_events(10);
+}
+
+// Sends one wheel event straight to the window and pumps the event loop
+// afterwards; the window system interface has no synchronous wheel
+// delivery, and the queued events never drain in the offscreen session.
+void send_wheel(QWindow *window, const QPointF &local, QPoint angle_delta,
+                Qt::KeyboardModifiers modifiers) {
+    QWheelEvent event(local, window->mapToGlobal(local), QPoint(0, 0), angle_delta,
+                      Qt::NoButton, modifiers, Qt::NoScrollPhase, false,
+                      Qt::MouseEventNotSynthesized);
+    QCoreApplication::sendEvent(window, &event);
+    pump_events(10);
 }
 
 // Invokes a parameterless QML function of the window root object.
@@ -313,5 +354,368 @@ bool usdx_selftest_start_screen(const QQmlApplicationEngine &engine) {
         return false;
     }
     std::cout << "start screen: ok" << std::endl;
+    return true;
+}
+
+// Checks the main menu drawer for the Kirigami regression found in the
+// phase-5 testing: GlobalDrawer.qml forces `enabled: !isMenu` on the whole
+// drawer, which greyed out every action even with a song open. MainMenu.qml
+// overrides it with `enabled: true`; this check opens the drawer and asserts
+// that the drawer is enabled and at least one action item is enabled.
+bool usdx_drawer_check(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    QObject *const drawer = root->property("globalDrawer").value<QObject *>();
+    if (drawer == nullptr) {
+        std::cerr << "drawer check: no globalDrawer on the window\n";
+        return false;
+    }
+    if (!drawer->property("enabled").toBool()) {
+        std::cerr << "drawer check: the drawer is disabled (Kirigami's"
+                     " enabled: !isMenu regression)\n";
+        return false;
+    }
+    if (!QMetaObject::invokeMethod(drawer, "open")) {
+        std::cerr << "drawer check: the drawer has no open() method\n";
+        return false;
+    }
+    pump_events(300);
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    if (window == nullptr) {
+        std::cerr << "drawer check: the root is not a window\n";
+        return false;
+    }
+    // The action items only exist once the drawer opened.
+    int action_items = 0;
+    int enabled_items = 0;
+    std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+        for (QQuickItem *const child : item->childItems()) {
+            if (QString::fromUtf8(child->metaObject()->className())
+                    .contains(QStringLiteral("GlobalDrawerActionItem"))) {
+                action_items++;
+                if (child->isEnabled()) {
+                    enabled_items++;
+                }
+            }
+            walk(child);
+        }
+    };
+    if (QQuickItem *const content = drawer->property("contentItem").value<QQuickItem *>()) {
+        walk(content);
+    }
+    QMetaObject::invokeMethod(drawer, "close");
+    pump_events(100);
+    if (action_items == 0) {
+        std::cerr << "drawer check: no action items rendered in the drawer\n";
+        return false;
+    }
+    if (enabled_items == 0) {
+        std::cerr << "drawer check: every action item is disabled\n";
+        return false;
+    }
+    std::cout << "drawer check: ok" << std::endl;
+    return true;
+}
+
+namespace {
+
+// Finds visible note delegates by walking the window's VISUAL tree; the
+// delegates are visual children of the clip area, but their QObject parent
+// chain does not reach them through findChildren (Repeater keeps the
+// QObject parenting). Returns the delegates of the current line (opaque,
+// lineOffset 0), first first.
+void find_current_line_delegates(QQuickWindow *window, QList<QObject *> &out) {
+    std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+        for (QQuickItem *const child : item->childItems()) {
+            const QVariant note_id = child->property("noteId");
+            if (note_id.isValid() && note_id.toLongLong() >= 0 && child->isVisible()
+                && child->opacity() >= 1.0 && child->property("lineOffset").toInt() == 0) {
+                out.append(child);
+            }
+            walk(child);
+        }
+    };
+    walk(window->contentItem());
+}
+
+} // namespace
+
+// Locks in the phase-5 interaction fixes as regression checks: the
+// DragHandlers use `centroid` (DragHandler has no `point` property), the
+// rubber band's bandDrag cannot steal an exclusive grab from a note's
+// bodyDrag (grabPermissions TakeOverForbidden), a commit's model reset
+// cannot throw inside the delegate's handler (the QML resolves references
+// before the call), a drag on an unselected note selects it at release, and
+// the wheel gestures move the viewport. Everything runs through the same
+// input path a user's device produces.
+bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    if (window == nullptr) {
+        std::cerr << "sheet interaction: the root is not a window\n";
+        return false;
+    }
+    QObject *const bg = root->findChild<QObject *>(QStringLiteral("sheetBackground"));
+    if (bg == nullptr) {
+        std::cerr << "sheet interaction: no sheetBackground object\n";
+        return false;
+    }
+    QList<QObject *> delegates;
+    find_current_line_delegates(window, delegates);
+    auto centre_of = [](QObject *note) -> QPointF {
+        auto *const item = qobject_cast<QQuickItem *>(note);
+        return item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+    };
+    // Whole-song painting creates delegates for every line; only notes
+    // whose centre lies inside the window are pressable.
+    auto on_screen = [&](QObject *note) -> bool {
+        const QPointF centre = centre_of(note);
+        return centre.x() > 0.0 && centre.y() > 0.0 && centre.x() < window->width()
+            && centre.y() < window->height();
+    };
+    QList<QObject *> pressable;
+    for (QObject *note : delegates) {
+        if (on_screen(note)) {
+            pressable.append(note);
+        }
+    }
+    if (pressable.size() < 2) {
+        std::cerr << "sheet interaction: fewer than two pressable current-line notes\n";
+        return false;
+    }
+
+    // Tap the first note: the TapHandler must select it (UI_SPEC 3.5). The
+    // tap is verified on the same noteId, because the selection change
+    // resets the notes model and recreates the delegates.
+    auto note_id_of = [](QObject *note) -> qint64 {
+        return note->property("noteId").toLongLong();
+    };
+    auto find_by_id = [&](qint64 id) -> QObject * {
+        QList<QObject *> all;
+        find_current_line_delegates(window, all);
+        for (QObject *note : all) {
+            if (note_id_of(note) == id) {
+                return note;
+            }
+        }
+        return nullptr;
+    };
+    QObject *const tapped = pressable[0];
+    const qint64 tapped_id = note_id_of(tapped);
+    const QPointF tap_point = centre_of(tapped);
+    send_mouse(window, tap_point, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 10);
+    send_mouse(window, tap_point, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton, 20);
+    pump_events(50);
+    if (QObject *const note = find_by_id(tapped_id)) {
+        if (!note->property("selected").toBool()) {
+            std::cerr << "sheet interaction: the tap did not select the note\n";
+            return false;
+        }
+    } else {
+        std::cerr << "sheet interaction: the tapped note did not survive the tap\n";
+        return false;
+    }
+
+    // Drag an on-screen unselected note 60 px right: the bodyDrag must
+    // activate and the release must select the note implicitly and move it.
+    // The tap's selection change reset the notes model and destroyed every
+    // old delegate pointer, so the candidates are collected fresh.
+    delegates.clear();
+    find_current_line_delegates(window, delegates);
+    pressable.clear();
+    for (QObject *note : delegates) {
+        if (on_screen(note)) {
+            pressable.append(note);
+        }
+    }
+    if (pressable.size() < 2) {
+        std::cerr << "sheet interaction: fewer than two pressable notes after the tap\n";
+        return false;
+    }
+    QObject *dragged = nullptr;
+    for (QObject *note : pressable) {
+        if (note_id_of(note) != tapped_id && !note->property("selected").toBool()) {
+            dragged = note;
+            break;
+        }
+    }
+    if (dragged == nullptr) {
+        std::cerr << "sheet interaction: no unselected pressable note for the drag\n";
+        return false;
+    }
+    const qint64 dragged_id = note_id_of(dragged);
+    const QPointF drag_start = centre_of(dragged);
+    const QPointF drag_end = drag_start + QPointF(60, 0);
+    const qreal start_before = dragged->property("start").toReal();
+    send_mouse(window, drag_start, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton, 30);
+    for (int step = 1; step <= 8; step++) {
+        send_mouse(window, drag_start + (drag_end - drag_start) * (step / 8.0),
+                   QEvent::MouseMove, Qt::LeftButton, Qt::NoButton, 30 + step * 20);
+    }
+    const bool dragging = dragged->property("dragging").toBool();
+    // Reports whether the rubber band Rectangle (z 10) is visible right
+    // now. During a note drag it must stay hidden: the ancestor bandDrag
+    // must not steal the bodyDrag's grab. On the empty pitch area it must
+    // show (a fresh grab is not a takeover).
+    auto band_showing = [&]() -> bool {
+        bool visible = false;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            for (QQuickItem *const child : item->childItems()) {
+                if (child->z() == 10
+                    && QString::fromUtf8(child->metaObject()->className())
+                           .contains(QStringLiteral("Rectangle"))) {
+                    visible = visible || child->isVisible();
+                }
+                walk(child);
+            }
+        };
+        walk(window->contentItem());
+        return visible;
+    };
+    // Both state captures happen mid-drag, before the release commits.
+    if (!dragging || band_showing()) {
+        std::cerr << "sheet interaction: mid-drag state wrong: dragging="
+                  << (dragging ? "true" : "false")
+                  << " band showing=" << (band_showing() ? "true" : "false") << "\n";
+        return false;
+    }
+    send_mouse(window, drag_end, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton, 220);
+    pump_events(50);
+    // The commit resets the notes model and recreates the delegates; the
+    // moved note is verified on its noteId.
+    if (QObject *const note = find_by_id(dragged_id)) {
+        const qreal start_after = note->property("start").toReal();
+        if (!(start_after > start_before)) {
+            std::cerr << "sheet interaction: the drag on an unselected note did not move it"
+                         " (implicit select)\n";
+            return false;
+        }
+    } else {
+        std::cerr << "sheet interaction: the dragged note did not survive the drag\n";
+        return false;
+    }
+
+    // Rubber band on the empty pitch area: a fresh grab is not a takeover,
+    // so the band must still grow (TakeOverForbidden only blocks steals).
+    // The press point is scanned on a grid until it sits on no visible
+    // note delegate of any line, because whole-song painting covers more
+    // of the pitch area than the current line alone.
+    QList<QObject *> all_notes;
+    std::function<void(QQuickItem *)> collect_notes = [&](QQuickItem *item) {
+        for (QQuickItem *const child : item->childItems()) {
+            const QVariant note_id = child->property("noteId");
+            if (note_id.isValid() && note_id.toLongLong() >= 0 && child->isVisible()) {
+                all_notes.append(child);
+            }
+            collect_notes(child);
+        }
+    };
+    collect_notes(window->contentItem());
+    auto covers = [&](const QPointF &point) -> bool {
+        for (QObject *note : all_notes) {
+            auto *const item = qobject_cast<QQuickItem *>(note);
+            const QRectF rect(item->mapToScene(QPointF(0, 0)),
+                              QSizeF(item->width(), item->height()));
+            if (rect.adjusted(-4, -4, 4, 4).contains(point)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    QPointF band_press(0, 0);
+    bool found_empty = false;
+    // The scan runs inside the pitch area of the sheet, computed from the
+    // SheetBackground's own geometry properties (the ruler, lyrics, gap,
+    // waveform and activity lanes sit outside it).
+    auto *const sheet_item = qobject_cast<QQuickItem *>(bg);
+    if (sheet_item != nullptr) {
+        const qreal gutter = bg->property("gutterWidth").toReal();
+        const qreal ruler = bg->property("rulerHeight").toReal();
+        qreal below = ruler;
+        if (bg->property("showLyricsLane").toBool()) {
+            below += bg->property("lyricsHeight").toReal()
+                + bg->property("gapHeight").toReal();
+        }
+        below += bg->property("waveformHeight").toReal()
+            + bg->property("activityHeight").toReal();
+        const qreal pitch_bottom = sheet_item->height() - below;
+        const qreal pitch_top = ruler;
+        for (qreal y = pitch_top + 10; y <= pitch_bottom - 10 && !found_empty; y += 15) {
+            for (qreal x = gutter + 10; x < sheet_item->width() - 10; x += 16) {
+                const QPointF scene_point = sheet_item->mapToScene(QPointF(x, y));
+                if (!covers(scene_point)) {
+                    band_press = scene_point;
+                    found_empty = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!found_empty) {
+        std::cerr << "sheet interaction: no empty pitch point for the rubber band\n";
+        return false;
+    }
+    send_mouse(window, band_press, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+               240);
+    for (int step = 1; step <= 8; step++) {
+        send_mouse(window, band_press + QPointF(step * 8.0, step * 2.0), QEvent::MouseMove,
+                   Qt::LeftButton, Qt::NoButton, 240 + step * 20);
+    }
+    const bool band_grew = band_showing();
+    send_mouse(window, band_press + QPointF(64, 16), QEvent::MouseButtonRelease, Qt::NoButton,
+               Qt::LeftButton, 420);
+    pump_events(50);
+    if (!band_grew) {
+        std::cerr << "sheet interaction: the rubber band did not grow on empty area\n";
+        return false;
+    }
+
+    // Wheel gestures (UI_SPEC 3.2): Ctrl+wheel zooms x1.25 per step around
+    // the cursor, a plain wheel step scrolls time, Shift+wheel scrolls the
+    // pitch range one row.
+    const qreal pxb = bg->property("pxPerBeat").toReal();
+    const qreal startb = bg->property("startBeat").toReal();
+    const qreal ptop = bg->property("pitchTop").toReal();
+    for (int step = 0; step < 3; step++) {
+        send_wheel(window, QPointF(700, 300), QPoint(0, 120), Qt::ControlModifier);
+    }
+    send_wheel(window, QPointF(700, 300), QPoint(0, -120), Qt::NoModifier);
+    send_wheel(window, QPointF(700, 300), QPoint(0, -120), Qt::NoModifier);
+    send_wheel(window, QPointF(700, 300), QPoint(0, 120), Qt::ShiftModifier);
+    const qreal pxb_after = bg->property("pxPerBeat").toReal();
+    const qreal startb_after = bg->property("startBeat").toReal();
+    const qreal ptop_after = bg->property("pitchTop").toReal();
+    if (qAbs(pxb_after - pxb * 1.953125) > pxb * 0.01) {
+        std::cerr << "sheet interaction: Ctrl+wheel did not zoom x1.25 per step ("
+                  << pxb << " -> " << pxb_after << ")\n";
+        return false;
+    }
+    if (startb_after == startb) {
+        std::cerr << "sheet interaction: the plain wheel did not scroll time\n";
+        return false;
+    }
+    if (ptop_after != ptop + 1) {
+        std::cerr << "sheet interaction: Shift+wheel did not scroll one pitch row ("
+                  << ptop << " -> " << ptop_after << ")\n";
+        return false;
+    }
+
+    // The horizontal scrollbar exists and tracks the view (recorded spec
+    // deviation, user decision 2026-11-15).
+    QObject *const bar = root->findChild<QObject *>(QStringLiteral("sheetScrollBar"));
+    if (bar == nullptr) {
+        std::cerr << "sheet interaction: no sheetScrollBar object\n";
+        return false;
+    }
+    if (bar->property("size").toReal() <= 0.0 || bar->property("size").toReal() > 1.0) {
+        std::cerr << "sheet interaction: the scrollbar handle size is out of range\n";
+        return false;
+    }
+    std::cout << "sheet interaction: ok" << std::endl;
     return true;
 }

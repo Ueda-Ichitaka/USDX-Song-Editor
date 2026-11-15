@@ -56,3 +56,20 @@ bool usdx_selftest_ui_paths(const QQmlApplicationEngine &engine);
 // playback controls other than Play and the status bar shows "No song open".
 // Prints "start screen: ok" on success.
 bool usdx_selftest_start_screen(const QQmlApplicationEngine &engine);
+
+// Checks the main menu drawer for the Kirigami regression found in the
+// phase-5 testing: GlobalDrawer.qml forces `enabled: !isMenu` on the whole
+// drawer, which greyed out every action even with a song open. MainMenu.qml
+// overrides it with `enabled: true`; this check opens the drawer and asserts
+// that the drawer is enabled and at least one action item is enabled.
+// Prints "drawer check: ok" on success.
+bool usdx_drawer_check(const QQmlApplicationEngine &engine);
+
+// Locks in the phase-5 interaction fixes as regression checks, driven
+// through synthesized mouse and wheel events: a tap selects a note, a drag
+// on an unselected note selects it implicitly and moves it on release, the
+// rubber band stays hidden during a note drag but grows on the empty pitch
+// area, Ctrl+wheel zooms x1.25 per step, a plain wheel step scrolls time,
+// Shift+wheel scrolls one pitch row, and the horizontal scrollbar tracks
+// the view. Prints "sheet interaction: ok" on success.
+bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine);

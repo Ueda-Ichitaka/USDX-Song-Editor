@@ -45,6 +45,24 @@ fn main() {
             ])
             .cc_builder(|cc| {
                 cc.include("cpp");
+                // The self-test input helpers send mouse events through
+                // the qpa QWindowSystemInterface header, which Qt ships
+                // in the versioned QtGui include directory.
+                if let Ok(query) = std::process::Command::new("qmake6")
+                    .args(["-query", "QT_INSTALL_HEADERS"])
+                    .output()
+                {
+                    let headers = String::from_utf8_lossy(&query.stdout).trim().to_string();
+                    let headers = std::path::PathBuf::from(headers).join("QtGui");
+                    if let Ok(entries) = std::fs::read_dir(&headers) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.join("QtGui/qpa/qwindowsysteminterface.h").exists() {
+                                cc.include(path);
+                            }
+                        }
+                    }
+                }
             })
             .build();
     }

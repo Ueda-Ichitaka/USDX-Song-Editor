@@ -454,7 +454,22 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                 eprintln!("self-test failed: the song did not load through the bridge");
                 1
             } else {
-                0
+                // The permanent regression checks run only with a song
+                // loaded: the drawer, the note drag and the sheet
+                // navigation all need a real document. The interaction
+                // check runs first: the drawer check opens and closes the
+                // GlobalDrawer, whose close animation leaves the modal
+                // overlay swallowing synthesized presses for a moment.
+                let interaction_ok = engine.as_ref().is_some_and(|engine| {
+                    bridge::selftest::usdx_sheet_interaction_check(engine)
+                        && bridge::selftest::usdx_drawer_check(engine)
+                });
+                if interaction_ok {
+                    0
+                } else {
+                    eprintln!("self-test failed: the drawer or sheet interaction check failed");
+                    1
+                }
             }
         } else {
             let ok = engine.as_ref().is_some_and(|engine| {
@@ -465,7 +480,18 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                 eprintln!("self-test failed: the window or its start screen is not as expected");
                 1
             } else {
-                0
+                // The drawer renders its actions also without a song; the
+                // interaction check needs a document, so only the drawer
+                // check runs here.
+                let drawer_ok = engine
+                    .as_ref()
+                    .is_some_and(bridge::selftest::usdx_drawer_check);
+                if drawer_ok {
+                    0
+                } else {
+                    eprintln!("self-test failed: the drawer check failed");
+                    1
+                }
             }
         };
         // QML reports binding and script errors only as warnings, so any

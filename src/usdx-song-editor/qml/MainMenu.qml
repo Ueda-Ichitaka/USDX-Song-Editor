@@ -48,6 +48,13 @@ Kirigami.GlobalDrawer {
 
     isMenu: true
 
+    // Kirigami's GlobalDrawer sets `enabled: !isMenu`, which disables the
+    // whole popup content in menu mode: every item renders with the disabled
+    // palette and no item is clickable (reproduced in a window grab and
+    // reported on the real desktop). The menu must stay interactive, so the
+    // inherited binding is overridden here.
+    enabled: true
+
     actions: [
         Kirigami.Action {
             text: qsTr("Open…")

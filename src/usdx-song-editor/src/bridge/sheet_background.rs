@@ -11,10 +11,13 @@
 //! beats and fits the viewport whenever the converted range or the item
 //! size changed since the last fit (the fit key), so a resize recomputes
 //! the zoom and zoom and pan survive stepping through short neighbouring
-//! lines. The note data of
-//! the current line and its neighbours arrives as properties SongDocument
-//! computes (user decision 2026-11-13: data push instead of a cross-bridge
-//! pointer); the pitch range runs through pitch_rows here. When the
+//! lines. The navigation gestures of UI_SPEC 3.2 (wheel time, Shift+wheel
+//! pitch, Ctrl+wheel zoom around the cursor, middle-drag pan, the
+//! scrollbar's scroll-to-beat) arrive as invokables that forward to the
+//! viewport and republish its state. The note data of
+//! every line arrives as properties SongDocument
+//! computes (user decision 2026-11-15: the sheet paints the whole song);
+//! the pitch range runs through pitch_rows here. When the
 //! waveform track or the vocals track changes, the item runs the usdx-audio
 //! analysis on worker threads (`impl Threading`, cancelled when no longer
 //! needed) and reports the lane status, the progress and whether the
@@ -164,6 +167,37 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "syncView"]
         fn sync_view(self: Pin<&mut Self>);
+
+        /// Scroll time by 10 % of the visible width per wheel step
+        /// (UI_SPEC 3.2); positive steps move forward.
+        #[qinvokable]
+        #[cxx_name = "wheelTime"]
+        fn wheel_time(self: Pin<&mut Self>, steps: f64);
+
+        /// Scroll the pitch range by one row per wheel step (UI_SPEC 3.2);
+        /// positive steps scroll down.
+        #[qinvokable]
+        #[cxx_name = "wheelPitch"]
+        fn wheel_pitch(self: Pin<&mut Self>, rows: f64);
+
+        /// Zoom by the factor around the sheet x position under the cursor
+        /// (UI_SPEC 3.2: Ctrl+wheel, 1.25 per step in, 0.8 per step out);
+        /// the beat under the cursor stays at the cursor.
+        #[qinvokable]
+        #[cxx_name = "zoomAround"]
+        fn zoom_around(self: Pin<&mut Self>, factor: f64, cursor_x: f64);
+
+        /// Pan with a middle drag (UI_SPEC 3.2): moving the pointer right
+        /// shows earlier beats; dx_px is the delta since the last call.
+        #[qinvokable]
+        #[cxx_name = "panTime"]
+        fn pan_time(self: Pin<&mut Self>, dx_px: f64);
+
+        /// Show the beat at the content's left edge (the horizontal
+        /// scrollbar's position).
+        #[qinvokable]
+        #[cxx_name = "scrollToBeat"]
+        fn scroll_to_beat(self: Pin<&mut Self>, beat: f64);
 
         /// Take the note data over, compute the pitch rows from the pitch
         /// area height and repaint; QML calls it when the note data or the
@@ -631,6 +665,57 @@ impl qobject::SheetBackground {
         self.as_mut().set_start_beat(start);
         self.as_mut().set_px_per_beat(px_per_beat);
         self.as_mut().update();
+    }
+
+    /// publish_viewport copies the viewport's live state into the mirrored
+    /// properties and repaints; every gesture invokable ends here so the
+    /// QML bindings (the delegates' beat axis, the scrollbar) follow.
+    fn publish_viewport(mut self: Pin<&mut Self>) {
+        let start = self.as_ref().rust().viewport.start_beat;
+        let px_per_beat = self.as_ref().rust().viewport.px_per_beat;
+        self.as_mut().set_start_beat(start);
+        self.as_mut().set_px_per_beat(px_per_beat);
+        self.as_mut().update();
+    }
+
+    /// wheel_time scrolls time by 10 % of the visible width per step
+    /// (UI_SPEC 3.2); positive steps move forward.
+    pub fn wheel_time(mut self: Pin<&mut Self>, steps: f64) {
+        self.as_mut().rust_mut().viewport.wheel_time(steps);
+        self.as_mut().publish_viewport();
+    }
+
+    /// wheel_pitch scrolls the pitch range by one row per step (UI_SPEC
+    /// 3.2); positive steps scroll down. The pitch rows paint from the
+    /// published top pitch, so republishing shifts them.
+    pub fn wheel_pitch(mut self: Pin<&mut Self>, rows: f64) {
+        self.as_mut().rust_mut().viewport.wheel_pitch(rows);
+        let top = self.as_ref().rust().viewport.top_pitch;
+        self.as_mut().set_pitch_top(top);
+        self.as_mut().update();
+    }
+
+    /// zoom_around zooms by the factor around the sheet x position under
+    /// the cursor (UI_SPEC 3.2); the gutter holds only the labels, so the
+    /// anchor maps right of it like xToBeat does.
+    pub fn zoom_around(mut self: Pin<&mut Self>, factor: f64, cursor_x: f64) {
+        let gutter = *self.gutter_width();
+        self.as_mut().rust_mut().viewport.zoom_around(factor, cursor_x - gutter);
+        self.as_mut().publish_viewport();
+    }
+
+    /// pan_time pans with a middle drag (UI_SPEC 3.2); dx_px is the delta
+    /// since the last call.
+    pub fn pan_time(mut self: Pin<&mut Self>, dx_px: f64) {
+        self.as_mut().rust_mut().viewport.pan_time(dx_px);
+        self.as_mut().publish_viewport();
+    }
+
+    /// scroll_to_beat shows the beat at the content's left edge (the
+    /// horizontal scrollbar's position).
+    pub fn scroll_to_beat(mut self: Pin<&mut Self>, beat: f64) {
+        self.as_mut().rust_mut().viewport.start_beat = beat;
+        self.as_mut().publish_viewport();
     }
 
     /// sync_lyrics takes the note data over, computes the pitch rows from

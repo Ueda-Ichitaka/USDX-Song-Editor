@@ -167,31 +167,54 @@ Rectangle {
                 note.dragOffsetY = 0;
                 bodyDrag.axisLocked = "";
             } else {
-                if (note.pendingDBeat !== 0 || note.pendingDPitch !== 0) {
-                    noteSheet.document.moveSelection(note.pendingDBeat, note.pendingDPitch);
+                // A successful moveSelection rebuilds the notes model, which
+                // destroys this delegate's QML context: everything after the
+                // call goes through references resolved beforehand, and the
+                // delegate's own state is only touched when no reset
+                // happened.
+                const document = noteSheet.document;
+                const sheet = noteSheet;
+                const noteId = note.noteId;
+                const dBeat = note.pendingDBeat;
+                const dPitch = note.pendingDPitch;
+                let moved = false;
+                if (dBeat !== 0 || dPitch !== 0) {
+                    if (!note.selected) {
+                        // Drag selects implicitly (user decision
+                        // 2026-11-15): a drag on an unselected note makes it
+                        // the selection, so the commit moves it. The select
+                        // happens at release, not at drag activation,
+                        // because a selection change rebuilds the notes
+                        // model and would kill the live gesture.
+                        document.selectNote(noteId, Usdx.SongDocument.SelectionKind.Set);
+                    }
+                    moved = document.moveSelection(dBeat, dPitch);
                 }
-                noteSheet.document.notesModel.setGhost(-1, 0, -1);
-                noteSheet.moveActive = false;
-                note.dragOffsetX = 0;
-                note.dragOffsetY = 0;
-                note.pendingDBeat = 0;
-                note.pendingDPitch = 0;
+                document.notesModel.setGhost(-1, 0, -1);
+                sheet.moveActive = false;
+                if (!moved) {
+                    note.dragOffsetX = 0;
+                    note.dragOffsetY = 0;
+                    note.pendingDBeat = 0;
+                    note.pendingDPitch = 0;
+                }
             }
         }
 
         onTranslationChanged: {
-            // Shift locks the first axis moved (plan 8.4).
+            // Shift locks the first axis moved (plan 8.4); DragHandler's
+            // event point is `centroid` (multi-point handler), not `point`.
             if (bodyDrag.axisLocked === "") {
-                bodyDrag.axisLocked = Math.abs(point.position.x - point.pressPosition.x)
-                                      >= Math.abs(point.position.y - point.pressPosition.y)
+                bodyDrag.axisLocked = Math.abs(centroid.position.x - centroid.pressPosition.x)
+                                      >= Math.abs(centroid.position.y - centroid.pressPosition.y)
                     ? "x" : "y";
             }
             const tx = bodyDrag.axisLocked === "y"
-                ? 0 : point.position.x - point.pressPosition.x;
+                ? 0 : centroid.position.x - centroid.pressPosition.x;
             const ty = bodyDrag.axisLocked === "x"
-                ? 0 : point.position.y - point.pressPosition.y;
+                ? 0 : centroid.position.y - centroid.pressPosition.y;
             // Alt turns the edge snapping off (plan 8.4).
-            const snapOn = !(bodyDrag.point.modifiers & Qt.AltModifier);
+            const snapOn = !(centroid.modifiers & Qt.AltModifier);
             const result = noteSheet.document.previewMove(
                 note.noteId, bg.dragDeltaBeats(tx), bg.dragDeltaPitch(ty),
                 snapOn, bg.pxPerBeat);
@@ -245,24 +268,33 @@ Rectangle {
                     note.pendingDBeat = 0;
                     note.startEdgeOffsetX = 0;
                 } else {
-                    if (note.pendingDBeat !== 0) {
-                        noteSheet.document.resizeNote(
-                            note.noteId, Usdx.SongDocument.ResizeEdge.Start,
-                            note.pendingDBeat);
+                    // A successful resizeNote rebuilds the notes model, which
+                    // destroys this delegate's QML context: everything after
+                    // the call goes through references resolved beforehand,
+                    // and the delegate's own state is only touched when no
+                    // reset happened.
+                    const document = noteSheet.document;
+                    const noteId = note.noteId;
+                    const dBeat = note.pendingDBeat;
+                    const resized = dBeat !== 0
+                        ? document.resizeNote(
+                              noteId, Usdx.SongDocument.ResizeEdge.Start, dBeat)
+                        : false;
+                    document.notesModel.setGhost(-1, 0, -1);
+                    if (!resized) {
+                        note.startEdgeOffsetX = 0;
+                        note.pendingDBeat = 0;
                     }
-                    noteSheet.document.notesModel.setGhost(-1, 0, -1);
-                    note.startEdgeOffsetX = 0;
-                    note.pendingDBeat = 0;
                 }
             }
 
             onTranslationChanged: {
-                const snapOn = !(startDrag.point.modifiers & Qt.AltModifier);
+                const snapOn = !(startDrag.centroid.modifiers & Qt.AltModifier);
                 note.pendingDBeat = noteSheet.document.previewResize(
                     note.noteId, Usdx.SongDocument.ResizeEdge.Start,
-                    bg.dragDeltaBeats(point.position.x - point.pressPosition.x),
+                    bg.dragDeltaBeats(centroid.position.x - centroid.pressPosition.x),
                     snapOn, bg.pxPerBeat);
-                note.startEdgeOffsetX = point.position.x - point.pressPosition.x;
+                note.startEdgeOffsetX = centroid.position.x - centroid.pressPosition.x;
             }
         }
     }
@@ -288,21 +320,30 @@ Rectangle {
                 if (active) {
                     note.pendingDBeat = 0;
                 } else {
-                    if (note.pendingDBeat !== 0) {
-                        noteSheet.document.resizeNote(
-                            note.noteId, Usdx.SongDocument.ResizeEdge.End,
-                            note.pendingDBeat);
+                    // A successful resizeNote rebuilds the notes model, which
+                    // destroys this delegate's QML context: everything after
+                    // the call goes through references resolved beforehand,
+                    // and the delegate's own state is only touched when no
+                    // reset happened.
+                    const document = noteSheet.document;
+                    const noteId = note.noteId;
+                    const dBeat = note.pendingDBeat;
+                    const resized = dBeat !== 0
+                        ? document.resizeNote(
+                              noteId, Usdx.SongDocument.ResizeEdge.End, dBeat)
+                        : false;
+                    document.notesModel.setGhost(-1, 0, -1);
+                    if (!resized) {
+                        note.pendingDBeat = 0;
                     }
-                    noteSheet.document.notesModel.setGhost(-1, 0, -1);
-                    note.pendingDBeat = 0;
                 }
             }
 
             onTranslationChanged: {
-                const snapOn = !(endDrag.point.modifiers & Qt.AltModifier);
+                const snapOn = !(endDrag.centroid.modifiers & Qt.AltModifier);
                 note.pendingDBeat = noteSheet.document.previewResize(
                     note.noteId, Usdx.SongDocument.ResizeEdge.End,
-                    bg.dragDeltaBeats(point.position.x - point.pressPosition.x),
+                    bg.dragDeltaBeats(centroid.position.x - centroid.pressPosition.x),
                     snapOn, bg.pxPerBeat);
             }
         }

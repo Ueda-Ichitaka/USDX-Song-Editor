@@ -14,7 +14,8 @@ use usdx_format::rows::{Document, RowId, classify};
 use usdx_format::song::{Line, Song};
 use usdx_song_editor::controller::EditorController;
 use usdx_song_editor::controller::notes::{
-    PhraseEndRow, VisibleNote, neighbour_lines, type_char, visible_notes, visible_phrase_ends,
+    PhraseEndRow, VisibleNote, all_lines, neighbour_lines, song_end_beat, type_char,
+    visible_notes, visible_phrase_ends,
 };
 
 /// song decodes a song text into the document and its song view.
@@ -240,6 +241,82 @@ fn neighbour_lines_of_an_empty_controller_are_empty() {
     let (lines, current) = neighbour_lines(&controller);
     assert!(lines.is_empty());
     assert_eq!(current, 0);
+}
+
+#[test]
+fn all_lines_gather_every_line_of_the_song() {
+    let (_dir, path) = fixture(THREE_LINES);
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    controller.go_to_line(1);
+    let (lines, current) = all_lines(&controller);
+    assert_eq!(lines.len(), 3, "every line of the song");
+    assert_eq!(current, 1, "the index of the current line within them");
+}
+
+#[test]
+fn all_lines_feed_visible_notes_for_the_whole_song() {
+    let (_dir, path) = fixture(THREE_LINES);
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    controller.go_to_line(1);
+    let (lines, current) = all_lines(&controller);
+    let loaded = controller.loaded().expect("loaded");
+    let notes = visible_notes(&loaded.document, &loaded.song, &lines, current);
+    assert_eq!(notes.len(), 5, "every note of the song");
+    assert_eq!(notes[0].line_offset, -1, "line 1 sits one before current");
+    assert_eq!(notes[4].line_offset, 1, "line 3 sits one after current");
+    // The line offset reaches the note's own line from the current one, so
+    // the delegate's click navigation `goToLine(current + offset)` works
+    // across the whole song.
+    assert_eq!(notes[2].line_offset, 0, "the current line's notes");
+}
+
+#[test]
+fn all_lines_clamp_when_no_line_is_current() {
+    let (_dir, path) = fixture(THREE_LINES);
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    let (lines, current) = all_lines(&controller);
+    assert_eq!(lines.len(), 3, "the song still gathers");
+    assert_eq!(current, 0, "the default current line");
+}
+
+#[test]
+fn all_lines_of_an_empty_controller_are_empty() {
+    let controller = EditorController::new();
+    let (lines, current) = all_lines(&controller);
+    assert!(lines.is_empty());
+    assert_eq!(current, 0);
+}
+
+#[test]
+fn song_end_beat_reaches_the_last_note_end() {
+    // THREE_LINES' last note starts at beat 20 and runs 4 beats; the
+    // phrase ends at 8 and 18 stay below.
+    let (doc, song) = song(THREE_LINES);
+    assert_eq!(
+        song_end_beat(&doc, &song),
+        24.0,
+        "the last note ends at beat 24"
+    );
+}
+
+#[test]
+fn song_end_beat_reaches_a_phrase_end_after_the_notes() {
+    // The phrase end marker sits after every note here.
+    let (doc, song) = song("#TITLE:T\n#BPM:240\n: 0 4 0 la\n- 30\nE\n");
+    assert_eq!(
+        song_end_beat(&doc, &song),
+        30.0,
+        "the phrase end beat is the song end"
+    );
+}
+
+#[test]
+fn song_end_beat_of_an_empty_song_is_zero() {
+    let (doc, song) = song("#TITLE:T\nE\n");
+    assert_eq!(song_end_beat(&doc, &song), 0.0);
 }
 
 /// fixture writes a song text into a fresh temporary directory and returns

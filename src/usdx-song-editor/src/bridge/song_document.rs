@@ -33,7 +33,8 @@ use crate::bridge::player::PlayerCore;
 use crate::controller::editing::{Edge, SelectionMode, snapped_move, snapped_resize};
 use crate::controller::inspector::{InspectorState, inspector_state};
 use crate::controller::notes::{
-    PhraseEndRow, VisibleNote, neighbour_lines, type_char, visible_notes, visible_phrase_ends,
+    PhraseEndRow, VisibleNote, all_lines, song_end_beat, type_char, visible_notes,
+    visible_phrase_ends,
 };
 use crate::controller::save::SaveError;
 use crate::controller::settings::{Settings, settings_path};
@@ -465,6 +466,9 @@ pub mod qobject {
         // (UI_SPEC 3.2), until the SheetViewport of P5-01 takes it over.
         #[qproperty(f64, view_start_ms, cxx_name = "viewStartMs")]
         #[qproperty(f64, view_end_ms, cxx_name = "viewEndMs")]
+        // The last note end or phrase end beat of the song: the horizontal
+        // scrollbar's full range (user decision 2026-11-15).
+        #[qproperty(f64, song_end_beat, cxx_name = "songEndBeat")]
         #[qproperty(i32, current_line_note_count, cxx_name = "currentLineNoteCount")]
         #[qproperty(f64, current_line_rate, cxx_name = "currentLineRate")]
         #[qproperty(i32, current_line_health, cxx_name = "currentLineHealth")]
@@ -1104,6 +1108,7 @@ pub struct SongDocumentRust {
     current_line_end_ms: f64,
     view_start_ms: f64,
     view_end_ms: f64,
+    song_end_beat: f64,
     current_line_note_count: i32,
     current_line_rate: f64,
     current_line_health: i32,
@@ -1189,6 +1194,7 @@ impl Default for SongDocumentRust {
             current_line_end_ms: snapshot.current_line_end_ms,
             view_start_ms: 0.0,
             view_end_ms: 0.0,
+            song_end_beat: 0.0,
             view: None,
             current_line_note_count: snapshot.current_line_note_count,
             current_line_rate: snapshot.current_line_rate,
@@ -1414,13 +1420,14 @@ impl qobject::NotesModel {
         self.rows.len() as i32
     }
 
-    /// rebuild refills the rows from the current line and its global
-    /// neighbours, with the selection state of each note.
+    /// rebuild refills the rows from every line of the song (user decision
+    /// 2026-11-15: the sheet paints the whole song), with the selection
+    /// state of each note.
     pub fn rebuild(mut self: Pin<&mut Self>) {
         let rows = match unsafe { self.as_ref().document().as_ref() } {
             Some(document) => {
                 let controller = &document.rust().controller;
-                let (lines, current) = neighbour_lines(controller);
+                let (lines, current) = all_lines(controller);
                 match controller.loaded() {
                     Some(loaded) => {
                         let selection = controller.selection();
@@ -1497,13 +1504,13 @@ impl qobject::PhraseEndsModel {
         self.rows.len() as i32
     }
 
-    /// rebuild refills the rows from the current line and its global
-    /// neighbours.
+    /// rebuild refills the rows from every line of the song (user decision
+    /// 2026-11-15: the sheet paints the whole song).
     pub fn rebuild(mut self: Pin<&mut Self>) {
         let rows = match unsafe { self.as_ref().document().as_ref() } {
             Some(document) => {
                 let controller = &document.rust().controller;
-                let (lines, _current) = neighbour_lines(controller);
+                let (lines, _current) = all_lines(controller);
                 match controller.loaded() {
                     Some(loaded) => visible_phrase_ends(&loaded.document, &loaded.song, &lines),
                     None => Vec::new(),
@@ -2420,6 +2427,12 @@ impl qobject::SongDocument {
             snapshot.current_line_end_ms,
         );
         self.as_mut().sync_sheet_notes(snapshot.is_loaded);
+        // The scrollbar's full range: the last note end or phrase end beat.
+        let end_beat = match self.controller.loaded() {
+            Some(loaded) => song_end_beat(&loaded.document, &loaded.song),
+            None => 0.0,
+        };
+        self.as_mut().set_song_end_beat(end_beat);
         self.as_mut()
             .set_current_line_note_count(snapshot.current_line_note_count);
         self.as_mut()
@@ -2441,7 +2454,7 @@ impl qobject::SongDocument {
         let data = match loaded {
             true => {
                 let editor = self.rust().editor();
-                let (lines, current_index) = neighbour_lines(editor);
+                let (lines, current_index) = all_lines(editor);
                 match editor.loaded() {
                     Some(song) => line_notes(&song.document, &song.song, &lines, current_index),
                     None => LineNotes::default(),

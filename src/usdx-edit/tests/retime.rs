@@ -12,7 +12,7 @@
 
 use usdx_edit::EditError;
 use usdx_edit::collisions::NeedsGapShift;
-use usdx_edit::retime::{Anchor, Lengths, Outside, StretchOptions, anchor_stretch};
+use usdx_edit::retime::{Anchor, Lengths, Outside, Pin, StretchOptions, anchor_stretch};
 use usdx_format::bytes::decode;
 use usdx_format::rows::{Document, classify};
 use usdx_format::serialize::serialize;
@@ -111,10 +111,12 @@ fn two_anchors_stretch_the_region_between_with_scaled_lengths() {
         Anchor {
             line: 0,
             target_ms: ms_of(0),
+            pin: Pin::Start,
         },
         Anchor {
             line: 2,
             target_ms: ms_of(44),
+            pin: Pin::Start,
         },
     ];
     let out = repaired(
@@ -143,10 +145,12 @@ fn kept_lengths_keep_every_note_length() {
         Anchor {
             line: 0,
             target_ms: ms_of(0),
+            pin: Pin::Start,
         },
         Anchor {
             line: 2,
             target_ms: ms_of(44),
+            pin: Pin::Start,
         },
     ];
     let out = repaired(
@@ -175,6 +179,7 @@ fn a_single_anchor_shifts_the_whole_voice() {
     let anchors = [Anchor {
         line: 1,
         target_ms: ms_of(30),
+        pin: Pin::Start,
     }];
     let out = repaired(
         &text,
@@ -212,6 +217,7 @@ fn a_single_anchor_with_keep_outside_moves_its_own_line_rigidly() {
     let anchors = [Anchor {
         line: 1,
         target_ms: ms_of(13),
+        pin: Pin::Start,
     }];
     let out = repaired(
         &text,
@@ -247,10 +253,12 @@ fn anchor_times_must_increase() {
         Anchor {
             line: 0,
             target_ms: ms_of(10),
+            pin: Pin::Start,
         },
         Anchor {
             line: 2,
             target_ms: ms_of(4),
+            pin: Pin::Start,
         },
     ];
     assert!(
@@ -268,10 +276,12 @@ fn anchor_times_must_increase() {
         Anchor {
             line: 2,
             target_ms: ms_of(10),
+            pin: Pin::Start,
         },
         Anchor {
             line: 2,
             target_ms: ms_of(20),
+            pin: Pin::Start,
         },
     ];
     assert!(
@@ -296,10 +306,12 @@ fn unsorted_anchors_are_sorted_by_line() {
         Anchor {
             line: 2,
             target_ms: ms_of(44),
+            pin: Pin::Start,
         },
         Anchor {
             line: 0,
             target_ms: ms_of(0),
+            pin: Pin::Start,
         },
     ];
     let out = repaired(
@@ -319,6 +331,7 @@ fn anchors_must_name_existing_lines_of_the_voice() {
     let beyond = [Anchor {
         line: 7,
         target_ms: ms_of(10),
+        pin: Pin::Start,
     }];
     assert!(
         matches!(
@@ -339,6 +352,7 @@ fn no_timing_and_relative_songs_are_refused() {
     let anchors = [Anchor {
         line: 0,
         target_ms: ms_of(0),
+        pin: Pin::Start,
     }];
     assert!(matches!(
         error_of(
@@ -367,6 +381,7 @@ fn the_gap_shift_request_surfaces_as_an_error() {
     let anchors = [Anchor {
         line: 0,
         target_ms: 0.0,
+        pin: Pin::Start,
     }];
     assert!(
         matches!(
@@ -409,10 +424,12 @@ fn the_repair_touches_only_its_neighbourhood() {
         Anchor {
             line: 0,
             target_ms: ms_of(0),
+            pin: Pin::Start,
         },
         Anchor {
             line: 1,
             target_ms: ms_of(18),
+            pin: Pin::Start,
         },
     ];
     let out = repaired(
@@ -451,6 +468,7 @@ fn the_patch_changes_only_the_moved_rows_and_marks_them_dirty() {
     let anchors = [Anchor {
         line: 1,
         target_ms: ms_of(13),
+        pin: Pin::Start,
     }];
     let patch = anchor_stretch(
         &doc,
@@ -504,10 +522,12 @@ fn every_anchor_line_starts_within_half_a_beat_of_its_target() {
         Anchor {
             line: 0,
             target_ms: ms_of(0),
+            pin: Pin::Start,
         },
         Anchor {
             line: 2,
             target_ms: ms_of(44),
+            pin: Pin::Start,
         },
     ];
     let options = opts(Outside::Keep, Outside::Keep, Lengths::Scale);
@@ -542,6 +562,7 @@ fn the_end_pin_stretches_the_lines_after_the_last_anchor() {
     let anchors = [Anchor {
         line: 1,
         target_ms: ms_of(30),
+        pin: Pin::Start,
     }];
     let options = StretchOptions {
         before: Outside::Shift,
@@ -611,10 +632,12 @@ fn a_compressed_section_is_repaired_back_within_one_beat() {
         Anchor {
             line: 15,
             target_ms: ms_of(180),
+            pin: Pin::Start,
         },
         Anchor {
             line: 23,
             target_ms: ms_of(276),
+            pin: Pin::Start,
         },
     ];
     let out = repaired(

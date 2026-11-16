@@ -11,13 +11,17 @@
 //! log, task P6-01 the line text module; phase 7 of Plan/IMPLEMENTATION_PLAN.md
 //! adds the retiming, health, export and upgrade modules.
 
+pub mod anchors_export;
+pub mod block;
 pub mod changes;
 pub mod collisions;
 pub mod header_ops;
+pub mod health;
 pub mod history;
 pub mod ops;
 pub mod patch;
 pub mod retime;
+pub mod tap;
 pub mod text;
 
 pub use history::History;

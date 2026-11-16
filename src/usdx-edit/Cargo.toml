@@ -1,6 +1,8 @@
 # About me: manifest of the usdx-edit library crate. It holds the edit operations
 # (patches, undo history, note and line text operations, retiming, health analysis,
-# anchors export, format upgrade) on top of usdx-format's document model.
+# anchors export, format upgrade) on top of usdx-format's document model. The
+# usdx-audio path dependency supplies the vocal activity type to the health
+# analysis (user decision 2026-11-16).
 
 [package]
 name = "usdx-edit"
@@ -11,6 +13,7 @@ license.workspace = true
 
 [dependencies]
 usdx-format = { path = "../usdx-format" }
+usdx-audio = { path = "../usdx-audio" }
 thiserror = "2.0.21"
 
 [dev-dependencies]

@@ -1792,6 +1792,11 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
     const double cutMs = std::ceil(lineStart) + 1.0;
     QMetaObject::invokeMethod(player, "seekMs", Q_ARG(double, cutMs));
     pump_events(50);
+    // A direct seek does not scroll the view: with a large #GAP the cut
+    // lies far right of 0:00, where the riding End song here button is
+    // clipped out of the window. The cut's beat is scrolled to the gutter.
+    QMetaObject::invokeMethod(bg, "scrollToBeat", Q_ARG(double, (cutMs - gapMs) / msPerBeat - 1.0));
+    pump_events(50);
     if (notesBefore >= 2) {
         const QPointF button = endButton->mapToScene(
             QPointF(endButton->width() / 2, endButton->height() / 2));
@@ -1828,22 +1833,43 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
     // A note drag shows the guides at the landing position's lower corners.
     QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, 0));
     QMetaObject::invokeMethod(document, "clearSelection");
+    // The cut step above scrolled the view to the cut; the first line's
+    // start (re-read after goToLine) is scrolled back into view for the
+    // note drag.
+    if (bpm > 0.0) {
+        const double firstStart = document->property("currentLineStartMs").toDouble();
+        QMetaObject::invokeMethod(bg, "scrollToBeat",
+                                  Q_ARG(double, (firstStart - gapMs) / msPerBeat - 1.0));
+    }
     pump_events(100);
     QList<QObject *> delegates;
     find_current_line_delegates(window, delegates);
     const double gutter = bg->property("gutterWidth").toDouble();
+    // The press point is the candidate's centre; a later sibling delegate
+    // covering the centre takes the press and drags its own note (Factory
+    // quirks overlap wide neighbours), so the check picks the first
+    // in-view candidate no later delegate covers.
     QQuickItem *note = nullptr;
-    for (QObject *const candidate : delegates) {
-        auto *const item = qobject_cast<QQuickItem *>(candidate);
+    for (int i = 0; i < delegates.size() && note == nullptr; i++) {
+        auto *const item = qobject_cast<QQuickItem *>(delegates[i]);
         const QPointF local = bg->mapFromItem(item, QPointF(item->width() / 2, item->height() / 2));
-        if (local.x() > gutter + 50.0 && local.x() < bg->width() - 50.0 && local.y() > 30.0
-            && item->width() >= 6.0) {
+        if (!(local.x() > gutter + 50.0 && local.x() < bg->width() - 50.0 && local.y() > 30.0
+              && item->width() >= 6.0)) {
+            continue;
+        }
+        const QPointF centre = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        bool covered = false;
+        for (int j = i + 1; j < delegates.size() && !covered; j++) {
+            auto *const later = qobject_cast<QQuickItem *>(delegates[j]);
+            covered = later->contains(later->mapFromScene(centre));
+        }
+        if (!covered) {
             note = item;
-            break;
         }
     }
     if (note == nullptr) {
-        std::cout << "song end: skipped the drag guides (no note in view)" << std::endl;
+        std::cout << "song end: skipped the drag guides (no pressable note in view)"
+                  << std::endl;
         return true;
     }
     auto guide = [&](const char *name) -> QQuickItem * {

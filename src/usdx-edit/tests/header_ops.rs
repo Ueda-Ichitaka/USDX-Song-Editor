@@ -158,7 +158,7 @@ fn remove_header_takes_the_row_out() {
     let out = applied(remove_header(&d, "gap"), &d);
     assert_eq!(header_value(&out, "GAP"), None);
     assert_eq!(out.rows.len(), d.rows.len() - 1);
-    assert_eq!(dirty_rows(&out), vec![]);
+    assert_eq!(dirty_rows(&out), Vec::<u32>::new());
 }
 
 #[test]

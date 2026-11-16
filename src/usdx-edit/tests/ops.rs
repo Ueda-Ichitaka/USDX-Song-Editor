@@ -353,10 +353,14 @@ fn delete_notes_removes_a_phrase_end_whose_line_lost_all_notes() {
     assert_eq!(note_starts(&out), vec![8]);
     assert_eq!(
         phrase_ends(&out),
-        vec![],
+        Vec::<i64>::new(),
         "the emptied line's phrase end goes away"
     );
-    assert_eq!(dirty_rows(&out), vec![], "a deletion leaves no dirty rows");
+    assert_eq!(
+        dirty_rows(&out),
+        Vec::<u32>::new(),
+        "a deletion leaves no dirty rows"
+    );
 }
 
 #[test]
@@ -475,7 +479,7 @@ fn toggle_phrase_end_before_inserts_a_marker_at_the_previous_note_end() {
 fn toggle_phrase_end_before_removes_the_existing_marker() {
     let (d, s) = song(BODY);
     let out = applied(toggle_phrase_end_before(&d, &s, RowId(5)), &d);
-    assert_eq!(phrase_ends(&out), vec![]);
+    assert_eq!(phrase_ends(&out), Vec::<i64>::new());
     assert_eq!(note_starts(&out), vec![0, 4, 8]);
 }
 

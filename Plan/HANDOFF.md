@@ -1,4 +1,4 @@
-# Handoff - USDX Song Editor (15 November 2026)
+# Handoff - USDX Song Editor (16 November 2026)
 
 About me: the hand-over note for the next agent picking up this repository mid-phase 7. It
 says where the work stands, what is uncommitted, what is open, and the working rules and
@@ -12,8 +12,8 @@ the short entry point. Delete or replace it when the open items below are done.
    commands - the user commits, stay inside the repo except the paths in plan section 12,
    about-me header in every file, comments describe the present only, no emojis except
    U+2705/U+274C in tables, never the en dash, build/test only through `scripts/dev.sh`).
-2. `Plan/PROGRESS.md` rows R-02, R-03, R-04, P6-01, P6-02 and P7-01 (recent rounds, user
-   decisions, gotchas).
+2. `Plan/PROGRESS.md` rows P7-01 to P7-07 and R-04/R-05 (the recent rounds, user decisions
+   and gotchas of the timing-repair phase).
 3. `Plan/UI_SPEC.md` (binding), sections 4.6-4.8, 5.5, 5.7 for the coming repair UI.
 
 Paths the user allowed outside the repo: `/home/ueda/workspace/USDX-Song-Factory/` (test songs
@@ -23,66 +23,48 @@ songs only as copies; never write to the user's files.
 
 ## 2. State
 
-- Phases 0-6 done; rounds R-02 (playhead, bug hunt), R-03 (drag flicker, bug hunt) and R-04
-  (scroll limit, Go to song start/end, End song here with #END, drag guides) done and
-  committed by the user (last commit `9321b52`).
-- Phase 7 (timing repair) started: P7-01 in progress, P7-02 to P7-10 todo.
+- Phases 0-6 done; rounds R-02 to R-05 done. The corpus gate is closed: the clean full
+  self-test sweep passed 136 of 136 songs, 0 failures (`/tmp/opencode/sweep10.log`; the sweep
+  copies and script live in the session scratchpad
+  `/tmp/claude-1000/-home-ueda-workspace-USDX-Song-Editior/4cda98e0-4448-4514-af0a-aa5e02519be4/scratchpad/`,
+  run under `systemd-run --user --scope -q -p MemoryMax=6G`, ~25-30 min, never rebuild the
+  app binary while a sweep runs).
+- Phase 7 (timing repair): P7-01 to P7-07 done (collision pass, anchor + stretch, block
+  transform, tap mapping, health analysis, anchors export, RepairController + TapSession).
+- Last full `scripts/dev.sh check`: green, 722 passed (2026-11-16).
 - `cargo` is not on the shell PATH: use `~/.cargo/bin/cargo fmt --all`; everything else runs
   through `scripts/dev.sh check | test <crate> [--test name] | build | corpus`.
-- Last full `scripts/dev.sh check`: green, 643 passed, 0 failed, 5 ignored (before the P7-01
-  files and the latest self-test edits; rerun it first).
 
-### Uncommitted files (for the user to commit after the open items)
+### Uncommitted files (for the user to commit; last commit `a455b41`)
 
 | File | Content |
 |---|---|
-| `src/usdx-edit/src/collisions.rs` (new) | P7-01 collision pass |
-| `src/usdx-edit/tests/collisions.rs` (new) | 13 tests, 2 proptests, green |
-| `src/usdx-edit/tests/repair_corpus.rs` (new) | opt-in corpus report of the collision pass |
-| `src/usdx-edit/src/lib.rs` | `pub mod collisions;` |
-| `scripts/dev.sh` | `corpus` also runs `repair_corpus` |
-| `src/usdx-song-editor/cpp/selftest.cpp` | self-test fixes from the R-04 sweep (see 3.1) |
+| `src/usdx-edit/src/block.rs` (new) + `tests/block.rs` | P7-03 block transform |
+| `src/usdx-edit/src/tap.rs` (new) + `tests/tap.rs` | P7-04 tap mapping |
+| `src/usdx-edit/src/health.rs` (new) + `tests/health.rs` | P7-05 health analysis |
+| `src/usdx-edit/src/anchors_export.rs` (new) + `tests/anchors_export.rs` | P7-06 anchors.txt export |
+| `src/usdx-edit/Cargo.toml`, `Cargo.lock` | usdx-audio path dep (health analysis) |
+| `src/usdx-edit/src/lib.rs` | module registrations |
+| `src/usdx-edit/src/retime.rs` | Debug + PartialEq derives on `Anchor`, `Pin` |
+| `src/usdx-edit/tests/header_ops.rs`, `ops.rs` | `Vec::<T>::new()` where the usdx-audio dep made bare `vec![]` ambiguous |
+| `src/usdx-song-editor/src/controller/tap.rs` (new) + `tests/tap.rs` | P7-07 TapSession |
+| `src/usdx-song-editor/src/controller/repair.rs` (new) + `tests/repair.rs` | P7-07 RepairController |
+| `src/usdx-song-editor/src/controller/mod.rs` | module registrations |
+| `src/usdx-song-editor/cpp/selftest.cpp` | guide-drag fix (first uncovered candidate; R-05 finding 6) |
 | `Plan/PROGRESS.md`, `Plan/HANDOFF.md` | records |
 
 ## 3. Open items, in order
 
-### 3.1 Finish the R-04 corpus sweep (one song left)
+- **P7-08 Repair UI** (plan 8.3 invokables `Repair`/`TapSession`, UI_SPEC 4.6-4.8): the
+  QObject bridges over `controller/repair.rs` and `controller/tap.rs` and the QML pages.
+- **P7-09** line health in the lines pane and editor status (`usdx-edit::health`).
+- **P7-10** threshold tuning, gate G-06 (with the user).
+- **P8-01 to P8-05** upgrade planner, properties page, settings page, packaging, docs.
 
-The sweep runs the app's `--self-test` on copies of all 136 corpus songs. The copies live in
-the session scratchpad of the previous agent
-(`/tmp/claude-1000/-home-ueda-workspace-USDX-Song-Editior/4cda98e0-4448-4514-af0a-aa5e02519be4/scratchpad/sweep/<n>/song.txt`,
-script `.../scratchpad/sweep2.sh <sweep dir> <binary>`); if that folder is gone, rebuild it by
-copying every song file of the three corpus folders into its own numbered folder (songs
-only, no audio) and loop `QT_QPA_PLATFORM=offscreen timeout 120 <binary> --self-test
-<copy>` under `systemd-run --user --scope -q -p MemoryMax=6G`.
-
-- Fixed in `selftest.cpp`, not yet rerun over all songs: wheel until the view stops instead
-  of 60 steps (97 failures on long songs); undo check compares #END with its value before the
-  cut (a song that already had #END).
-- Still failing: copy 165, Alstroemeria Records - Bad Apple!! - `text editing: a double click
-  on a lyric label did not open the inline field`. The song has out-of-order and stacked
-  notes (`: 0 16 18`, `: 38 11 22`, `: 49 11 27`, `: 38 7 22`). The failure message now prints
-  the click point, the beat, the note `noteAtLyricBeat` returns and the selection count:
-  rerun that one song and read it. Suspects: `EditorController::note_at_lyric_beat` uses
-  `take_while(start <= beat)` over notes in row order, which stops early on out-of-order
-  notes (may be an app bug worth fixing test-first: pick the note with the largest start <=
-  beat, or the label actually drawn there); or the click lands outside the lyrics lane.
-- Then rerun the whole sweep until 136 of 136 pass, run `scripts/dev.sh check`, and replace
-  the "Corpus sweep (open ...)" text in PROGRESS row R-04 with the final result.
-
-### 3.2 Finish P7-01
-
-`scripts/dev.sh check` (clippy `-D warnings`, rustfmt) with the new module; then mark P7-01
-done in PROGRESS. The write-back of a `Placed` result into a patch belongs to P7-02.
-
-### 3.3 P7-02 Anchor + stretch onward
-
-User decision 2026-11-15 ("Retimed lines + neighbours"): a repair runs the collision pass only
-over the retimed lines plus one line before and after them; overlaps elsewhere in the song
-(Factory stacked notes, 23 notes in 6 corpus voices) stay untouched. Plan 6.7 to 6.11 and the
-task list in plan section 10 (phase 7) define the rest; gate G-06 applies to P7-10 (threshold
-tuning with the user). The Factory reference for the anchors export (P7-06) is in plan section
-12 (`anchors.py`, `outro.py:parse_time`, `docs/repairs.md`).
+User decisions that bind the repair UI: the controllers are standalone structs taking
+`&mut LoadedSong`; the Repair QObject's mode enum reads anchor/block/tap verbatim with the
+TapSession inside the controller; the anchors export is pure (the dialog code reads
+lyrics.txt and passes its lines); inline expected text instead of an insta dep.
 
 ## 4. Open questions for the user (never answered yet)
 
@@ -100,7 +82,9 @@ tuning with the user). The Factory reference for the anchors export (P7-06) is i
   real song prints "skipped ..." (never "ok"), and the multi-note test in
   `tests/self_test.rs` requires every "...: ok" line. Pick click targets inside the visible
   sheet (right of the gutter, inside the pitch rows): notes left of the view sit clipped
-  under the lines pane. i64 invokable arguments are `std::int64_t` (`long`), not `qint64`.
+  under the lines pane. A later sibling delegate can cover a candidate note's centre, so a
+  press lands on the covering note - the guide-drag step picks the first candidate no later
+  delegate covers.
 - Qt logs go to the journal when stderr is not a terminal: set `QT_FORCE_STDERR_LOGGING=1`
   to see `console.warn` output of a direct run.
 - QML: inline components cannot see outer ids (pass values as properties); a hidden text
@@ -112,3 +96,10 @@ tuning with the user). The Factory reference for the anchors export (P7-06) is i
 - Screenshots: `scripts/ui-shots.sh [states]`, compare against `Plan/mockups/` (UI_SPEC 8.2);
   caret blink and the "Main menu" tooltip fade differ between runs.
 - Never rebuild while a sweep runs: the sweep calls the binary per song.
+- Rust: `f64::from(i64)` does not exist (`as f64`); `&RowId == RowId` needs a deref in
+  closure finds; adding a dep that pulls glib/gstreamer makes bare `vec![]` comparisons
+  ambiguous (`Vec::<T>::new()`); `StretchOptions` has no `Default` (build the explicit
+  Keep/Keep/Keep/None literal); `FileFingerprint::new(size, modified, &bytes)` is the
+  constructor; clippy wants `notes.clone()` over `.iter().copied().collect()` and elided
+  lifetimes, and its doc-list lint reads a wrapped "+ neighbours" at a line start as a
+  markdown list; `usize::from(voice)` is the voices index, `voice.number` is 1-based.

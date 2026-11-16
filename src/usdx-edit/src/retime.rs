@@ -1,7 +1,8 @@
 //! The anchor stretch of the timing repair (plan section 6.7, task P7-02).
 //!
-//! About me: anchors pin the first note of chosen lines to target times;
-//! between two neighbouring anchors every note time maps linearly from the
+//! About me: anchors pin a chosen note time of lines (the first note's
+//! start or the last note's end) to target times; between two neighbouring
+//! anchors every note time maps linearly from the
 //! old to the new anchor times (a line maps with the segment that starts at
 //! its anchor, the last anchor's line with the last segment), the lines
 //! before shift by the first anchor's offset or keep, the lines after
@@ -21,14 +22,26 @@ use std::collections::HashMap;
 use crate::collisions::{self, BreakPlace, NeedsGapShift, TimedLine};
 use crate::ops::edited;
 use crate::patch::{EditError, Patch};
-use usdx_format::rows::{Document, RowKind};
+use usdx_format::rows::{Document, RowId, RowKind};
 use usdx_format::song::Song;
 
-/// Anchor pins the first note of `line` (an index into the voice's lines)
-/// to the time `target_ms`.
+/// Anchor pins one time of `line` (an index into the voice's lines) to the
+/// time `target_ms`: `Pin::Start` pins the line's first note start,
+/// `Pin::End` its last note end (a block's new end, plan section 6.8).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Anchor {
     pub line: usize,
     pub target_ms: f64,
+    pub pin: Pin,
+}
+
+/// Pin says which note time of the anchor line the target pins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pin {
+    /// The line's first note start.
+    Start,
+    /// The line's last note end.
+    End,
 }
 
 /// Outside says what happens to the lines before the first anchor.
@@ -59,13 +72,14 @@ pub struct StretchOptions {
 }
 
 /// LineMap maps the float beat times of one line's region: a time `t`
-/// becomes `a_new + (t - a_old) * k`.
+/// becomes `a_new + (t - a_old) * k`. The tap mapping builds rigid maps
+/// with it (task P7-04).
 #[derive(Clone, Copy)]
-struct LineMap {
-    a_old: f64,
-    a_new: f64,
-    k: f64,
-    scale: bool,
+pub(crate) struct LineMap {
+    pub(crate) a_old: f64,
+    pub(crate) a_new: f64,
+    pub(crate) k: f64,
+    pub(crate) scale: bool,
 }
 
 impl LineMap {
@@ -85,7 +99,7 @@ impl LineMap {
     }
 
     /// rigid builds the map of a rigid shift by `delta` beats.
-    fn rigid(delta: f64, scale: bool) -> Self {
+    pub(crate) fn rigid(delta: f64, scale: bool) -> Self {
         LineMap {
             a_old: 0.0,
             a_new: delta,
@@ -110,30 +124,37 @@ pub fn anchor_stretch(
     let timing = song.timing.ok_or(EditError::NoTiming)?;
     let lines = collisions::timed_lines(doc, song, usize::from(voice));
 
-    // The anchors are sorted by line and must pin different lines with
-    // strictly increasing target times.
+    // The anchors are sorted by line and must pin strictly increasing old
+    // and target times: two anchors that pin the same time of one line
+    // (two starts or two ends) have the same old time, and a start after an
+    // end on one line decreases it.
     let mut sorted: Vec<&Anchor> = anchors.iter().collect();
     sorted.sort_by_key(|anchor| anchor.line);
-    for pair in sorted.windows(2) {
-        if pair[0].line == pair[1].line || pair[1].target_ms <= pair[0].target_ms {
-            return Err(EditError::AnchorsOutOfOrder);
-        }
-    }
     // Every anchor names a line of the voice that has notes; its old beat
-    // is that line's first note start and its new beat the target time.
+    // is the pinned note time (the line's first start or last end) and its
+    // new beat the target time.
     let mut pinned: Vec<(usize, f64, f64)> = Vec::with_capacity(sorted.len());
     for anchor in &sorted {
         let line = lines.get(anchor.line).ok_or(EditError::StalePatch(
             "the anchor names a line the voice does not have",
         ))?;
-        let old = line
-            .notes
-            .first()
-            .map(|note| note.start)
-            .ok_or(EditError::StalePatch(
-                "the anchor names a line without notes",
-            ))?;
+        let old = match anchor.pin {
+            Pin::Start => line.notes.first(),
+            Pin::End => line.notes.last(),
+        }
+        .map(|note| match anchor.pin {
+            Pin::Start => note.start,
+            Pin::End => note.end,
+        })
+        .ok_or(EditError::StalePatch(
+            "the anchor names a line without notes",
+        ))?;
         pinned.push((anchor.line, old, timing.ms_to_beat(anchor.target_ms)));
+    }
+    for pair in pinned.windows(2) {
+        if pair[1].1 <= pair[0].1 || pair[1].2 <= pair[0].2 {
+            return Err(EditError::AnchorsOutOfOrder);
+        }
     }
     if pinned.is_empty() {
         return Ok(Patch {
@@ -150,9 +171,6 @@ pub fn anchor_stretch(
     // anchor's line maps with the last segment.
     let mut segment_maps: Vec<LineMap> = Vec::with_capacity(pinned.len() - 1);
     for pair in pinned.windows(2) {
-        if pair[1].1 <= pair[0].1 {
-            return Err(EditError::AnchorsOutOfOrder);
-        }
         segment_maps.push(LineMap {
             a_old: pair[0].1,
             a_new: pair[0].2,
@@ -221,6 +239,29 @@ pub fn anchor_stretch(
     // after them; a line of the window without a map keeps its times. The
     // markers are handed over without places: they are placed below from
     // the final positions, where the pass would only know the window.
+    let window = mapped_window(&lines, &maps, first, after_end);
+    let shifted = rigid_shifts(doc, &lines, &maps, first, after_end);
+    commit_times(
+        doc,
+        &lines,
+        &window,
+        first,
+        after_end,
+        &shifted,
+        "Anchor stretch",
+    )
+}
+
+/// mapped_window builds the pass window: the voice's lines from one before
+/// the first mapped line to one after the last, each note at its mapped
+/// time (a line without a map keeps its times, the markers are dropped and
+/// placed by commit_times from the final positions).
+pub(crate) fn mapped_window(
+    lines: &[TimedLine],
+    maps: &[(usize, LineMap)],
+    first: usize,
+    after_end: usize,
+) -> Vec<TimedLine> {
     let in_window = |line: usize| line + 1 >= first && line <= after_end + 1;
     let mut window: Vec<TimedLine> = Vec::new();
     for (index, line) in lines.iter().enumerate() {
@@ -244,12 +285,58 @@ pub fn anchor_stretch(
             .collect();
         window.push(TimedLine { notes, end: None });
     }
-    let placed = collisions::resolve_collisions(&window)
+    window
+}
+
+/// rigid_shifts lists the mapped notes of the lines beyond the window as
+/// start-only shifts (they are rigid maps, so only the start moves).
+pub(crate) fn rigid_shifts(
+    doc: &Document,
+    lines: &[TimedLine],
+    maps: &[(usize, LineMap)],
+    first: usize,
+    after_end: usize,
+) -> Vec<(usize, RowId, i64)> {
+    let in_window = |line: usize| line + 1 >= first && line <= after_end + 1;
+    let mut shifted = Vec::new();
+    for (line, map) in maps {
+        if in_window(*line) {
+            continue;
+        }
+        for note in &lines[*line].notes {
+            let new_start = map.point(note.start).round() as i64;
+            let index = note.id.0 as usize;
+            let RowKind::Note(row) = &doc.rows[index].kind else {
+                continue;
+            };
+            if row.start != new_start {
+                shifted.push((*line, note.id, new_start));
+            }
+        }
+    }
+    shifted
+}
+
+/// commit_times resolves the window's float note times through the
+/// collision pass and writes the changed notes, the rigid shifts of the
+/// notes beyond the window and the recomputed phrase ends as one undoable
+/// patch. The window covers the lines from one before `first` to one after
+/// `after_end`; `shifted` moves single notes of the lines beyond it (their
+/// line indexes make their phrase ends affected).
+pub(crate) fn commit_times(
+    doc: &Document,
+    lines: &[TimedLine],
+    window: &[TimedLine],
+    first: usize,
+    after_end: usize,
+    shifted: &[(usize, RowId, i64)],
+    label: &str,
+) -> Result<Patch, EditError> {
+    let placed = collisions::resolve_collisions(window)
         .map_err(|NeedsGapShift(beats)| EditError::NeedsGapShift(NeedsGapShift(beats)))?;
 
-    // The patch: every placed note whose row differs, every note of the
-    // mapped lines outside the window (they are rigid shifts, so only the
-    // start moves) and every recomputed phrase end.
+    // The patch: every placed note whose row differs and every shifted
+    // note.
     let mut ops = Vec::new();
     for note in &placed.notes {
         let index = note.id.0 as usize;
@@ -265,30 +352,24 @@ pub fn anchor_stretch(
             }));
         }
     }
-    for (line, map) in &maps {
-        if in_window(*line) {
+    for (_, id, new_start) in shifted {
+        let index = id.0 as usize;
+        let RowKind::Note(row) = &doc.rows[index].kind else {
             continue;
-        }
-        for note in &lines[*line].notes {
-            let new_start = map.point(note.start).round() as i64;
-            let index = note.id.0 as usize;
-            let RowKind::Note(row) = &doc.rows[index].kind else {
-                continue;
-            };
-            if row.start != new_start {
-                ops.push(edited(doc, index, |kind| {
-                    if let RowKind::Note(row) = kind {
-                        row.start = new_start;
-                    }
-                }));
-            }
+        };
+        if row.start != *new_start {
+            ops.push(edited(doc, index, |kind| {
+                if let RowKind::Note(row) = kind {
+                    row.start = *new_start;
+                }
+            }));
         }
     }
 
     // The final position of every note of the voice: the current values,
-    // overlaid with the pass's placed notes and the shifted lines.
+    // overlaid with the pass's placed notes and the shifted notes.
     let mut final_pos: HashMap<u32, (i64, i64)> = HashMap::new();
-    for line in &lines {
+    for line in lines {
         for note in &line.notes {
             let RowKind::Note(row) = &doc.rows[note.id.0 as usize].kind else {
                 continue;
@@ -299,24 +380,20 @@ pub fn anchor_stretch(
     for note in &placed.notes {
         final_pos.insert(note.id.0, (note.start, note.start + note.length));
     }
-    for (line, map) in &maps {
-        if in_window(*line) {
+    for (_, id, new_start) in shifted {
+        let RowKind::Note(row) = &doc.rows[id.0 as usize].kind else {
             continue;
-        }
-        for note in &lines[*line].notes {
-            let RowKind::Note(row) = &doc.rows[note.id.0 as usize].kind else {
-                continue;
-            };
-            let start = map.point(note.start).round() as i64;
-            final_pos.insert(note.id.0, (start, start + row.length));
-        }
+        };
+        final_pos.insert(id.0, (*new_start, *new_start + row.length));
     }
 
     // Every phrase end whose line or next line is affected keeps its old
     // fraction of the new gap (the pass's placement rule, computed from
     // the final note positions).
+    let in_window = |line: usize| line + 1 >= first && line <= after_end + 1;
     let affected = |line: usize| {
-        (line < lines.len() && in_window(line)) || maps.iter().any(|(mapped, _)| *mapped == line)
+        (line < lines.len() && in_window(line))
+            || shifted.iter().any(|(moved, _, _)| *moved == line)
     };
     for (index, line) in lines.iter().enumerate() {
         let Some(break_row) = &line.end else {
@@ -358,7 +435,7 @@ pub fn anchor_stretch(
     }
 
     Ok(Patch {
-        label: "Anchor stretch".to_owned(),
+        label: label.to_owned(),
         ops,
     })
 }

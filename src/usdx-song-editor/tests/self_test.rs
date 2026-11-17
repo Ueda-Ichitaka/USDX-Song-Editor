@@ -180,6 +180,7 @@ fn self_test_runs_the_interaction_checks_on_a_multi_note_song() {
         "playhead: ok",
         "text editing: ok",
         "song end: ok",
+        "block band: ok",
     ] {
         assert!(
             stdout.contains(report),

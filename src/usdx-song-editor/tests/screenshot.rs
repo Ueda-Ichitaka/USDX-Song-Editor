@@ -293,14 +293,71 @@ fn the_no_vocals_state_waits_for_the_waveform() {
 }
 
 #[test]
-fn the_repair_state_pushes_the_repair_page_and_screenshots_it() {
-    // The demo state opens the editor and pushes the repair page (task
-    // P7-08); the run must succeed on a generated fixture and show the
-    // page, so the RepairPage/RepairSheet/AnchorPanel QML tree loads
-    // without a QML error.
+fn the_repair_anchor_state_shows_the_synthetic_fault_with_two_anchors() {
+    // UI_SPEC 8.1: the repair-anchor state compresses a run of lines to a
+    // quarter of its duration (plan 6.7's synthetic fault; lines 15-22 on
+    // a song with enough lines, the first line on the two-line fixture),
+    // pins the first compressed line and the line after the run at their
+    // original starts and previews the stretch.
     let (_dir, song) = audio_fixture(true);
-    let (status, stdout, written) = audio_state_run("repair", Some(&song));
+    let (status, stdout, written) = audio_state_run("repair-anchor", Some(&song));
     assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(
+        stdout.contains("repair demo: lines 1-1 compressed to a quarter, anchors 2, preview yes"),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn the_repair_block_state_selects_the_compressed_lines_with_their_old_end() {
+    // The block mode on the same fault: the block holds the compressed
+    // lines and its new end is the old end, so the preview restores them.
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("repair-block", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(
+        stdout.contains("repair demo: lines 1-1 compressed to a quarter, block 1-1, preview yes"),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn the_tap_along_state_records_taps_on_the_fault() {
+    // UI_SPEC 8.1: the tap-along page over the compressed lines in the
+    // syllable mode, recording, with up to 12 taps at the note starts (the
+    // two-line fixture has fewer notes).
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("tap-along", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(stdout.contains("tap demo: lines 1-1"), "got: {stdout}");
+    assert!(stdout.contains("state recording"), "got: {stdout}");
+}
+
+#[test]
+fn the_export_anchors_state_opens_the_dialog_after_the_repair() {
+    // UI_SPEC 8.1: the Export anchors dialog after the anchor demo's
+    // stretch is applied; the export holds the changed lines and the two
+    // pinned anchors.
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("export-anchors", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(stdout.contains("export demo: "), "got: {stdout}");
+    assert!(stdout.contains("2 pinned"), "got: {stdout}");
+    // After Apply the anchors sit where they pin: nothing is pending.
+    assert!(stdout.contains("preview after apply no"), "got: {stdout}");
+}
+
+#[test]
+fn the_latency_calibration_state_shows_five_measured_taps() {
+    // UI_SPEC 8.1 / 5.7: the Measure tap latency dialog over the tap-along
+    // page with five taps measured (34, 38, 36, 31, 37 ms: median 36 ms).
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("latency-calibration", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(
+        stdout.contains("calibration demo: 5 taps, median 36 ms"),
+        "got: {stdout}"
+    );
 }
 
 #[test]

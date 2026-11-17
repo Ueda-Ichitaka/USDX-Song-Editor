@@ -25,8 +25,12 @@ fn main() {
         "qml/RepairSheet.qml",
         "qml/RepairPage.qml",
         "qml/AnchorPanel.qml",
+        "qml/BlockBar.qml",
         "qml/Inspector.qml",
         "qml/LineTextDialog.qml",
+        "qml/TapAlongPage.qml",
+        "qml/ExportAnchorsDialog.qml",
+        "qml/CalibrationDialog.qml",
         "qml/StatusBar.qml",
         "qml/format.js",
     ]);

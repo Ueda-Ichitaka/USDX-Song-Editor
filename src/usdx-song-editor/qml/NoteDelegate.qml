@@ -16,7 +16,8 @@
 // coordinates because the note moves under the pointer. While a drag runs,
 // dashed guides drop from the ghost's lower corners to the waveform lanes
 // (user decision 2026-11-15). A double click opens the sheet's inline
-// syllable field for the note.
+// syllable field for the note. A host sheet that marks racing notes (the
+// repair sheet, through racingNote) gets them in the negative colour.
 
 import QtQuick
 import QtQuick.Shapes
@@ -121,7 +122,7 @@ Rectangle {
                           : 0)
     height: bg ? bg.pxPerSemitone - 4 : 0
     radius: 3
-    color: typeColor
+    color: racing ? Kirigami.Theme.negativeTextColor : typeColor
     // The notes of the global neighbour lines draw at 35 % opacity.
     opacity: lineOffset !== 0 ? 0.35 : 1.0
     border.width: selected ? 2 : 0
@@ -145,6 +146,12 @@ Rectangle {
     Usdx.Palette {
         id: appPalette
     }
+
+    // A host that marks racing notes (the repair sheet, UI_SPEC 4.6) draws
+    // them in the negative colour; the editor sheet has no such marks.
+    readonly property bool racing:
+        noteSheet !== null && typeof noteSheet.racingNote === "function"
+        && noteSheet.racingNote(noteId)
 
     readonly property color typeColor:
         type === "*" ? appPalette.noteGolden

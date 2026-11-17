@@ -239,7 +239,14 @@ fn export_problems_reports_unfound_and_misbound_anchors() {
     let song_lines = vec!["a".to_owned(), "b".to_owned(), "a".to_owned()];
     let problems = export_problems(&[entry(1_000.0, "a", 0)], &song_lines, None);
     assert_eq!(problems.len(), 1);
-    assert!(problems[0].contains("later line"), "{}", problems[0]);
+    assert!(
+        problems[0].message.contains("later line"),
+        "{}",
+        problems[0].message
+    );
+    // Each problem names the song line it came from, which the dialog's
+    // "Leave it out" action drops.
+    assert_eq!(problems[0].source_line, 0);
     // The last occurrence is fine.
     assert!(export_problems(&[entry(3_000.0, "a", 2)], &song_lines, None).is_empty());
 
@@ -248,15 +255,19 @@ fn export_problems_reports_unfound_and_misbound_anchors() {
     let problems = export_problems(&[entry(1_000.0, "a", 0)], &song_lines, Some(&song_lines));
     assert_eq!(problems.len(), 1);
     assert!(
-        problems[0].contains("different occurrence"),
+        problems[0].message.contains("different occurrence"),
         "{}",
-        problems[0]
+        problems[0].message
     );
     // A text missing from lyrics.txt warns.
     let lyrics = vec!["b".to_owned()];
     let problems = export_problems(&[entry(1_000.0, "a", 0)], &song_lines, Some(&lyrics));
     assert_eq!(problems.len(), 1);
-    assert!(problems[0].contains("not found"), "{}", problems[0]);
+    assert!(
+        problems[0].message.contains("not found"),
+        "{}",
+        problems[0].message
+    );
     // A binding that agrees with the song line is fine.
     let lyrics = vec!["a".to_owned()];
     assert!(export_problems(&[entry(1_000.0, "a", 0)], &song_lines, Some(&lyrics)).is_empty());
@@ -270,8 +281,8 @@ fn export_problems_reports_unfound_and_misbound_anchors() {
     );
     assert_eq!(problems.len(), 1);
     assert!(
-        problems[0].contains("different occurrence"),
+        problems[0].message.contains("different occurrence"),
         "{}",
-        problems[0]
+        problems[0].message
     );
 }

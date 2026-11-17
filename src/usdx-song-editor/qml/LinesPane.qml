@@ -1,9 +1,10 @@
 // About me: the lines pane on the left side of the editor (UI_SPEC 4.3). A
 // search field filters the rows case-insensitively and the list shows one
 // 29 px row per line of all voices with the 1-based global number, the
-// start time, the optional type chip, the text and the health dot. The
-// current line is highlighted and the view follows it; the health stays
-// positive with no reason until the analysis of P7 fills the roles.
+// start time, the optional type chip, the text and the health dot with the
+// health reason as its tooltip, and a racing line carries a 3 px bar on its
+// left edge (the health analysis, task P7-09). The current line is
+// highlighted and the view follows it.
 
 import QtQuick
 import QtQuick.Controls
@@ -95,8 +96,7 @@ ColumnLayout {
                          : Kirigami.Theme.backgroundColor
             }
 
-            // The 3 px bar marks a racing line (UI_SPEC 4.3); the analysis
-            // arrives with P7.
+            // The 3 px bar marks a racing line (UI_SPEC 4.3).
             Rectangle {
                 visible: row.health === 2
                 width: metrics.racingBarWidth
@@ -172,8 +172,7 @@ ColumnLayout {
                     Layout.preferredWidth: metrics.lineHealthWidth
 
                     Rectangle {
-                        // The health dot with the reason as its tooltip;
-                        // positive while the analysis of P7 is pending.
+                        // The health dot with the reason as its tooltip.
                         anchors.centerIn: parent
                         width: metrics.healthDotSize
                         height: width

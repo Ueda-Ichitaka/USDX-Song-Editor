@@ -73,9 +73,36 @@ QtObject {
     property real syllableChipPaddingHorizontal: 6
     property real syllableChipMinimumWidth: 38
 
+    // The Measure tap latency dialog (UI_SPEC 5.7): its preferred width and
+    // the eight 18 px click circles 10 px apart.
+    property real calibrationDialogWidth: 470
+    property real calibrationCircleSize: 18
+    property real calibrationCircleSpacing: 10
+
+    // The Export anchors dialog (UI_SPEC 5.5): its preferred width.
+    property real exportDialogWidth: 640
+
     // The inline syllable field over a lyric label (user decision
     // 2026-11-15): at least as wide as the inspector's Text field.
     property real inlineSyllableMinimumWidth: 90
+
+    // The tap-along page (UI_SPEC 4.8): the centred 760 px column with
+    // 26 / 18 px padding and 14 px spacing, the 140 x 64 px Space key cap
+    // (radius 10, 2 px border, 5 px at the bottom), the 70 px lane and the
+    // 6 x 14 px note blocks in it.
+    property real tapContentWidth: 760
+    property real tapPaddingHorizontal: 26
+    property real tapPaddingVertical: 18
+    property real tapSpacing: 14
+    property real keyCapWidth: 140
+    property real keyCapHeight: 64
+    property real keyCapRadius: 10
+    property real keyCapBorder: 2
+    property real keyCapBottomBorder: 5
+    property real tapLaneHeight: 70
+    property real tapLanePadding: 10
+    property real tapLaneNoteWidth: 6
+    property real tapLaneNoteHeight: 14
 
     // Status bar: height, side padding and label spacing.
     property real statusBarHeight: 24

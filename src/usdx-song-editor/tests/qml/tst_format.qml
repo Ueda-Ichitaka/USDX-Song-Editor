@@ -1,8 +1,8 @@
 // About me: Qt Quick Test cases for qml/format.js, the shared formatting
 // helpers of the QML shell (UI_SPEC 2.5). They pin the time formats: m:ss.s
 // in the lines pane and m:ss.ss everywhere else, always with every decimal,
-// including the carry into the next second and minute, and the song file a
-// drop picks. tests/qml_tests.rs runs this file with qmltestrunner.
+// including the carry into the next second and minute, the parsing of a
+// typed time back into milliseconds, and the song file a drop picks. tests/qml_tests.rs runs this file with qmltestrunner.
 
 import QtQuick
 import QtTest
@@ -36,6 +36,28 @@ TestCase {
 
     function test_longTime(data) {
         compare(Time.longTime(data.ms), data.expected);
+    }
+
+    function test_parseTime_data() {
+        return [
+            { tag: "minutes and hundredths", text: "1:06.18", expected: 66180 },
+            { tag: "seconds only", text: "47.5", expected: 47500 },
+            { tag: "whole minutes", text: "2:05", expected: 125000 },
+            { tag: "surrounding spaces", text: " 0:12.00 ", expected: 12000 },
+            { tag: "comma as the separator", text: "1:06,18", expected: 66180 },
+            { tag: "seconds past 59", text: "1:75.0", expected: NaN },
+            { tag: "no number", text: "abc", expected: NaN },
+            { tag: "empty", text: "", expected: NaN }
+        ];
+    }
+
+    function test_parseTime(data) {
+        const ms = Time.parseTime(data.text);
+        if (isNaN(data.expected)) {
+            verify(isNaN(ms), data.text + " must not parse, got " + ms);
+        } else {
+            compare(ms, data.expected);
+        }
     }
 
     function test_songUrlOf_data() {

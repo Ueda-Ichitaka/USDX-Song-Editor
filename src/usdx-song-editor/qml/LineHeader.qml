@@ -4,8 +4,8 @@
 // P5-06), note count and syllable rate, the timing health pill and the line
 // type combo with the Edit text button. The combo shows the line's type and
 // sets it for every note of the line; the button asks the editor page to
-// open the Edit line dialog (editTextRequested, task P6-02). The health
-// stays "timing ok" until the analysis of P7 arrives.
+// open the Edit line dialog (editTextRequested, task P6-02). The health pill
+// shows the current line's health analysis (task P7-09).
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -74,7 +74,8 @@ Rectangle {
             id: healthPill
 
             // The timing health pill: "timing ok", "suspicious" or
-            // "racing · 11.9 syl/s" (UI_SPEC 4.3). Health arrives with P7.
+            // "racing · 11.9 syl/s" (UI_SPEC 4.3), from the current line's
+            // health analysis (task P7-09).
             visible: document && document.isLoaded
             Layout.alignment: Qt.AlignVCenter
             radius: height / 2

@@ -2,7 +2,8 @@
 // in the line list are m:ss.s, times everywhere else m:ss.ss, durations are
 // seconds with one decimal and rates are syllables per second with one
 // decimal; every number uses a dot as the decimal separator regardless of
-// the locale, because these are file values. The path helpers turn plain
+// the locale, because these are file values. parseTime reads a typed time
+// back into milliseconds. The path helpers turn plain
 // paths into file urls and pick the song file of a drop. Files import this with
 // `import "format.js" as Time`.
 
@@ -28,6 +29,24 @@ function shortTime(ms) {
 // longTime renders a time for headers and dialogs: m:ss.ss.
 function longTime(ms) {
     return timeText(ms, 2);
+}
+
+// parseTime reads a typed time back into milliseconds: "m:ss.ss", "m:ss"
+// or plain seconds "ss.ss", a dot or a comma as the decimal separator,
+// surrounding spaces ignored. Seconds after a colon stay below 60; anything
+// else gives NaN.
+function parseTime(text) {
+    const match = /^\s*(?:(\d+):)?(\d+)(?:[.,](\d+))?\s*$/.exec(text);
+    if (match === null) {
+        return NaN;
+    }
+    const minutes = match[1] !== undefined ? Number(match[1]) : 0;
+    const seconds = Number(match[2]);
+    if (match[1] !== undefined && seconds >= 60) {
+        return NaN;
+    }
+    const fraction = match[3] !== undefined ? Number("0." + match[3]) : 0;
+    return Math.round((minutes * 60 + seconds + fraction) * 1000);
 }
 
 // durationText renders the line duration: "4.8 s".

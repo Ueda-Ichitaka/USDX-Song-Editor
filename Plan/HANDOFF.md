@@ -1,4 +1,4 @@
-# Handoff - USDX Song Editor (16 November 2026)
+# Handoff - USDX Song Editor (17 November 2026)
 
 About me: the hand-over note for the next agent picking up this repository mid-phase 7. It
 says where the work stands, what is uncommitted, what is open, and the working rules and
@@ -23,48 +23,44 @@ songs only as copies; never write to the user's files.
 
 ## 2. State
 
-- Phases 0-6 done; rounds R-02 to R-05 done. The corpus gate is closed: the clean full
-  self-test sweep passed 136 of 136 songs, 0 failures (`/tmp/opencode/sweep10.log`; the sweep
-  copies and script live in the session scratchpad
-  `/tmp/claude-1000/-home-ueda-workspace-USDX-Song-Editior/4cda98e0-4448-4514-af0a-aa5e02519be4/scratchpad/`,
-  run under `systemd-run --user --scope -q -p MemoryMax=6G`, ~25-30 min, never rebuild the
-  app binary while a sweep runs).
-- Phase 7 (timing repair): P7-01 to P7-07 done (collision pass, anchor + stretch, block
-  transform, tap mapping, health analysis, anchors export, RepairController + TapSession).
-- Last full `scripts/dev.sh check`: green, 722 passed (2026-11-16).
+- Phases 0-6 done; rounds R-02 to R-05 done; phase 7: P7-01 to P7-07 and P7-09 done, P7-08
+  (repair UI) functionally complete with all five demo states and the UI acceptance in
+  PROGRESS (marked done once the full corpus sweep below passes), P7-10 waiting at gate
+  G-06 (the report step is done, the numbers are in PROGRESS).
+- Last full `scripts/dev.sh check`: green, 786 passed, 0 failed, 6 ignored (2026-11-17).
 - `cargo` is not on the shell PATH: use `~/.cargo/bin/cargo fmt --all`; everything else runs
   through `scripts/dev.sh check | test <crate> [--test name] | build | corpus`.
+- Corpus self-test sweep: copies of the 136 corpus songs (songs only, no audio) in
+  `/tmp/claude-1000/-home-ueda-workspace-USDX-Song-Editior/4cda98e0-4448-4514-af0a-aa5e02519be4/scratchpad/sweep/<n>/song.txt`,
+  script `.../scratchpad/sweep.sh <sweep dir> <binary>`, run under `systemd-run --user
+  --scope -q -p MemoryMax=6G`; about 40 s per song now (1.5 h for all), so never rebuild the
+  app binary while it runs (`cargo test -p usdx-song-editor` rebuilds it). If the scratchpad
+  is gone, rebuild the copies from the three corpus folders.
+- Demo states (UI_SPEC 8.1) in `scripts/ui-shots.sh`: start-screen, editor, line-text,
+  repair-anchor, repair-block, tap-along, export-anchors, latency-calibration and the three
+  audio states.
 
-### Uncommitted files (for the user to commit; last commit `a455b41`)
+### Uncommitted files (last commit `52f814a repair song pages`)
 
-| File | Content |
-|---|---|
-| `src/usdx-edit/src/block.rs` (new) + `tests/block.rs` | P7-03 block transform |
-| `src/usdx-edit/src/tap.rs` (new) + `tests/tap.rs` | P7-04 tap mapping |
-| `src/usdx-edit/src/health.rs` (new) + `tests/health.rs` | P7-05 health analysis |
-| `src/usdx-edit/src/anchors_export.rs` (new) + `tests/anchors_export.rs` | P7-06 anchors.txt export |
-| `src/usdx-edit/Cargo.toml`, `Cargo.lock` | usdx-audio path dep (health analysis) |
-| `src/usdx-edit/src/lib.rs` | module registrations |
-| `src/usdx-edit/src/retime.rs` | Debug + PartialEq derives on `Anchor`, `Pin` |
-| `src/usdx-edit/tests/header_ops.rs`, `ops.rs` | `Vec::<T>::new()` where the usdx-audio dep made bare `vec![]` ambiguous |
-| `src/usdx-song-editor/src/controller/tap.rs` (new) + `tests/tap.rs` | P7-07 TapSession |
-| `src/usdx-song-editor/src/controller/repair.rs` (new) + `tests/repair.rs` | P7-07 RepairController |
-| `src/usdx-song-editor/src/controller/mod.rs` | module registrations |
-| `src/usdx-song-editor/cpp/selftest.cpp` | guide-drag fix (first uncovered candidate; R-05 finding 6) |
-| `Plan/PROGRESS.md`, `Plan/HANDOFF.md` | records |
+Everything under `git status`: the P7-08 bridges and QML (RepairPage, RepairSheet,
+AnchorPanel, BlockBar, TapAlongPage, ExportAnchorsDialog, CalibrationDialog), the
+controller modules calibration.rs and line_health.rs, usdx-edit's health signals and
+ExportProblem, usdx-audio's `cached_activity`, the screenshot and self-test helpers, the
+tests, PROGRESS and this file.
 
 ## 3. Open items, in order
 
-- **P7-08 Repair UI** (plan 8.3 invokables `Repair`/`TapSession`, UI_SPEC 4.6-4.8): the
-  QObject bridges over `controller/repair.rs` and `controller/tap.rs` and the QML pages.
-- **P7-09** line health in the lines pane and editor status (`usdx-edit::health`).
-- **P7-10** threshold tuning, gate G-06 (with the user).
+- **Full corpus sweep** over this session's changes (started 2026-11-17; result to go into
+  PROGRESS row P7-08, then mark P7-08 done).
+- **P7-10** threshold tuning with the user (gate G-06): the user names known broken and
+  known good songs; adjust `HealthThresholds::default()` and record the numbers.
 - **P8-01 to P8-05** upgrade planner, properties page, settings page, packaging, docs.
 
 User decisions that bind the repair UI: the controllers are standalone structs taking
 `&mut LoadedSong`; the Repair QObject's mode enum reads anchor/block/tap verbatim with the
 TapSession inside the controller; the anchors export is pure (the dialog code reads
-lyrics.txt and passes its lines); inline expected text instead of an insta dep.
+lyrics.txt and passes its lines); inline expected text instead of an insta dep; a repair's
+collision pass reaches only the retimed lines and their neighbours.
 
 ## 4. Open questions for the user (never answered yet)
 
@@ -96,6 +92,11 @@ lyrics.txt and passes its lines); inline expected text instead of an insta dep.
 - Screenshots: `scripts/ui-shots.sh [states]`, compare against `Plan/mockups/` (UI_SPEC 8.2);
   caret blink and the "Main menu" tooltip fade differ between runs.
 - Never rebuild while a sweep runs: the sweep calls the binary per song.
+- Kirigami's PageRow creates a pushed Component under a QtObject parent, which Qt warns
+  about (and the self-test fails on warnings): push pages as items created once with an
+  Item parent (Main.qml `pushPageItem`); a popped item page goes back hidden.
+- The Repair bridge mirrors the document only when one of its invokables runs: call
+  `repair.refresh()` after anything that changes the song outside the repair page.
 - Rust: `f64::from(i64)` does not exist (`as f64`); `&RowId == RowId` needs a deref in
   closure finds; adding a dep that pulls glib/gstreamer makes bare `vec![]` comparisons
   ambiguous (`Vec::<T>::new()`); `StretchOptions` has no `Default` (build the explicit

@@ -20,6 +20,8 @@
 
 #include "selftest.h"
 
+#include "screenshot.h"
+
 #include <QAbstractItemModel>
 #include <QColor>
 #include <QCoreApplication>
@@ -1920,5 +1922,201 @@ bool usdx_song_end_check(const QQmlApplicationEngine &engine) {
         send_key(window, Qt::Key_Z, Qt::ControlModifier);
     }
     std::cout << "song end: ok" << std::endl;
+    return true;
+}
+
+// usdx_block_drag_check drives the block mode's selection band (UI_SPEC
+// 4.7, task P7-08): it pushes the repair page in the block mode over the
+// first line, pins the block's new times to whole beats, and drags the
+// body (move by one beat, the length keeps), the start edge (scale from
+// the opposite edge, snapped to whole beats), the start edge with Shift
+// (the snapping off, the fractional beat keeps) and the end edge. The
+// band's items live in RepairSheet.qml; the times are read back through
+// the repair bridge's blockNewStartMs/blockNewEndMs.
+bool usdx_block_drag_check(const QQmlApplicationEngine &engine) {
+    QObject *const root = selftest_root(engine);
+    if (root == nullptr) {
+        return false;
+    }
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    if (window == nullptr) {
+        std::cerr << "block band: the root is not a window\n";
+        return false;
+    }
+    // The page opens with the song's data before any repair action: the
+    // overview strip holds one block per line of the current voice.
+    {
+        QObject *const openedRepair = root->property("repair").value<QObject *>();
+        QObject *const openedDocument = root->property("songDocument").value<QObject *>();
+        if (openedRepair == nullptr || openedDocument == nullptr
+            || !QMetaObject::invokeMethod(root, "showRepairPage")) {
+            std::cerr << "block band: the repair page could not be opened\n";
+            return false;
+        }
+        pump_events(100);
+        const int overviewLines = openedRepair->property("overviewLines").toList().size();
+        if (openedDocument->property("voiceCount").toInt() == 1
+            && overviewLines != openedDocument->property("lineCount").toInt()) {
+            std::cerr << "block band: the opened repair page shows " << overviewLines
+                      << " overview lines, the song has "
+                      << openedDocument->property("lineCount").toInt() << "\n";
+            return false;
+        }
+    }
+    if (!usdx_open_demo_repair_block(engine, 0, 0)) {
+        std::cerr << "block band: the repair page in the block mode could not be opened\n";
+        return false;
+    }
+    QObject *const repair = root->property("repair").value<QObject *>();
+    QObject *const document = root->property("songDocument").value<QObject *>();
+    QObject *const bg = root->findChild<QObject *>(QStringLiteral("repairSheetBackground"));
+    auto *const band = qobject_cast<QQuickItem *>(
+        root->findChild<QObject *>(QStringLiteral("blockBand")));
+    auto *const bodyDrag = qobject_cast<QQuickItem *>(
+        root->findChild<QObject *>(QStringLiteral("blockBandBody")));
+    auto *const startDrag = qobject_cast<QQuickItem *>(
+        root->findChild<QObject *>(QStringLiteral("blockBandStartDrag")));
+    auto *const endDrag = qobject_cast<QQuickItem *>(
+        root->findChild<QObject *>(QStringLiteral("blockBandEndDrag")));
+    if (repair == nullptr || document == nullptr || bg == nullptr || band == nullptr
+        || bodyDrag == nullptr || startDrag == nullptr || endDrag == nullptr) {
+        std::cerr << "block band: the band items are missing\n";
+        return false;
+    }
+    if (!band->isVisible()) {
+        std::cerr << "block band: the band is not visible\n";
+        return false;
+    }
+    // The drawer check ran before this one; its close animation leaves
+    // the modal overlay swallowing synthesized presses for a moment
+    // (lib.rs's check order note), so the presses settle first.
+    pump_events(300);
+    const double bpm = document->property("bpm").toDouble();
+    const double gap = document->property("gapMs").toDouble();
+    const double pxPerBeat = bg->property("pxPerBeat").toDouble();
+    if (bpm <= 0.0 || pxPerBeat <= 0.0) {
+        std::cerr << "block band: the song timing or the sheet zoom is unknown\n";
+        return false;
+    }
+    const double msPerBeat = 15000.0 / bpm;
+    const auto beat_ms = [&](double beat) { return beat * msPerBeat + gap; };
+    const auto ms_beat = [&](double ms) { return (ms - gap) / msPerBeat; };
+
+    // The whole check runs with the block's edges on screen; the drag
+    // helpers press the drag area's centre and move in eight steps, the
+    // way the sheet interaction check drags.
+    ulong next_time = 90000;
+    auto drag = [&](QQuickItem *area, double dx, Qt::KeyboardModifiers modifiers) {
+        const QPointF from = area->mapToScene(QPointF(area->width() / 2.0,
+                                                      area->height() / 2.0));
+        send_mouse(window, from, QEvent::MouseButtonPress, Qt::LeftButton,
+                   Qt::LeftButton, next_time += 1000);
+        for (int step = 1; step <= 8; step++) {
+            send_mouse(window, from + QPointF(dx * step / 8.0, 0.0),
+                       QEvent::MouseMove, Qt::LeftButton, Qt::NoButton,
+                       next_time += 20, modifiers);
+        }
+        send_mouse(window, from + QPointF(dx, 0.0), QEvent::MouseButtonRelease,
+                   Qt::NoButton, Qt::LeftButton, next_time += 20);
+        pump_events(50);
+    };
+    auto on_screen = [&](QQuickItem *area) {
+        const double x = area->mapToScene(QPointF(0.0, 0.0)).x();
+        return x >= 0.0 && x + area->width() <= window->width();
+    };
+
+    // A deterministic base: the block's new times at whole beats 2 and
+    // 10, so the snapping expectations are independent of the fixture.
+    if (!QMetaObject::invokeMethod(repair, "setBlockTimes", Q_ARG(double, beat_ms(2.0)),
+                                   Q_ARG(double, beat_ms(10.0)))) {
+        std::cerr << "block band: setBlockTimes is not callable\n";
+        return false;
+    }
+    pump_events(50);
+    if (!on_screen(startDrag) || !on_screen(endDrag) || !on_screen(bodyDrag)) {
+        std::cerr << "block band: skipped (a band edge lies off screen)\n";
+        return true;
+    }
+
+    // The body drag moves both times by one snapped beat; the length
+    // keeps.
+    const double bodyStart = repair->property("blockNewStartMs").toDouble();
+    const double bodyEnd = repair->property("blockNewEndMs").toDouble();
+    drag(bodyDrag, pxPerBeat * 1.4, Qt::NoModifier);
+    const double bodyStartAfter = repair->property("blockNewStartMs").toDouble();
+    const double bodyEndAfter = repair->property("blockNewEndMs").toDouble();
+    if (std::abs((bodyStartAfter - bodyStart) / msPerBeat - 1.0) > 0.02
+        || std::abs((bodyEndAfter - bodyEnd) / msPerBeat - 1.0) > 0.02
+        || std::abs((bodyEndAfter - bodyStartAfter) - (bodyEnd - bodyStart)) > 0.05 * msPerBeat) {
+        std::cerr << "block band: the body drag did not move the block by one beat (start "
+                  << bodyStart << " -> " << bodyStartAfter << ", end " << bodyEnd << " -> "
+                  << bodyEndAfter << ")\n";
+        return false;
+    }
+    std::cout << "block band: body moved" << std::endl;
+
+    // The start edge scales from the opposite edge, snapped to whole
+    // beats: beat 3 + 2.4 rounds to beat 5.
+    const double edgeStart = repair->property("blockNewStartMs").toDouble();
+    drag(startDrag, pxPerBeat * 2.4, Qt::NoModifier);
+    const double edgeStartAfter = repair->property("blockNewStartMs").toDouble();
+    if (std::abs((edgeStartAfter - edgeStart) / msPerBeat - 2.0) > 0.02) {
+        std::cerr << "block band: the start edge drag is not snapped to two beats ("
+                  << edgeStart << " -> " << edgeStartAfter << ")\n";
+        return false;
+    }
+    std::cout << "block band: start edge snapped" << std::endl;
+
+    // Shift turns the snapping off: the fractional beat keeps.
+    const double shiftStart = repair->property("blockNewStartMs").toDouble();
+    drag(startDrag, pxPerBeat * 2.4, Qt::ShiftModifier);
+    const double shiftStartAfter = repair->property("blockNewStartMs").toDouble();
+    if (std::abs((shiftStartAfter - shiftStart) / msPerBeat - 2.4) > 0.05) {
+        std::cerr << "block band: the Shift drag did not keep the fractional beat ("
+                  << shiftStart << " -> " << shiftStartAfter << ", "
+                  << ms_beat(shiftStartAfter) << " beats)\n";
+        return false;
+    }
+    std::cout << "block band: shift unsnapped" << std::endl;
+
+    // The end edge scales from the opposite edge, snapped to whole
+    // beats: beat 11 - 2.4 rounds down to beat 9.
+    const double edgeEnd = repair->property("blockNewEndMs").toDouble();
+    drag(endDrag, -pxPerBeat * 2.4, Qt::NoModifier);
+    const double edgeEndAfter = repair->property("blockNewEndMs").toDouble();
+    if (std::abs((edgeEndAfter - edgeEnd) / msPerBeat + 2.0) > 0.02) {
+        std::cerr << "block band: the end edge drag is not snapped to two beats ("
+                  << edgeEnd << " -> " << edgeEndAfter << ")\n";
+        return false;
+    }
+    std::cout << "block band: end edge snapped" << std::endl;
+    // The band belongs to the block mode: the anchor mode hides it, the
+    // block it keeps shows again when the block mode returns.
+    QMetaObject::invokeMethod(repair, "setMode", Q_ARG(int, 0));
+    pump_events(50);
+    if (band->isVisible()) {
+        std::cerr << "block band: the band shows in the anchor mode\n";
+        return false;
+    }
+    QMetaObject::invokeMethod(repair, "setMode", Q_ARG(int, 1));
+    pump_events(50);
+    if (!band->isVisible()) {
+        std::cerr << "block band: the band does not come back in the block mode\n";
+        return false;
+    }
+    // Apply commits the dragged block; the page then shows the song as it
+    // is: no pending preview (the block's new times are its times now).
+    if (repair->property("hasPreview").toBool()) {
+        bool applied = false;
+        QMetaObject::invokeMethod(repair, "apply", Q_RETURN_ARG(bool, applied));
+        pump_events(50);
+        if (!applied || repair->property("hasPreview").toBool()) {
+            std::cerr << "block band: after Apply the preview is still pending (applied "
+                      << applied << ")\n";
+            return false;
+        }
+        send_key(window, Qt::Key_Z, Qt::ControlModifier);
+    }
+    std::cout << "block band: ok" << std::endl;
     return true;
 }

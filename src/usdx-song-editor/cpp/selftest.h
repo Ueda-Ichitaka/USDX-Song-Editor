@@ -95,3 +95,9 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine);
 // shaded #END area and undo, and the dashed drag guides. Prints "song end:
 // ok" on success.
 bool usdx_song_end_check(const QQmlApplicationEngine &engine);
+
+// Drives the block mode's selection band through synthesized drags (the
+// body moves by one snapped beat keeping the length, the edges scale from
+// the opposite edge, Shift turns the snapping off); false when a drag
+// commits other times.
+bool usdx_block_drag_check(const QQmlApplicationEngine &engine);

@@ -13,19 +13,22 @@
 //! `pinCurrentLineAt` pins). The calibration WAV is 8 clicks at 1 s
 //! spacing: 16-bit mono PCM with a 44-byte header, no new dependency.
 
+use std::collections::BTreeSet;
 use tempfile::TempDir;
 use usdx_edit::Patch;
 use usdx_edit::anchors_export::AnchorEntry;
+use usdx_edit::block::Follow;
 use usdx_edit::patch::RowOp;
 use usdx_edit::retime::{Anchor, Pin};
 use usdx_format::bytes::decode;
 use usdx_format::rows::{Document, RowKind, classify};
 use usdx_format::song::Song;
 use usdx_song_editor::bridge::repair::{
-    AnchorRow, OverviewLine, PreviewNote, anchor_rows, click_track_wav, current_repair_target,
-    export_anchors, export_preview, line_range_target, lyrics_lines, overview_anchor_marks,
-    overview_lines, preview_notes, racing_ranges, repair_section, section_end_ms, shortened_notes,
-    utc_date,
+    AnchorRow, BlockSpan, HealthBasis, OverviewLine, PreviewNote, anchor_rows, block_span,
+    click_track_wav, current_repair_target, default_anchors_path, export_anchors, export_preview,
+    follow_i32, follow_of, line_range_target, lyrics_lines, overview_anchor_marks, overview_lines,
+    preview_note_hash, preview_notes, racing_note_rows, racing_ranges, repair_section,
+    section_end_ms, selection_lines, shortened_notes, tap_lines, utc_date,
 };
 use usdx_song_editor::controller::EditorController;
 use usdx_song_editor::controller::editor::LoadedSong;
@@ -333,6 +336,37 @@ fn the_ghost_notes_are_empty_without_a_patch() {
 }
 
 #[test]
+fn selection_lines_maps_the_selected_notes_to_their_global_lines() {
+    let (_dir, _doc, song) = loaded();
+    // Line 0's first note: the selection covers exactly line 0.
+    let mut selection = BTreeSet::new();
+    selection.insert(song.voices[0].lines[0].notes[0]);
+    assert_eq!(selection_lines(&song, &selection), Some((0, 0)));
+    // A note of line 2 widens the range to 0..=2.
+    selection.insert(song.voices[0].lines[2].notes[2]);
+    assert_eq!(selection_lines(&song, &selection), Some((0, 2)));
+    // An empty selection: none.
+    assert_eq!(selection_lines(&song, &BTreeSet::new()), None);
+    // A duet selection spanning both voices is refused (the block
+    // needs one voice).
+    let duet = concat!(
+        "#TITLE:T\n#BPM:240\n",
+        "P1\n: 0 4 0 a \n- 4\n",
+        "P2\n: 8 4 0 b \n- 12\nE\n",
+    );
+    let (dir, path) = fixture(duet);
+    let doc2 = classify(
+        decode(&std::fs::read(&path).expect("the fixture is read")).expect("the song decodes"),
+    );
+    let song2 = Song::from_document(&doc2);
+    let mut mixed = BTreeSet::new();
+    mixed.insert(song2.voices[0].lines[0].notes[0]);
+    mixed.insert(song2.voices[1].lines[0].notes[0]);
+    assert_eq!(selection_lines(&song2, &mixed), None);
+    drop(dir);
+}
+
+#[test]
 fn the_line_range_maps_global_lines_to_one_voice() {
     let duet = concat!(
         "#TITLE:T\n#BPM:240\n",
@@ -429,9 +463,11 @@ fn the_export_preview_counts_changes_pins_and_problems() {
         &[],
     );
     assert!(
-        preview.problems.iter().all(
-            |problem| problem.contains("binds to lyrics line") || problem.contains("not found")
-        ),
+        preview
+            .problems
+            .iter()
+            .all(|problem| problem.message.contains("binds to lyrics line")
+                || problem.message.contains("not found")),
         "the problems are the Factory-matching warnings: {:?}",
         preview.problems
     );
@@ -440,7 +476,7 @@ fn the_export_preview_counts_changes_pins_and_problems() {
 }
 
 #[test]
-fn the_export_preview_reports_a_render_error_as_a_problem() {
+fn the_export_preview_reports_a_render_error_apart_from_the_problems() {
     let (_dir, loaded_song) = loaded_song();
     let mut repair = RepairController::new();
     // The pin is exported at 2000 ms; an end pin below the last anchor
@@ -449,7 +485,17 @@ fn the_export_preview_reports_a_render_error_as_a_problem() {
     repair.set_end_pin(Some(500.0));
     let preview = export_preview(&repair, &loaded_song, "T", "0.1.0", "2026-11-16", None, &[]);
     assert!(preview.text.is_empty());
-    assert_eq!(preview.problems.len(), 1, "the render error is the problem");
+    // The render error is no line's problem: "Leave it out" cannot solve
+    // it, so it comes apart from the per-line findings.
+    assert!(preview.problems.is_empty());
+    assert!(
+        preview
+            .error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("cannot export")),
+        "{:?}",
+        preview.error
+    );
 }
 
 #[test]
@@ -476,7 +522,7 @@ fn overview_lines_reports_the_line_spans_and_health_verdicts() {
     // 2 racing); the analysis runs without vocal activity, so the
     // coverage signal stays neutral and rate and factor decide.
     assert_eq!(
-        overview_lines(&doc, &song, 0),
+        overview_lines(&doc, &song, 0, &HealthBasis::plain()),
         vec![
             OverviewLine {
                 line: 0,
@@ -504,7 +550,10 @@ fn overview_lines_reports_the_line_spans_and_health_verdicts() {
 #[test]
 fn overview_lines_is_empty_without_a_usable_timing_or_voice() {
     let (_dir, doc, song) = loaded();
-    assert!(overview_lines(&doc, &song, 7).is_empty(), "unknown voice");
+    assert!(
+        overview_lines(&doc, &song, 7, &HealthBasis::plain()).is_empty(),
+        "unknown voice"
+    );
     let mut no_bpm = doc.clone();
     if let Some(row) = no_bpm.rows.iter_mut().find(
         |row| matches!(&row.kind, usdx_format::rows::RowKind::Header { key, .. } if key == "BPM"),
@@ -514,7 +563,10 @@ fn overview_lines_is_empty_without_a_usable_timing_or_voice() {
         };
     }
     let song = Song::from_document(&no_bpm);
-    assert!(overview_lines(&no_bpm, &song, 0).is_empty(), "no timing");
+    assert!(
+        overview_lines(&no_bpm, &song, 0, &HealthBasis::plain()).is_empty(),
+        "no timing"
+    );
 }
 
 #[test]
@@ -532,7 +584,10 @@ fn racing_ranges_reports_the_racing_sections_as_inclusive_ranges() {
         decode(&std::fs::read(&path).expect("the song is read")).expect("the song decodes"),
     );
     let song = Song::from_document(&doc);
-    assert_eq!(racing_ranges(&doc, &song, 0), vec![(0, 0), (2, 2)]);
+    assert_eq!(
+        racing_ranges(&doc, &song, 0, &HealthBasis::plain()),
+        vec![(0, 0), (2, 2)]
+    );
     drop(dir);
 }
 
@@ -556,7 +611,7 @@ fn repair_section_reports_the_racing_section_in_global_line_numbers() {
         decode(&std::fs::read(&path).expect("the song is read")).expect("the song decodes"),
     );
     let song = Song::from_document(&doc);
-    let section = repair_section(&doc, &song, 1, 1);
+    let section = repair_section(&doc, &song, 1, 1, &HealthBasis::plain());
     assert_eq!((section.first, section.last, section.health), (3, 3, 2));
     assert!((section.factor - 4.0).abs() < 1e-9);
     // The analysis runs without the vocal activity for now, so the
@@ -566,10 +621,10 @@ fn repair_section_reports_the_racing_section_in_global_line_numbers() {
     // and the verdict is the line's own. Its factor is its rate against
     // the neighbourhood median (4 notes/s against the median of 4 and
     // 16, so 0.4).
-    let calm = repair_section(&doc, &song, 1, 0);
+    let calm = repair_section(&doc, &song, 1, 0, &HealthBasis::plain());
     assert_eq!((calm.first, calm.last, calm.health), (-1, -1, 0));
     assert!((calm.factor - 0.4).abs() < 1e-9);
-    let unknown = repair_section(&doc, &song, 1, 7);
+    let unknown = repair_section(&doc, &song, 1, 7, &HealthBasis::plain());
     assert_eq!((unknown.first, unknown.last, unknown.health), (-1, -1, -1));
     assert!((unknown.factor - 0.0).abs() < 1e-9);
     drop(dir);
@@ -578,9 +633,9 @@ fn repair_section_reports_the_racing_section_in_global_line_numbers() {
 #[test]
 fn repair_section_reports_no_section_without_a_usable_timing_or_voice() {
     let (_dir, doc, song) = loaded();
-    let section = repair_section(&doc, &song, 0, 0);
+    let section = repair_section(&doc, &song, 0, 0, &HealthBasis::plain());
     assert_eq!((section.first, section.last, section.health), (-1, -1, 0));
-    let none = repair_section(&doc, &song, 7, 0);
+    let none = repair_section(&doc, &song, 7, 0, &HealthBasis::plain());
     assert_eq!((none.first, none.last, none.health), (-1, -1, -1));
 }
 
@@ -608,7 +663,7 @@ fn overview_anchor_marks_pair_the_pinned_times_with_the_badges() {
 #[test]
 fn overview_lines_carry_their_voice_local_line_index() {
     let (_dir, doc, song) = loaded();
-    let lines = overview_lines(&doc, &song, 0);
+    let lines = overview_lines(&doc, &song, 0, &HealthBasis::plain());
     assert_eq!(lines.len(), 3);
     for (index, line) in lines.iter().enumerate() {
         assert_eq!(line.line, index, "the lines are in order");
@@ -697,4 +752,131 @@ fn shortened_notes_counts_the_replaces_that_shorten_a_note() {
         shrunk.ops.push(RowOp::Replace { id, before, after });
     }
     assert_eq!(shortened_notes(&shrunk), 2);
+}
+
+#[test]
+fn block_span_reports_the_note_span_and_count() {
+    let (_dir, doc, song) = loaded();
+    // Lines 0..=1: the notes span beats 0..24 (the last note of line 1
+    // ends at beat 24); BPM 240 with no #GAP makes 62.5 ms per beat.
+    let span = block_span(&doc, &song, 0, 0, 1).expect("the block has a span");
+    assert_eq!(
+        span,
+        BlockSpan {
+            start_ms: 0.0,
+            end_ms: 1500.0,
+            notes: 6,
+        }
+    );
+    // The whole voice: beats 0..36.
+    let span = block_span(&doc, &song, 0, 0, 2).expect("the block has a span");
+    assert_eq!(span.start_ms, 0.0);
+    assert_eq!(span.end_ms, 2250.0);
+    assert_eq!(span.notes, 9);
+    // One line in the middle: its own notes' span.
+    let span = block_span(&doc, &song, 0, 1, 1).expect("the block has a span");
+    assert_eq!(span.start_ms, 750.0);
+    assert_eq!(span.end_ms, 1500.0);
+    // Past the voice's lines, or a voice the song does not have: none.
+    assert_eq!(block_span(&doc, &song, 0, 0, 5), None);
+    assert_eq!(block_span(&doc, &song, 3, 0, 1), None);
+}
+
+#[test]
+fn the_follow_toggle_maps_the_i32_both_ways() {
+    // The qenum's declaration order: Stay first (the UI_SPEC's button
+    // order), MoveAlong second.
+    assert_eq!(follow_i32(Follow::Stay), 0);
+    assert_eq!(follow_i32(Follow::MoveAlong), 1);
+    assert_eq!(follow_of(0), Some(Follow::Stay));
+    assert_eq!(follow_of(1), Some(Follow::MoveAlong));
+    assert_eq!(follow_of(2), None);
+}
+
+#[test]
+fn the_ghost_hash_carries_row_times_and_pitch() {
+    // The repair sheet places each dashed ghost at its pitch row; a hash
+    // without the pitch put every ghost in the ruler.
+    let hash = preview_note_hash(&PreviewNote {
+        row_id: 7,
+        start_ms: 1000.0,
+        end_ms: 1250.0,
+        pitch: 64,
+    });
+    let value = |key: &str| hash.get(&cxx_qt_lib::QString::from(key));
+    assert_eq!(value("rowId").and_then(|v| v.value::<i64>()), Some(7));
+    assert_eq!(value("start").and_then(|v| v.value::<f64>()), Some(1000.0));
+    assert_eq!(value("end").and_then(|v| v.value::<f64>()), Some(1250.0));
+    assert_eq!(value("pitch").and_then(|v| v.value::<i32>()), Some(64));
+}
+
+#[test]
+fn racing_note_rows_lists_the_notes_of_the_racing_lines() {
+    // The repair sheet draws the notes of racing lines in the negative
+    // colour (UI_SPEC 4.6): the rows of lines 0 and 2 of the fixture.
+    let racing = concat!(
+        "#TITLE:T\n#BPM:240\n",
+        ": 0 1 0 a1 \n: 1 1 2 a2 \n: 2 1 4 a3 \n- 3\n",
+        ": 3 4 0 b \n: 7 4 2 c \n: 11 4 4 d \n- 15\n",
+        ": 15 1 0 e1 \n: 16 1 2 e2 \n: 17 1 4 e3 \nE\n",
+    );
+    let (dir, path) = fixture(racing);
+    let doc = classify(
+        decode(&std::fs::read(&path).expect("the song is read")).expect("the song decodes"),
+    );
+    let song = Song::from_document(&doc);
+    assert_eq!(
+        racing_note_rows(&doc, &song, 0, &HealthBasis::plain()),
+        vec![2, 3, 4, 10, 11, 12]
+    );
+    assert!(
+        racing_note_rows(&doc, &song, 5, &HealthBasis::plain()).is_empty(),
+        "unknown voice"
+    );
+    drop(dir);
+}
+
+#[test]
+fn tap_lines_lists_the_session_lines_with_syllables_and_note_times() {
+    // The tap-along page shows the current line's syllables and the next
+    // line, and the lane draws the notes; the lines are the session's
+    // global range. BPM 240 without #GAP: beat b sits at 62.5 b ms.
+    let text = concat!(
+        "#TITLE:T\n#BPM:240\n",
+        "P1\n: 0 4 0 a \n- 4\n: 4 4 2 Hel\n: 8 2 2 lo \n- 12\n",
+        "P2\n: 12 4 0 Wei\n: 16 4 0 ~ \nE\n",
+    );
+    let (dir, path) = fixture(text);
+    let doc = classify(
+        decode(&std::fs::read(&path).expect("the song is read")).expect("the song decodes"),
+    );
+    let song = Song::from_document(&doc);
+    let lines = tap_lines(&doc, &song, 1, 2);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].line, 1);
+    assert_eq!(lines[0].syllables, vec!["Hel".to_owned(), "lo".to_owned()]);
+    assert_eq!(lines[0].starts_ms, vec![250.0, 500.0]);
+    assert_eq!(lines[0].ends_ms, vec![500.0, 625.0]);
+    // "Hel" continues the word, "lo " ends it: the page puts a space after
+    // a word's last syllable only.
+    assert_eq!(lines[0].word_ends, vec![false, true]);
+    // The global line 2 is the second voice's first line.
+    assert_eq!(lines[1].line, 2);
+    assert_eq!(lines[1].syllables, vec!["Wei".to_owned(), "~".to_owned()]);
+    assert!(tap_lines(&doc, &song, 5, 7).is_empty(), "past the lines");
+    drop(dir);
+}
+
+#[test]
+fn the_default_export_target_is_anchors_txt_next_to_the_song() {
+    // UI_SPEC 5.5 / plan 6.11: the save dialog starts at
+    // <song folder>/anchors.txt.
+    assert_eq!(
+        default_anchors_path(std::path::Path::new("/songs/Artist - Title/song.txt")),
+        std::path::PathBuf::from("/songs/Artist - Title/anchors.txt")
+    );
+    assert_eq!(
+        default_anchors_path(std::path::Path::new("song.txt")),
+        std::path::PathBuf::from("anchors.txt")
+    );
 }

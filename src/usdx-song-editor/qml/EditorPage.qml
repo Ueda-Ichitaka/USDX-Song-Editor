@@ -395,6 +395,19 @@ Kirigami.Page {
         onActivated: root.shell && root.shell.showRepairPage()
     }
 
+    // Tap-along (plan 8.6, UI_SPEC 4.8): the repair page opens the
+    // tap-along page over the racing section around the current line, else
+    // over the current line.
+    Shortcut {
+        sequence: "T"
+        enabled: root.visible && root.document && root.document.canRepair
+                 && !root.textEditingFocus
+        onActivated: {
+            root.shell.showRepairPage();
+            root.shell.repairPageItem.openTapAlong();
+        }
+    }
+
     Shortcut {
         sequence: "Ctrl+Shift+Z"
         enabled: root.document && root.document.canRedo && !root.textEditingFocus

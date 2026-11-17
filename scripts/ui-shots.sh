@@ -6,8 +6,8 @@
 # the application, and runs every screenshot with the fixed offscreen
 # environment and a temporary XDG_CONFIG_HOME that carries the Breeze colour
 # scheme as kdeglobals - which also isolates the app settings, so the shots
-# never touch the user's desktop or settings. The editor and line-text states
-# open the Realize sample song (tasks P5-04, P6-02). The start-screen state seeds the
+# never touch the user's desktop or settings. The editor, line-text and repair
+# states open the Realize sample song (tasks P5-04, P6-02, P7-08). The start-screen state seeds the
 # recent list with songs from the approved USDX Song Factory test folders
 # (plan section 9.5); without those folders it renders the empty start screen.
 # The audio states open their reference songs (read-only; the app opens a copy):
@@ -34,7 +34,7 @@ readonly SIZE="1280x800"
 
 # The demo states that exist so far; the task that builds a screen adds its
 # state here (UI_SPEC 8.1).
-readonly STATES=("start-screen" "editor" "line-text" "audio-states-missing" "audio-states-loading" "audio-states-no-vocals")
+readonly STATES=("start-screen" "editor" "line-text" "repair-anchor" "repair-block" "tap-along" "export-anchors" "latency-calibration" "audio-states-missing" "audio-states-loading" "audio-states-no-vocals")
 
 # The reference songs of the audio states (user decisions recorded in
 # Plan/PROGRESS.md, task P4-04).
@@ -44,7 +44,7 @@ readonly NO_VOCALS_SONG="/home/ueda/workspace/USDX-Song-Factory/stack/output/new
 # song_for prints the song a demo state opens, empty for states without one.
 song_for() {
   case "$1" in
-    editor|line-text|audio-states-missing|audio-states-loading) echo "$REALIZE_SONG" ;;
+    editor|line-text|repair-anchor|repair-block|tap-along|export-anchors|latency-calibration|audio-states-missing|audio-states-loading) echo "$REALIZE_SONG" ;;
     audio-states-no-vocals) echo "$NO_VOCALS_SONG" ;;
     *) echo "" ;;
   esac

@@ -21,7 +21,7 @@ use usdx_format::rows::Document;
 use usdx_format::song::Song;
 
 /// Follow says what happens to the lines after the block.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Follow {
     /// The lines keep their place; the collision pass resolves the overlap
     /// at the block's new end.

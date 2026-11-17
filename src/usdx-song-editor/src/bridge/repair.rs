@@ -26,11 +26,14 @@ use core::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QHash, QHashPair_QString_QVariant, QList, QString, QUrl, QVariant};
 
+use std::collections::BTreeSet;
 use usdx_edit::Patch;
-use usdx_edit::anchors_export::{AnchorEntry, export_problems, render};
+use usdx_edit::anchors_export::{AnchorEntry, ExportProblem, export_problems, render};
+use usdx_edit::block::Follow;
 use usdx_edit::health::{Health, HealthConfig};
 use usdx_edit::patch::RowOp;
 use usdx_edit::retime::{Anchor, Lengths};
+use usdx_format::rows::RowId;
 use usdx_format::rows::{Document, RowKind};
 use usdx_format::song::Song;
 
@@ -106,6 +109,12 @@ pub fn export_anchors(
 ) -> Result<(), String> {
     let file = render(title, version, date, entries, end).map_err(|error| format!("{error:?}"))?;
     std::fs::write(path, file).map_err(|error| error.to_string())
+}
+
+/// default_anchors_path is the export dialog's starting target: anchors.txt
+/// in the song's folder (plan 6.11, UI_SPEC 5.5).
+pub fn default_anchors_path(song: &Path) -> std::path::PathBuf {
+    song.with_file_name("anchors.txt")
 }
 
 /// lyrics_lines reads the lyrics.txt lines next to the song, trimmed and
@@ -250,6 +259,165 @@ fn line_span_ms(doc: &Document, song: &Song, voice: u8, line: usize) -> (f64, f6
     (start_ms, end_ms)
 }
 
+/// BlockSpan is the block's state the UI shows: the span from the first
+/// note's start to the last note's end in audio milliseconds and the
+/// note count (the block bar's "Lines 15 - 22 - 57 notes", the
+/// selection band's times and the Scale factor's base).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BlockSpan {
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub notes: usize,
+}
+
+/// block_span reports the note span and count of the voice's lines
+/// `first..=last` (the block transform's anchors are the block's first
+/// note start and last note end, plan 6.8); None without lines in the
+/// range or a voice the song does not have.
+pub fn block_span(
+    doc: &Document,
+    song: &Song,
+    voice: u8,
+    first: usize,
+    last: usize,
+) -> Option<BlockSpan> {
+    let voice_data = song.voices.get(usize::from(voice))?;
+    let to_ms = |beat: f64| {
+        song.timing
+            .map(|timing| timing.beat_to_ms(beat))
+            .unwrap_or(beat)
+    };
+    let mut span: Option<(f64, f64, usize)> = None;
+    for line in voice_data.lines.get(first..=last)?.iter() {
+        for row_id in &line.notes {
+            let note = song.note(doc, *row_id)?;
+            let (start, end, notes) = span.unwrap_or((f64::INFINITY, f64::NEG_INFINITY, 0));
+            span = Some((
+                start.min(to_ms(note.start)),
+                end.max(to_ms(note.start + note.length as f64)),
+                notes + 1,
+            ));
+        }
+    }
+    span.map(|(start, end, notes)| BlockSpan {
+        start_ms: start,
+        end_ms: end,
+        notes,
+    })
+}
+
+/// selection_lines maps the editor's selected notes onto the inclusive
+/// global line range their lines form (the block mode's seed, user
+/// decision 2026-11-17); None for an empty selection or one spanning
+/// more than one voice (the block needs one voice).
+pub fn selection_lines(song: &Song, selection: &BTreeSet<RowId>) -> Option<(usize, usize)> {
+    if selection.is_empty() {
+        return None;
+    }
+    let mut voice_of: Option<u8> = None;
+    let mut range: Option<(usize, usize)> = None;
+    for (voice, voice_data) in song.voices.iter().enumerate() {
+        let offset: usize = song
+            .voices
+            .iter()
+            .take(voice)
+            .map(|voice| voice.lines.len())
+            .sum();
+        for (line, line_data) in voice_data.lines.iter().enumerate() {
+            if line_data.notes.iter().any(|id| selection.contains(id)) {
+                let voice = voice as u8;
+                match voice_of {
+                    Some(seen) if seen != voice => return None,
+                    None => voice_of = Some(voice),
+                    _ => {}
+                }
+                range = Some(match range {
+                    Some((first, last)) => (first.min(offset + line), last.max(offset + line)),
+                    None => (offset + line, offset + line),
+                });
+            }
+        }
+    }
+    range
+}
+
+/// follow_of maps the FollowKind qenum's i32 (the enum's declaration
+/// order, the UI_SPEC's button order) onto the planner's Follow.
+pub fn follow_of(follow: i32) -> Option<Follow> {
+    match follow {
+        0 => Some(Follow::Stay),
+        1 => Some(Follow::MoveAlong),
+        _ => None,
+    }
+}
+
+/// follow_i32 maps the planner's Follow onto the qenum's i32.
+pub fn follow_i32(follow: Follow) -> i32 {
+    match follow {
+        Follow::Stay => 0,
+        Follow::MoveAlong => 1,
+    }
+}
+
+/// block_state reports the block mode's state for the QML properties:
+/// the block's global line numbers (-1 and -1 without a block), its old
+/// note span (-1 without a span), the note count, the scale factor the
+/// new times give against the span (0.0 unknown), the new times (-1
+/// without a block) and the follow toggle's i32.
+pub fn block_state(
+    doc: &Document,
+    song: &Song,
+    repair: &RepairController,
+) -> (i32, i32, f64, f64, i32, f64, f64, f64, i32) {
+    let Some(range) = repair.block() else {
+        return (
+            -1,
+            -1,
+            -1.0,
+            -1.0,
+            0,
+            0.0,
+            -1.0,
+            -1.0,
+            follow_i32(repair.follow()),
+        );
+    };
+    let voice = repair.block_voice().unwrap_or(0);
+    let offset: usize = song
+        .voices
+        .iter()
+        .take(usize::from(voice))
+        .map(|voice| voice.lines.len())
+        .sum();
+    let span = block_span(doc, song, voice, range.start, range.end.saturating_sub(1));
+    let (start_ms, end_ms, notes) = match span {
+        Some(span) => (span.start_ms, span.end_ms, span.notes as i32),
+        None => (-1.0, -1.0, 0),
+    };
+    let (new_start, new_end) = repair.block_times();
+    let (new_start, new_end) = match span {
+        Some(_) => (new_start, new_end),
+        None => (-1.0, -1.0),
+    };
+    let scale = match span {
+        Some(span) if span.end_ms > span.start_ms && new_end > new_start => {
+            (new_end - new_start) / (span.end_ms - span.start_ms)
+        }
+        _ => 0.0,
+    };
+    (
+        (offset + range.start) as i32,
+        (offset + range.end.saturating_sub(1)) as i32,
+        start_ms,
+        end_ms,
+        notes,
+        scale,
+        new_start,
+        new_end,
+        follow_i32(repair.follow()),
+    )
+}
+
 /// OverviewLine is one line block of the overview strip (UI_SPEC 4.6):
 /// the line's voice-local index, its note span in audio milliseconds and
 /// its health verdict (0 ok, 1 suspicious, 2 racing, the QML convention).
@@ -265,8 +433,32 @@ pub struct OverviewLine {
 /// the racing warning. The analysis runs without the vocal activity for
 /// now, so the coverage signal stays neutral and the rate and the
 /// neighbour factor decide.
-pub fn overview_lines(doc: &Document, song: &Song, voice: u8) -> Vec<OverviewLine> {
-    let healths = usdx_edit::health::analyze(doc, song, voice, None, &HealthConfig::default());
+/// HealthBasis holds what the repair page's health analysis shares with the
+/// lines pane (task P7-09): the settings' thresholds and the #VOCALS track's
+/// vocal activity from the analysis cache, when there is one.
+pub struct HealthBasis<'a> {
+    pub cfg: HealthConfig,
+    pub activity: Option<&'a usdx_audio::Activity>,
+}
+
+impl HealthBasis<'static> {
+    /// plain is the analysis with the default thresholds and without the
+    /// vocal activity.
+    pub fn plain() -> HealthBasis<'static> {
+        HealthBasis {
+            cfg: HealthConfig::default(),
+            activity: None,
+        }
+    }
+}
+
+pub fn overview_lines(
+    doc: &Document,
+    song: &Song,
+    voice: u8,
+    basis: &HealthBasis,
+) -> Vec<OverviewLine> {
+    let healths = usdx_edit::health::analyze(doc, song, voice, basis.activity, &basis.cfg);
     healths
         .iter()
         .map(|report| {
@@ -304,12 +496,134 @@ pub fn section_end_ms(
 
 /// racing_ranges reports the racing sections as inclusive voice-local
 /// line ranges, the strip's underlay and the warning's data.
-pub fn racing_ranges(doc: &Document, song: &Song, voice: u8) -> Vec<(usize, usize)> {
-    let healths = usdx_edit::health::analyze(doc, song, voice, None, &HealthConfig::default());
+pub fn racing_ranges(
+    doc: &Document,
+    song: &Song,
+    voice: u8,
+    basis: &HealthBasis,
+) -> Vec<(usize, usize)> {
+    let healths = usdx_edit::health::analyze(doc, song, voice, basis.activity, &basis.cfg);
     usdx_edit::health::racing_sections(&healths)
         .into_iter()
         .map(|range| (range.start, range.end - 1))
         .collect()
+}
+
+/// TapLine is one line of a tap-along session for the page: its global
+/// line number (0-based), its syllables (the note texts without their
+/// surrounding spaces), whether each syllable ends a word (its text ends
+/// with a space, the next starts with one, or it is the line's last) and
+/// its notes' start and end in audio milliseconds.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TapLine {
+    pub line: usize,
+    pub syllables: Vec<String>,
+    pub word_ends: Vec<bool>,
+    pub starts_ms: Vec<f64>,
+    pub ends_ms: Vec<f64>,
+}
+
+/// tap_lines lists the global lines `first..=last` (the lines pane's
+/// numbering across the voices) for the tap-along page (UI_SPEC 4.8): the
+/// current line's syllables, the next line and the lane's notes. Lines
+/// past the song are left out; a song without a usable tempo gives none.
+pub fn tap_lines(doc: &Document, song: &Song, first: usize, last: usize) -> Vec<TapLine> {
+    let Some(timing) = song.timing else {
+        return Vec::new();
+    };
+    let all_lines: Vec<&usdx_format::song::Line> = song
+        .voices
+        .iter()
+        .flat_map(|voice| voice.lines.iter())
+        .collect();
+    (first..=last)
+        .filter_map(|global| {
+            let line = all_lines.get(global)?;
+            let mut tap_line = TapLine {
+                line: global,
+                ..TapLine::default()
+            };
+            let notes: Vec<_> = line
+                .notes
+                .iter()
+                .filter_map(|id| song.note(doc, *id))
+                .collect();
+            for (index, note) in notes.iter().enumerate() {
+                tap_line.syllables.push(note.text.trim().to_owned());
+                let next_starts_word = notes
+                    .get(index + 1)
+                    .is_none_or(|next| next.text.starts_with(char::is_whitespace));
+                tap_line
+                    .word_ends
+                    .push(note.text.ends_with(char::is_whitespace) || next_starts_word);
+                tap_line.starts_ms.push(timing.beat_to_ms(note.start));
+                tap_line
+                    .ends_ms
+                    .push(timing.beat_to_ms(note.start + note.length as f64));
+            }
+            Some(tap_line)
+        })
+        .collect()
+}
+
+/// tap_line_list writes the tap lines as the TapSession's lines property:
+/// one hash per line with line, syllables, wordEnds, starts and ends.
+fn tap_line_list(lines: &[TapLine]) -> QList<QVariant> {
+    let mut list = QList::<QVariant>::default();
+    for line in lines {
+        let mut hash = QHash::<QHashPair_QString_QVariant>::default();
+        hash.insert(QString::from("line"), QVariant::from(&(line.line as i32)));
+        let mut syllables = QList::<QVariant>::default();
+        for syllable in &line.syllables {
+            syllables.append(QVariant::from(&QString::from(syllable.as_str())));
+        }
+        hash.insert(QString::from("syllables"), QVariant::from(&syllables));
+        let mut word_ends = QList::<QVariant>::default();
+        for word_end in &line.word_ends {
+            word_ends.append(QVariant::from(word_end));
+        }
+        hash.insert(QString::from("wordEnds"), QVariant::from(&word_ends));
+        let mut starts = QList::<QVariant>::default();
+        for start in &line.starts_ms {
+            starts.append(QVariant::from(start));
+        }
+        hash.insert(QString::from("starts"), QVariant::from(&starts));
+        let mut ends = QList::<QVariant>::default();
+        for end in &line.ends_ms {
+            ends.append(QVariant::from(end));
+        }
+        hash.insert(QString::from("ends"), QVariant::from(&ends));
+        list.append(QVariant::from(&hash));
+    }
+    list
+}
+
+/// racing_note_rows lists the row ids of the notes in the voice's racing
+/// lines (the lines of every racing section), which the repair sheet draws
+/// in the negative colour (UI_SPEC 4.6); empty for an unknown voice.
+pub fn racing_note_rows(doc: &Document, song: &Song, voice: u8, basis: &HealthBasis) -> Vec<i64> {
+    let Some(lines) = song
+        .voices
+        .get(usize::from(voice))
+        .map(|voice| &voice.lines)
+    else {
+        return Vec::new();
+    };
+    racing_ranges(doc, song, voice, basis)
+        .into_iter()
+        .flat_map(|(first, last)| lines[first..=last].iter())
+        .flat_map(|line| line.notes.iter())
+        .map(|id| i64::from(id.0))
+        .collect()
+}
+
+/// health_basis builds the document's health basis: the settings'
+/// thresholds and the cached #VOCALS activity, as the lines pane uses them.
+fn health_basis(rust: &SongDocumentRust) -> HealthBasis<'_> {
+    HealthBasis {
+        cfg: crate::controller::line_health::health_config(&rust.editor_settings().health),
+        activity: rust.vocal_activity.as_ref(),
+    }
 }
 
 /// SectionSpan is the repair target's section: the racing section around
@@ -330,7 +644,13 @@ pub struct SectionSpan {
 /// repair_section analyzes the target line's voice once and reports the
 /// racing section around it (the sheet column header, the warning
 /// InlineMessage and the status bar).
-pub fn repair_section(doc: &Document, song: &Song, voice: u8, line: usize) -> SectionSpan {
+pub fn repair_section(
+    doc: &Document,
+    song: &Song,
+    voice: u8,
+    line: usize,
+    basis: &HealthBasis,
+) -> SectionSpan {
     let none = SectionSpan {
         first: -1,
         last: -1,
@@ -338,7 +658,7 @@ pub fn repair_section(doc: &Document, song: &Song, voice: u8, line: usize) -> Se
         factor: 0.0,
         coverage: None,
     };
-    let reports = usdx_edit::health::analyze(doc, song, voice, None, &HealthConfig::default());
+    let reports = usdx_edit::health::analyze(doc, song, voice, basis.activity, &basis.cfg);
     let Some(report) = reports.iter().find(|report| report.line == line) else {
         return none;
     };
@@ -385,6 +705,18 @@ pub struct PreviewNote {
     /// The note's pitch (MIDI, C4 = 60); the patch moves notes in time,
     /// so the ghost keeps the pitch.
     pub pitch: i32,
+}
+
+/// preview_note_hash writes one ghost for the repair sheet's previewNotes
+/// list: rowId, start and end in audio milliseconds, and the pitch that
+/// places it on its pitch row.
+pub fn preview_note_hash(note: &PreviewNote) -> QHash<QHashPair_QString_QVariant> {
+    let mut ghost = QHash::<QHashPair_QString_QVariant>::default();
+    ghost.insert(QString::from("rowId"), QVariant::from(&note.row_id));
+    ghost.insert(QString::from("start"), QVariant::from(&note.start_ms));
+    ghost.insert(QString::from("end"), QVariant::from(&note.end_ms));
+    ghost.insert(QString::from("pitch"), QVariant::from(&note.pitch));
+    ghost
 }
 
 /// preview_notes lists the ghost positions of a preview patch: the
@@ -480,7 +812,11 @@ pub struct ExportPreview {
     pub entries: Vec<AnchorEntry>,
     pub pinned: usize,
     pub end: Option<f64>,
-    pub problems: Vec<String>,
+    /// The per-line check findings; "Leave it out" drops their line.
+    pub problems: Vec<ExportProblem>,
+    /// A render rule violation (for example an end pin below the last
+    /// anchor), which no line exclusion solves.
+    pub error: Option<String>,
 }
 
 /// song_p1_lines lists the text of every voice-P1 line in flat order,
@@ -496,9 +832,9 @@ fn song_p1_lines(doc: &Document, song: &Song) -> Vec<String> {
 /// export_preview builds the export dialog's payload: the export
 /// entries (a pin wins over a change) without the excluded source
 /// lines, the rendered file text, the pinned count and the
-/// Factory-matching problems. A render rule violation (for example an
-/// end pin below the last anchor) leaves the text empty and reports
-/// the error as the single problem.
+/// Factory-matching problems with their lines. A render rule violation
+/// (for example an end pin below the last anchor) leaves the text empty
+/// and comes as the error, apart from the problems.
 pub fn export_preview(
     repair: &RepairController,
     loaded: &LoadedSong,
@@ -522,7 +858,7 @@ pub fn export_preview(
         .iter()
         .filter(|entry| pin_lines.contains(&entry.source_line))
         .count();
-    let (text, problems) = match render(title, version, date, &entries, end) {
+    let (text, problems, error) = match render(title, version, date, &entries, end) {
         Ok(text) => (
             text,
             export_problems(
@@ -530,8 +866,13 @@ pub fn export_preview(
                 &song_p1_lines(&loaded.document, &loaded.song),
                 lyrics,
             ),
+            None,
         ),
-        Err(error) => (String::new(), vec![format!("cannot export: {error:?}")]),
+        Err(error) => (
+            String::new(),
+            Vec::new(),
+            Some(format!("cannot export: {error:?}")),
+        ),
     };
     ExportPreview {
         text,
@@ -539,6 +880,7 @@ pub fn export_preview(
         pinned,
         end,
         problems,
+        error,
     }
 }
 
@@ -651,6 +993,28 @@ impl qobject::Repair {
         Some(document.rust_mut().get_mut())
     }
 
+    /// sync_racing_rows mirrors the row ids of the notes in the current
+    /// voice's racing lines into the racingRows property.
+    fn sync_racing_rows(mut self: Pin<&mut Self>) {
+        let rows = match self.song_document() {
+            Some(document) => {
+                let rust = document.rust();
+                match (rust.editor().loaded(), current_repair_target(rust.editor())) {
+                    (Some(loaded), Some((voice, _))) => {
+                        racing_note_rows(&loaded.document, &loaded.song, voice, &health_basis(rust))
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            None => Vec::new(),
+        };
+        let mut list = QVariantList::default();
+        for row in rows {
+            list.append(QVariant::from(&row));
+        }
+        self.as_mut().set_racing_rows(list);
+    }
+
     /// sync mirrors the repair controller into the properties.
     fn sync(mut self: Pin<&mut Self>) {
         let (
@@ -670,6 +1034,7 @@ impl qobject::Repair {
             section_new_end,
             shortened,
             note_lengths,
+            block,
         ) = match self.song_document() {
             Some(document) => {
                 let rust = document.rust();
@@ -711,11 +1076,7 @@ impl qobject::Repair {
                     (rust.editor().loaded(), repair.preview_patch())
                 {
                     for note in preview_notes(&loaded.document, patch) {
-                        let mut ghost = QHash::<QHashPair_QString_QVariant>::default();
-                        ghost.insert(QString::from("rowId"), QVariant::from(&note.row_id));
-                        ghost.insert(QString::from("start"), QVariant::from(&note.start_ms));
-                        ghost.insert(QString::from("end"), QVariant::from(&note.end_ms));
-                        ghost_list.append(QVariant::from(&ghost));
+                        ghost_list.append(QVariant::from(&preview_note_hash(&note)));
                     }
                 }
                 // The overview strip's data: the current line's voice's
@@ -736,7 +1097,8 @@ impl qobject::Repair {
                         .take(usize::from(voice))
                         .map(|voice| voice.lines.len())
                         .sum();
-                    for line in overview_lines(&loaded.document, &loaded.song, voice) {
+                    let basis = health_basis(rust);
+                    for line in overview_lines(&loaded.document, &loaded.song, voice, &basis) {
                         let mut row = QHash::<QHashPair_QString_QVariant>::default();
                         row.insert(
                             QString::from("line"),
@@ -747,7 +1109,9 @@ impl qobject::Repair {
                         row.insert(QString::from("health"), QVariant::from(&line.health));
                         overview_list.append(QVariant::from(&row));
                     }
-                    for (first, last) in racing_ranges(&loaded.document, &loaded.song, voice) {
+                    for (first, last) in
+                        racing_ranges(&loaded.document, &loaded.song, voice, &basis)
+                    {
                         let mut row = QHash::<QHashPair_QString_QVariant>::default();
                         row.insert(QString::from("first"), QVariant::from(&(first as i32)));
                         row.insert(QString::from("last"), QVariant::from(&(last as i32)));
@@ -768,7 +1132,13 @@ impl qobject::Repair {
                 ) = match current_repair_target(rust.editor()) {
                     Some((voice, line)) if rust.editor().loaded().is_some() => {
                         let loaded = rust.editor().loaded().expect("checked above");
-                        let section = repair_section(&loaded.document, &loaded.song, voice, line);
+                        let section = repair_section(
+                            &loaded.document,
+                            &loaded.song,
+                            voice,
+                            line,
+                            &health_basis(rust),
+                        );
                         let offset: usize = loaded
                             .song
                             .voices
@@ -828,6 +1198,20 @@ impl qobject::Repair {
                         Lengths::Scale => 0,
                         Lengths::Keep => 1,
                     },
+                    match rust.editor().loaded() {
+                        Some(loaded) => block_state(&loaded.document, &loaded.song, repair),
+                        None => (
+                            -1,
+                            -1,
+                            -1.0,
+                            -1.0,
+                            0,
+                            0.0,
+                            -1.0,
+                            -1.0,
+                            follow_i32(repair.follow()),
+                        ),
+                    },
                 )
             }
             None => (
@@ -847,6 +1231,7 @@ impl qobject::Repair {
                 -1.0,
                 0,
                 1,
+                (-1, -1, -1.0, -1.0, 0, 0.0, -1.0, -1.0, 1),
             ),
         };
         if self.as_ref().mode != mode {
@@ -859,6 +1244,7 @@ impl qobject::Repair {
         self.as_mut().set_preview_notes(ghosts);
         self.as_mut().set_overview_lines(overview);
         self.as_mut().set_racing_sections(racing);
+        self.as_mut().sync_racing_rows();
         self.as_mut().set_overview_anchors(anchor_marks);
         self.as_mut().set_section_first(section.first);
         self.as_mut().set_section_last(section.last);
@@ -869,7 +1255,28 @@ impl qobject::Repair {
         self.as_mut().set_section_end_ms(section_end);
         self.as_mut().set_section_new_end_ms(section_new_end);
         self.as_mut().set_shortened_notes(shortened);
-        self.as_mut().set_note_lengths(note_lengths);
+        // The WRITE setter of note_lengths is the setNoteLengths
+        // invokable, which refreshes the preview; the mirror must not
+        // recurse, so the field is written directly (the mode's
+        // pattern) and the change notified.
+        if self.as_ref().note_lengths != note_lengths {
+            self.as_mut().rust_mut().note_lengths = note_lengths;
+            self.as_mut().note_lengths_changed();
+        }
+        self.as_mut().set_block_first(block.0);
+        self.as_mut().set_block_last(block.1);
+        self.as_mut().set_block_start_ms(block.2);
+        self.as_mut().set_block_end_ms(block.3);
+        self.as_mut().set_block_notes(block.4);
+        self.as_mut().set_block_scale(block.5);
+        self.as_mut().set_block_new_start_ms(block.6);
+        self.as_mut().set_block_new_end_ms(block.7);
+        // The WRITE setter of follow is the setFollow invokable, which
+        // refreshes the preview; the mirror writes the field directly.
+        if self.as_ref().follow != block.8 {
+            self.as_mut().rust_mut().follow = block.8;
+            self.as_mut().follow_changed();
+        }
     }
 
     /// refresh_preview recomputes the pending preview after a change:
@@ -919,6 +1326,17 @@ impl qobject::Repair {
         };
         if let Some(rust) = self.as_mut().document_rust() {
             rust.repair.set_mode(mode);
+            // Entering the block mode without a block seeds it from the
+            // editor's note selection (user decision 2026-11-17); a
+            // block chosen earlier keeps.
+            if mode == RepairMode::Block
+                && rust.repair.block().is_none()
+                && let Some(loaded) = rust.editor().loaded()
+                && let Some((first, last)) =
+                    selection_lines(&loaded.song, rust.editor().selection())
+            {
+                self.as_mut().set_block(first as i32, last as i32);
+            }
             self.as_mut().refresh_preview();
         }
     }
@@ -966,17 +1384,25 @@ impl qobject::Repair {
     /// set_block selects the block mode's lines (the lines pane's
     /// global numbering); both must belong to one voice. The block's
     /// patch applies against the current line's voice at apply time.
+    /// The new times start at the block's old note span, so a fresh
+    /// block previews as identity until an edge is dragged.
     pub fn set_block(mut self: Pin<&mut Self>, first: i32, last: i32) {
         let Some(rust) = self.as_mut().document_rust() else {
             return;
         };
-        let Some((_, first, last)) =
+        let Some((voice, first, last)) =
             line_range_target(rust.editor(), first.max(0) as usize, last.max(0) as usize)
         else {
             return;
         };
         rust.repair.set_mode(RepairMode::Block);
-        rust.repair.set_block(first, last + 1);
+        rust.repair.set_block(first, last, voice);
+        if let Some(loaded) = rust.editor().loaded() {
+            let span = block_span(&loaded.document, &loaded.song, voice, first, last);
+            if let Some(span) = span {
+                rust.repair.set_block_times(span.start_ms, span.end_ms);
+            }
+        }
         self.as_mut().refresh_preview();
     }
 
@@ -988,12 +1414,51 @@ impl qobject::Repair {
         }
     }
 
+    /// set_follow switches what the lines after the block do (the
+    /// block bar's "Following lines" toggle); other values are a
+    /// silent no-op.
+    pub fn set_follow(mut self: Pin<&mut Self>, follow: i32) {
+        let Some(follow) = follow_of(follow) else {
+            return;
+        };
+        let Some(rust) = self.as_mut().document_rust() else {
+            return;
+        };
+        rust.repair.set_follow(follow);
+        self.as_mut().refresh_preview();
+    }
+
     /// apply commits the current mode's patch as one history step.
-    pub fn apply(self: Pin<&mut Self>) -> bool {
-        match self.pinned_document() {
+    pub fn apply(mut self: Pin<&mut Self>) -> bool {
+        let applied = match self.as_mut().pinned_document() {
             Some(document) => apply_repair(document),
             None => false,
+        };
+        // The page follows the applied song: the preview recomputes (the
+        // anchors and the block now sit where they pin, so nothing is
+        // pending) and the cards, ghosts and section mirror the result.
+        if applied {
+            // In the block mode the block's times start over at its new
+            // span (setBlock re-reads it), so the next drag starts there.
+            let (mode, first, last) = (
+                *self.as_ref().mode(),
+                *self.as_ref().block_first(),
+                *self.as_ref().block_last(),
+            );
+            if mode == 1 && first >= 0 && last >= first {
+                self.as_mut().set_block(first, last);
+            } else {
+                self.as_mut().refresh_preview();
+            }
         }
+        applied
+    }
+
+    /// refresh re-reads the document: the preview recomputes against the
+    /// document as it stands (an edit made in the editor meanwhile would
+    /// leave an old preview stale) and the properties mirror the result.
+    pub fn refresh(self: Pin<&mut Self>) {
+        self.refresh_preview();
     }
 
     /// cancel clears the pending preview; the document stays unchanged.
@@ -1070,10 +1535,45 @@ impl qobject::Repair {
         hash.insert(QString::from("entries"), QVariant::from(&entry_list));
         let mut problem_list = QVariantList::default();
         for problem in &preview.problems {
-            problem_list.append(QVariant::from(&QString::from(problem.as_str())));
+            let mut row = QHash::<QHashPair_QString_QVariant>::default();
+            row.insert(
+                QString::from("sourceLine"),
+                QVariant::from(&(problem.source_line as i32)),
+            );
+            row.insert(
+                QString::from("message"),
+                QVariant::from(&QString::from(problem.message.as_str())),
+            );
+            problem_list.append(QVariant::from(&row));
         }
         hash.insert(QString::from("problems"), QVariant::from(&problem_list));
+        hash.insert(
+            QString::from("error"),
+            QVariant::from(&QString::from(preview.error.as_deref().unwrap_or_default())),
+        );
         hash
+    }
+
+    /// default_export_url returns anchors.txt in the song's folder as a
+    /// file url, empty without a song.
+    pub fn default_export_url(&self) -> QUrl {
+        let Some(loaded) = self
+            .song_document()
+            .and_then(|document| document.rust().editor().loaded())
+        else {
+            return QUrl::default();
+        };
+        QUrl::from_local_file(&QString::from(
+            default_anchors_path(&loaded.path)
+                .to_string_lossy()
+                .as_ref(),
+        ))
+    }
+
+    /// file_exists tells whether a file url names an existing file (the
+    /// export dialog asks before replacing it).
+    pub fn file_exists(&self, url: QUrl) -> bool {
+        qurl_to_path(&url).is_file()
     }
 
     /// export_anchors writes anchors.txt next to the song (with the
@@ -1228,11 +1728,22 @@ impl qobject::TapSession {
         );
         match result {
             Some(Ok(())) => {
+                let lines = match document.rust().editor().loaded() {
+                    Some(loaded) => tap_lines(
+                        &loaded.document,
+                        &loaded.song,
+                        first.max(0) as usize,
+                        last.max(0) as usize,
+                    ),
+                    None => Vec::new(),
+                };
+                let list = tap_line_list(&lines);
                 // The playback follows the session's rate for the
                 // pre-roll the first Space press starts.
                 if let Some(player) = self.as_mut().pinned_player() {
                     player.set_rate(rate);
                 }
+                self.as_mut().set_lines(list);
                 self.as_mut().sync();
                 true
             }
@@ -1361,5 +1872,129 @@ impl qobject::TapSession {
     /// range_end reads the session's last target end.
     fn range_end(&self) -> Option<f64> {
         self.session_of()?.range_end()
+    }
+}
+
+impl qobject::Calibration {
+    /// document_rust returns the document's Rust side behind the pointer.
+    fn calibration_document(self: Pin<&mut Self>) -> Option<&'static mut SongDocumentRust> {
+        let pointer = *self.as_ref().document();
+        if pointer.is_null() {
+            return None;
+        }
+        // SAFETY: the document outlives the calibration and Qt runs the
+        // invokables on one thread, so the pointer is not aliased.
+        let document = unsafe { Pin::new_unchecked(&mut *pointer) };
+        Some(document.rust_mut().get_mut())
+    }
+
+    /// sync mirrors the round into the properties.
+    fn sync(mut self: Pin<&mut Self>) {
+        let round = self.as_ref().rust().round.clone();
+        let mut offsets = QVariantList::default();
+        for offset in round.offsets() {
+            offsets.append(match offset {
+                Some(ms) => QVariant::from(&ms),
+                None => QVariant::default(),
+            });
+        }
+        self.as_mut().set_offsets(offsets);
+        self.as_mut().set_has_median(round.median_ms().is_some());
+        self.as_mut()
+            .set_median_ms(round.median_ms().unwrap_or(0) as i32);
+        self.as_mut().set_complete(round.complete());
+    }
+
+    /// start writes the click track, clears the taps and plays it.
+    pub fn start(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().stop();
+        let Some(path) =
+            dirs::cache_dir().map(|cache| cache.join(APP_ID).join("calibration-clicks.wav"))
+        else {
+            return false;
+        };
+        if click_track_wav(&path, 44_100).is_err() {
+            return false;
+        }
+        let mut player = match usdx_audio::player::Player::new() {
+            Ok(player) => player,
+            Err(error) => {
+                log::warn!("The calibration clicks cannot play: {error}");
+                return false;
+            }
+        };
+        if let Err(error) = player.load(&path) {
+            log::warn!("The calibration clicks cannot play: {error}");
+            return false;
+        }
+        player.play();
+        self.as_mut().rust_mut().round.clear();
+        self.as_mut().rust_mut().player = Some(player);
+        self.as_mut().set_click(0);
+        self.as_mut().set_running(true);
+        self.as_mut().sync();
+        true
+    }
+
+    /// tick follows the playback: the click now playing, and the end of
+    /// the round when the track ends.
+    pub fn tick(mut self: Pin<&mut Self>) {
+        let mut ended = false;
+        let mut position = None;
+        if let Some(player) = self.as_mut().rust_mut().player.as_mut() {
+            for event in player.poll() {
+                if matches!(event, usdx_audio::player::PlayerEvent::EndOfStream) {
+                    ended = true;
+                }
+            }
+            position = player.position_ms();
+        }
+        if let Some(position) = position {
+            let click = crate::controller::calibration::Calibration::click_at(position) as i32;
+            self.as_mut().set_click(click);
+        }
+        if ended {
+            self.as_mut().stop();
+        }
+    }
+
+    /// tap records a Space press at the playback position.
+    pub fn tap(mut self: Pin<&mut Self>) {
+        let position = self
+            .as_ref()
+            .rust()
+            .player
+            .as_ref()
+            .and_then(usdx_audio::player::Player::position_ms);
+        if let Some(position) = position {
+            self.as_mut().tap_at(position);
+        }
+    }
+
+    /// tap_at records a press at the given playback position.
+    pub fn tap_at(mut self: Pin<&mut Self>, position_ms: f64) {
+        self.as_mut().rust_mut().round.tap(position_ms);
+        self.as_mut().sync();
+    }
+
+    /// stop ends the clicks; the taps stay for the Use button.
+    pub fn stop(mut self: Pin<&mut Self>) {
+        if let Some(mut player) = self.as_mut().rust_mut().player.take() {
+            player.pause();
+        }
+        self.as_mut().set_running(false);
+    }
+
+    /// use_latency stores the median as the tap latency (negative
+    /// medians store 0).
+    pub fn use_latency(mut self: Pin<&mut Self>) -> bool {
+        let Some(median) = self.as_ref().rust().round.median_ms() else {
+            return false;
+        };
+        let Some(document) = self.as_mut().calibration_document() else {
+            return false;
+        };
+        document.set_latency_ms(median.max(0) as u32);
+        true
     }
 }

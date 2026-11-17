@@ -57,6 +57,9 @@ pub struct RepairController {
     end_pin_ms: Option<f64>,
     /// The block's line range (half open), set by setBlock.
     block: Option<Range<usize>>,
+    /// The voice the block's lines belong to, set with the range (the
+    /// global line numbers the UI shows map through it).
+    block_voice: Option<u8>,
     /// The block's new start and end in audio milliseconds.
     block_times: (f64, f64),
     /// What the lines after the block do.
@@ -83,6 +86,7 @@ impl RepairController {
             lengths: Lengths::Keep,
             end_pin_ms: None,
             block: None,
+            block_voice: None,
             block_times: (0.0, 0.0),
             follow: Follow::MoveAlong,
             tap: None,
@@ -168,10 +172,34 @@ impl RepairController {
     }
 
     /// set_block sets the block's line range (first and last line,
-    /// inclusive).
-    pub fn set_block(&mut self, first: usize, last: usize) {
+    /// inclusive) and the voice the lines belong to (the UI's global
+    /// line numbers map through it).
+    pub fn set_block(&mut self, first: usize, last: usize, voice: u8) {
         self.block = Some(first..last + 1);
+        self.block_voice = Some(voice);
         self.preview = None;
+    }
+
+    /// block returns the block's line range (half open) while one is
+    /// selected.
+    pub fn block(&self) -> Option<&Range<usize>> {
+        self.block.as_ref()
+    }
+
+    /// block_voice returns the voice the block's lines belong to.
+    pub fn block_voice(&self) -> Option<u8> {
+        self.block_voice
+    }
+
+    /// block_times returns the block's new start and end in audio
+    /// milliseconds.
+    pub fn block_times(&self) -> (f64, f64) {
+        self.block_times
+    }
+
+    /// follow returns what the lines after the block do.
+    pub fn follow(&self) -> Follow {
+        self.follow
     }
 
     /// set_block_times sets the block's new start and end in audio
@@ -224,9 +252,9 @@ impl RepairController {
     }
 
     /// preview_patch returns the patch the UI ghosts, until apply or
-    /// cancel.
+    /// cancel; a plan that changes nothing is no preview.
     pub fn preview_patch(&self) -> Option<&Patch> {
-        self.preview.as_ref()
+        self.preview.as_ref().filter(|patch| !patch.ops.is_empty())
     }
 
     /// compute_patch plans the patch of the current mode against the
@@ -277,9 +305,13 @@ impl RepairController {
     pub fn apply(&mut self, loaded: &mut LoadedSong, voice: u8) -> Result<(), EditError> {
         self.voice = voice;
         let patch = self.compute_patch(&loaded.document, &loaded.song, voice)?;
+        self.preview = None;
+        // A plan that changes nothing adds no undo step.
+        if patch.ops.is_empty() {
+            return Ok(());
+        }
         loaded.history.commit(&mut loaded.document, patch)?;
         loaded.song = Song::from_document(&loaded.document);
-        self.preview = None;
         Ok(())
     }
 
@@ -288,9 +320,10 @@ impl RepairController {
         self.preview = None;
     }
 
-    /// has_preview says whether a preview is pending.
+    /// has_preview says whether a preview that changes the song is
+    /// pending.
     pub fn has_preview(&self) -> bool {
-        self.preview.is_some()
+        self.preview_patch().is_some()
     }
 
     /// export_entries builds the anchors.txt content (decision D-12):

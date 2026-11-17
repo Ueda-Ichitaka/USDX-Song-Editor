@@ -10,7 +10,7 @@
 //! (beat 0 at 1 s), so a note's audio time is `1000 + beat * 50` ms.
 
 use usdx_audio::Activity;
-use usdx_edit::health::{Health, HealthConfig, LineHealth, analyze, racing_sections};
+use usdx_edit::health::{Health, HealthConfig, LineHealth, Signal, analyze, racing_sections};
 use usdx_format::bytes::decode;
 use usdx_format::rows::{Document, classify};
 use usdx_format::song::Song;
@@ -91,6 +91,7 @@ fn the_rate_signals_warn_and_race() {
     let health = health_of(&fast, &HealthConfig::default());
     assert_eq!(health[0].health, Health::Racing);
     assert_eq!(health[0].reason, "rate 20.0/s");
+    assert_eq!(health[0].signals, vec![Signal::Rate]);
     assert!((health[0].neighbour_factor - 1.0).abs() < 1e-9);
     assert_eq!(health[1].health, Health::Racing);
 
@@ -111,6 +112,7 @@ fn the_neighbour_factor_races_a_line_that_is_fast_only_relative() {
     let health = health_of(&text, &HealthConfig::default());
     assert_eq!(health[1].health, Health::Racing);
     assert_eq!(health[1].reason, "neighbour factor 3.2");
+    assert_eq!(health[1].signals, vec![Signal::NeighbourFactor]);
     // The slow lines stay ok: their neighbourhood medians (5.25) pull the
     // factor under the warn.
     assert_eq!(health[0].health, Health::Ok);
@@ -172,6 +174,7 @@ fn the_vocal_coverage_signals_from_the_activity() {
     );
     assert_eq!(health[0].health, Health::Suspicious);
     assert_eq!(health[0].reason, "coverage 0.25");
+    assert_eq!(health[0].signals, vec![Signal::Coverage]);
     assert!((health[0].vocal_coverage.unwrap() - 0.25).abs() < 1e-9);
 
     // All note windows active: no coverage signal.
@@ -179,6 +182,7 @@ fn the_vocal_coverage_signals_from_the_activity() {
     let health = analyze(&doc, &song, 0, Some(&activity_of(50.0, &active)), &cfg);
     assert_eq!(health[0].health, Health::Ok);
     assert_eq!(health[0].reason, "ok");
+    assert!(health[0].signals.is_empty(), "a calm line names no signal");
     assert!((health[0].vocal_coverage.unwrap() - 1.0).abs() < 1e-9);
 }
 
@@ -190,6 +194,10 @@ fn several_racing_signals_are_named_together() {
     let health = health_of(&text, &HealthConfig::default());
     assert_eq!(health[0].health, Health::Racing);
     assert_eq!(health[0].reason, "rate 20.0/s, neighbour factor 5.0");
+    assert_eq!(
+        health[0].signals,
+        vec![Signal::Rate, Signal::NeighbourFactor]
+    );
 }
 
 #[test]
@@ -201,6 +209,7 @@ fn racing_sections_merge_neighbouring_racing_lines() {
         neighbour_factor: 1.0,
         vocal_coverage: None,
         reason: String::new(),
+        signals: Vec::new(),
     };
     let health = vec![
         entry(0, Health::Ok),

@@ -111,6 +111,13 @@ Rectangle {
 
         objectName: "sheetBackground"
         anchors.fill: parent
+        // The vocal activity has arrived (and sits in the analysis cache):
+        // the line health gains its coverage signal (task P7-09).
+        onShowActivityChanged: {
+            if (showActivity && root.document) {
+                root.document.refreshHealth();
+            }
+        }
         // The song timing the beat axis maps through.
         bpm: root.document ? root.document.bpm : 0
         gapMs: root.document ? root.document.gapMs : 0

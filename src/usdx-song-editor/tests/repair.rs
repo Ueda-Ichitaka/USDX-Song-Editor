@@ -19,6 +19,7 @@ use usdx_edit::retime::{Anchor, Lengths, Outside, Pin, StretchOptions, anchor_st
 use usdx_format::bytes::decode;
 use usdx_format::rows::{Document, RowKind, classify};
 use usdx_format::song::Song;
+use usdx_song_editor::bridge::repair::block_state;
 use usdx_song_editor::controller::editor::LoadedSong;
 use usdx_song_editor::controller::fingerprint::FileFingerprint;
 use usdx_song_editor::controller::repair::{RepairController, RepairMode};
@@ -208,7 +209,7 @@ fn block_mode_previews_the_block_transform() {
     let (_dir, doc, song) = loaded();
     let mut repair = RepairController::new();
     repair.set_mode(RepairMode::Block);
-    repair.set_block(0, 0);
+    repair.set_block(0, 0, 0);
     repair.set_block_times(500.0, 1250.0);
     repair.set_follow(Follow::MoveAlong);
     let patch = block_transform(&doc, &song, 0, 0..1, 500.0, 1250.0, Follow::MoveAlong)
@@ -328,6 +329,48 @@ fn preview_patch_exposes_the_pending_patch_for_the_ghost_notes() {
 }
 
 #[test]
+fn set_block_remembers_the_block_voice_and_range() {
+    let mut repair = RepairController::new();
+    assert_eq!(repair.block_voice(), None, "no block yet");
+    // The block's line range is voice-local and half open; the voice
+    // the bridge derived the global lines from is kept for the UI's
+    // span and global numbers.
+    repair.set_block(4, 9, 1);
+    assert_eq!(repair.block(), Some(&(4..10)));
+    assert_eq!(repair.block_voice(), Some(1));
+}
+
+#[test]
+fn block_state_reports_the_bar_numbers_with_the_new_times() {
+    let (_dir, doc, song) = loaded();
+    let mut repair = RepairController::new();
+    // Without a block: no lines, no span, no scale, Move along (the
+    // default, user decision 2026-11-17).
+    assert_eq!(
+        block_state(&doc, &song, &repair),
+        (-1, -1, -1.0, -1.0, 0, 0.0, -1.0, -1.0, 1)
+    );
+    // The fixture's lines 0..=1: the notes span 0..1500 ms, 6 notes.
+    // The bridge's setBlock initializes the new times to the old note
+    // span (identity preview, user decision 2026-11-17); the
+    // controller-level test mirrors that call.
+    repair.set_block(0, 1, 0);
+    repair.set_block_times(0.0, 1500.0);
+    assert_eq!(
+        block_state(&doc, &song, &repair),
+        (0, 1, 0.0, 1500.0, 6, 1.0, 0.0, 1500.0, 1)
+    );
+    repair.set_block_times(0.0, 750.0);
+    assert_eq!(
+        block_state(&doc, &song, &repair),
+        (0, 1, 0.0, 1500.0, 6, 0.5, 0.0, 750.0, 1)
+    );
+    // Stay after the Following lines toggle.
+    repair.set_follow(Follow::Stay);
+    assert_eq!(block_state(&doc, &song, &repair).8, 0);
+}
+
+#[test]
 fn the_note_lengths_toggle_switches_the_planner() {
     let (_dir, doc, song) = loaded();
     let mut repair = RepairController::new();
@@ -371,4 +414,39 @@ fn the_note_lengths_toggle_switches_the_planner() {
         .expect("the preview plans")
         .clone();
     assert_eq!(length_of(&keep_again, 4), 4);
+}
+
+#[test]
+fn a_preview_that_changes_nothing_is_no_preview() {
+    // Without anchors, or with an anchor that pins a line where it already
+    // starts, the planned patch changes nothing: nothing to ghost and
+    // nothing for Apply.
+    let (_dir, doc, song) = loaded();
+    let mut repair = RepairController::new();
+    repair
+        .preview(&doc, &song, 0)
+        .expect("the empty plan is no error");
+    assert!(!repair.has_preview(), "no anchors, no preview");
+    assert!(repair.preview_patch().is_none());
+    repair.pin_current_line_at(1, 750.0);
+    repair
+        .preview(&doc, &song, 0)
+        .expect("the plan is no error");
+    assert!(!repair.has_preview(), "line 1 already starts at 750 ms");
+    repair.pin_current_line_at(1, 1000.0);
+    repair
+        .preview(&doc, &song, 0)
+        .expect("the plan is no error");
+    assert!(repair.has_preview(), "a moved line previews");
+}
+
+#[test]
+fn applying_a_plan_that_changes_nothing_adds_no_undo_step() {
+    let (_dir, mut loaded) = loaded_song();
+    let mut repair = RepairController::new();
+    repair
+        .apply(&mut loaded, 0)
+        .expect("the empty plan is no error");
+    assert!(!loaded.history.is_dirty());
+    assert_eq!(loaded.history.undo_label(), None);
 }

@@ -3,7 +3,8 @@
 //! under the user's cache directory, keyed by a hash of the canonical file
 //! path, size and mtime, in a simple versioned binary layout. A corrupt or
 //! old-version cache file is ignored and rewritten, so an analysis only ever
-//! has to run once per file version.
+//! has to run once per file version. `cached_activity` hands the stored vocal
+//! activity to the editor's line health.
 
 use std::fs;
 use std::io::Read;
@@ -97,6 +98,14 @@ fn read_f32_array(cursor: &mut impl Read, count: u64) -> Option<Vec<f32>> {
         *value = read_f32(cursor)?;
     }
     Some(values)
+}
+
+/// cached_activity returns the vocal activity of an audio file from the
+/// cache, when a valid current-version cache file with the bucket length
+/// exists; the editor's line health reads it for the #VOCALS track (task
+/// P7-09) without running the analysis again.
+pub fn cached_activity(path: &Path, bucket_ms: f64) -> Option<Activity> {
+    load(path, bucket_ms).map(|(_, activity)| activity)
 }
 
 /// Loads the cached analysis of an audio file, when a valid current-version
@@ -211,6 +220,20 @@ mod tests {
         assert!(cache.is_file(), "the analysis stored a cache file");
         let second = analyze(&path, 10.0, &no_cancel(), &|_| {}).expect("the analysis succeeds");
         assert_eq!(first, second, "the cached analysis equals the fresh one");
+    }
+
+    /// The editor's line health reads the vocal activity of the #VOCALS
+    /// track from the cache the sheet's analysis wrote (task P7-09).
+    #[test]
+    fn cached_activity_reads_the_stored_activity() {
+        let dir = tempfile::tempdir().expect("the temporary directory is created");
+        let path = dir.path().join("tone.opus");
+        testmedia::tone_opus(&path).expect("the test tone is generated");
+        assert_eq!(cached_activity(&path, 10.0), None, "nothing analysed yet");
+        let (_, activity) =
+            analyze(&path, 10.0, &no_cancel(), &|_| {}).expect("the analysis succeeds");
+        assert_eq!(cached_activity(&path, 10.0), Some(activity));
+        assert_eq!(cached_activity(&path, 20.0), None, "another bucket length");
     }
 
     /// Plan test 5: a changed mtime invalidates the cache - the analysis

@@ -6,8 +6,8 @@
 // external change asks through the Song changed on disk dialog; open and
 // reload failures show the Cannot open song dialog. It also restores and
 // remembers the window size, checks the file on disk when the window becomes
-// active again, and accepts .txt drops on the window. The note sheet and the
-// remaining dialogs arrive with the later tasks.
+// active again, and accepts .txt drops on the window. The About, Repair and
+// Tap-along pages are created once and pushed onto the page stack as items.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -57,6 +57,16 @@ Kirigami.ApplicationWindow {
         target: root.songDocument
         function onSongLoaded() {
             root.player.followDocument();
+            if (root.repairPageItem && root.repairPageItem.visible) {
+                root.repair.refresh();
+            }
+        }
+        // The repair page's header, section and preview follow the
+        // current line while the page is shown.
+        function onCurrentLineChanged() {
+            if (root.repairPageItem && root.repairPageItem.visible) {
+                root.repair.refresh();
+            }
         }
     }
 
@@ -198,12 +208,63 @@ Kirigami.ApplicationWindow {
             qsTr("This page arrives in a later phase."), 4000);
     }
 
+    // The pushed pages exist once, created on first use with the window's
+    // content item as parent and pushed as items: Kirigami's PageRow
+    // creates a pushed Component under a non-item parent, which Qt reports
+    // as a warning, and a popped item page goes back to its parent hidden,
+    // ready for the next push.
+    property Item aboutPageItem: null
+    property Item repairPageItem: null
+    property Item tapAlongPageItem: null
+
+    // pushPageItem pushes the page unless it is already the current page.
+    function pushPageItem(page: Item) {
+        if (root.pageStack.currentItem !== page) {
+            root.pageStack.push(page);
+        }
+    }
+
     function showAboutPage() {
-        root.pageStack.push(aboutPageComponent);
+        if (!root.aboutPageItem) {
+            root.aboutPageItem = aboutPageComponent.createObject(root.contentItem, {
+                visible: false
+            });
+        }
+        root.pushPageItem(root.aboutPageItem);
     }
 
     function showRepairPage() {
-        root.pageStack.push(repairPageComponent);
+        if (!root.repairPageItem) {
+            root.repairPageItem = repairPageComponent.createObject(root.contentItem, {
+                visible: false
+            });
+        }
+        // The repair data follows the document as it stands now: the song
+        // may have been loaded or edited since the page was last shown.
+        root.repair.refresh();
+        root.pushPageItem(root.repairPageItem);
+    }
+
+    // showTapAlongPage pushes the tap-along page (UI_SPEC 4.8) over the
+    // repair page for the global lines first..last.
+    function showTapAlongPage(first: int, last: int) {
+        if (!root.tapAlongPageItem) {
+            root.tapAlongPageItem = tapAlongPageComponent.createObject(root.contentItem, {
+                visible: false
+            });
+        }
+        root.pushPageItem(root.tapAlongPageItem);
+        root.tapAlongPageItem.openFor(first, last);
+    }
+
+    // closeTapAlongPage returns to the repair page in the anchor mode,
+    // which shows the result of used taps.
+    function closeTapAlongPage() {
+        if (root.pageStack.currentItem === root.tapAlongPageItem) {
+            root.pageStack.pop();
+        }
+        root.repair.setMode(0);
+        root.repair.refresh();
     }
 
     function showEditorPage() {
@@ -473,6 +534,17 @@ Kirigami.ApplicationWindow {
         credits: [],
         translators: []
     })
+
+    Component {
+        id: tapAlongPageComponent
+
+        Usdx.TapAlongPage {
+            document: root.songDocument
+            player: root.player
+            tapSession: root.tapSession
+            shell: root
+        }
+    }
 
     Component {
         id: repairPageComponent

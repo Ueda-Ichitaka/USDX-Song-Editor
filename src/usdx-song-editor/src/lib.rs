@@ -217,11 +217,15 @@ fn copy_song_with_audio(
 
 /// The demo states the harness knows (UI_SPEC 8.1); later tasks add theirs.
 #[cfg(debug_assertions)]
-const DEMO_STATES: [&str; 7] = [
+const DEMO_STATES: [&str; 11] = [
     "start-screen",
     "editor",
     "line-text",
-    "repair",
+    "repair-anchor",
+    "repair-block",
+    "tap-along",
+    "export-anchors",
+    "latency-calibration",
     "audio-states-missing",
     "audio-states-loading",
     "audio-states-no-vocals",
@@ -245,7 +249,11 @@ fn check_demo_state(state: &str, has_song: bool) -> Result<(), String> {
     if (state.starts_with("audio-states-")
         || state == "editor"
         || state == "line-text"
-        || state == "repair")
+        || state == "repair-anchor"
+        || state == "repair-block"
+        || state == "tap-along"
+        || state == "export-anchors"
+        || state == "latency-calibration")
         && !has_song
     {
         return Err(format!("the demo state \"{state}\" needs --song"));
@@ -287,13 +295,45 @@ fn apply_demo_state(
             return Err(String::from("the playhead could not be placed"));
         }
     }
-    if state == "repair" {
-        // The repair page of task P7-08: the demo pushes the page over
-        // the editor so the RepairPage/RepairSheet/AnchorPanel tree
-        // loads (and the screenshot shows it).
-        if !bridge::screenshot::usdx_open_demo_repair(engine) {
-            return Err(String::from("the repair page could not be opened"));
+    if state == "repair-anchor" || state == "repair-block" {
+        // UI_SPEC 8.1: the repair page on plan 6.7's synthetic fault, in
+        // the anchor mode with the two anchors or in the block mode with
+        // the compressed lines selected.
+        let summary =
+            bridge::screenshot::usdx_open_demo_repair_fault(engine, state == "repair-block")
+                .to_string();
+        if summary.is_empty() {
+            return Err(String::from("the repair demo could not be set up"));
         }
+        println!("{summary}");
+    }
+    if state == "tap-along" {
+        // UI_SPEC 8.1: the tap-along page over the compressed lines,
+        // recording, with 12 taps.
+        let summary = bridge::screenshot::usdx_open_demo_tap_along(engine).to_string();
+        if summary.is_empty() {
+            return Err(String::from("the tap-along demo could not be set up"));
+        }
+        println!("{summary}");
+    }
+    if state == "export-anchors" {
+        // UI_SPEC 8.1: the Export anchors dialog after the anchor demo's
+        // stretch is applied.
+        let summary = bridge::screenshot::usdx_open_demo_export_anchors(engine).to_string();
+        if summary.is_empty() {
+            return Err(String::from("the export-anchors demo could not be set up"));
+        }
+        println!("{summary}");
+    }
+    if state == "latency-calibration" {
+        // UI_SPEC 8.1: the Measure tap latency dialog with five taps.
+        let summary = bridge::screenshot::usdx_open_demo_latency_calibration(engine).to_string();
+        if summary.is_empty() {
+            return Err(String::from(
+                "the latency-calibration demo could not be set up",
+            ));
+        }
+        println!("{summary}");
     }
     if state == "line-text" {
         // The Edit line dialog of line 3 with the mockup's edit: one word
@@ -508,12 +548,16 @@ pub fn app_main(args: impl Iterator<Item = String>) -> i32 {
                         && bridge::selftest::usdx_text_edit_check(engine)
                         && bridge::selftest::usdx_song_end_check(engine)
                         && bridge::selftest::usdx_drawer_check(engine)
+                        // The block check runs last: it pushes the
+                        // repair page over the editor, and the checks
+                        // above act on the editor page.
+                        && bridge::selftest::usdx_block_drag_check(engine)
                 });
                 if interaction_ok {
                     0
                 } else {
                     eprintln!(
-                        "self-test failed: the drawer, sheet interaction, playhead, text editing or song end check failed"
+                        "self-test failed: the drawer, sheet interaction, playhead, text editing, song end or block band check failed"
                     );
                     1
                 }

@@ -4,8 +4,9 @@
 //! screenshot mode of the application and the screenshot tests reach them
 //! through these small extern functions; two more drive the waveform lane of
 //! the audio demo states (pin it loading, wait for it and describe it), and
-//! the rest set up the editor demo state (select a note, place the playhead)
-//! and the line-text demo state (open the Edit line dialog).
+//! the rest set up the editor demo state (select a note, place the playhead),
+//! the line-text demo state (open the Edit line dialog) and the repair and
+//! tap-along demo states on the synthetic fault.
 
 #[cxx::bridge]
 mod ffi {
@@ -30,12 +31,22 @@ mod ffi {
             line: i32,
             text: &QString,
         ) -> bool;
-        fn usdx_open_demo_repair(engine: &QQmlApplicationEngine) -> bool;
+        fn usdx_open_demo_repair_fault(engine: &QQmlApplicationEngine, block_mode: bool)
+        -> QString;
+        fn usdx_open_demo_tap_along(engine: &QQmlApplicationEngine) -> QString;
+        fn usdx_open_demo_export_anchors(engine: &QQmlApplicationEngine) -> QString;
+        fn usdx_open_demo_latency_calibration(engine: &QQmlApplicationEngine) -> QString;
+        fn usdx_open_demo_repair_block(
+            engine: &QQmlApplicationEngine,
+            first: i32,
+            last: i32,
+        ) -> bool;
     }
 }
 
 pub use ffi::{
-    usdx_hold_lane_loading, usdx_open_demo_line_text, usdx_open_demo_repair, usdx_png_pixel,
-    usdx_png_size, usdx_resize_window, usdx_screenshot_window, usdx_seek_demo_playhead,
-    usdx_select_demo_note, usdx_settle_lanes,
+    usdx_hold_lane_loading, usdx_open_demo_export_anchors, usdx_open_demo_latency_calibration,
+    usdx_open_demo_line_text, usdx_open_demo_repair_block, usdx_open_demo_repair_fault,
+    usdx_open_demo_tap_along, usdx_png_pixel, usdx_png_size, usdx_resize_window,
+    usdx_screenshot_window, usdx_seek_demo_playhead, usdx_select_demo_note, usdx_settle_lanes,
 };

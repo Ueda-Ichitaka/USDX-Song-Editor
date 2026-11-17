@@ -1,7 +1,8 @@
 //! About me: module root of the plain-Rust controllers (plan section 8.2).
 //! The controllers hold the application state without any Qt types so that
 //! every user action is testable headlessly; the cxx-qt bridges in
-//! src/bridge forward to them. It holds the editor controller, the file
+//! src/bridge forward to them. It holds the tap latency calibration, the
+//! editor controller, the file
 //! fingerprint, the save service, the settings and the shell state (titles,
 //! enablement, guarded transitions), the default time view of the sheet, the
 //! analysis state and the column layout of the waveform lanes, and the sheet
@@ -12,11 +13,13 @@
 //! controller (anchor, block and tap mode with preview, apply, cancel
 //! and the anchors export) and the tap-along session controller.
 
+pub mod calibration;
 pub mod editing;
 pub mod editor;
 pub mod fingerprint;
 pub mod inspector;
 pub mod lanes;
+pub mod line_health;
 pub mod line_text;
 pub mod model_update;
 pub mod notes;

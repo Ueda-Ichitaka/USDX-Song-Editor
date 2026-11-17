@@ -62,9 +62,21 @@ pub enum Health {
     Racing,
 }
 
+/// One health signal (plan 6.10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Signal {
+    /// The syllable rate.
+    Rate,
+    /// The rate against the neighbourhood median.
+    NeighbourFactor,
+    /// The share of the note time with active vocals.
+    Coverage,
+}
+
 /// LineHealth is one line's report: its index in the voice, its verdict,
-/// the raw signals and the reason naming the signals at the verdict's
-/// level.
+/// the raw signals, the reason naming the signals at the verdict's level
+/// and those signals themselves (in the order rate, neighbour factor,
+/// coverage; empty for a calm line).
 #[derive(Clone, Debug, PartialEq)]
 pub struct LineHealth {
     pub line: usize,
@@ -73,6 +85,7 @@ pub struct LineHealth {
     pub neighbour_factor: f64,
     pub vocal_coverage: Option<f64>,
     pub reason: String,
+    pub signals: Vec<Signal>,
 }
 
 /// severity_of maps one signal to its verdict: a value at or beyond the
@@ -239,14 +252,18 @@ pub fn analyze(
             // The reason names the signals at the verdict's level; a
             // calm line stays unnamed.
             let mut named: Vec<String> = Vec::new();
+            let mut signals: Vec<Signal> = Vec::new();
             if verdict != Health::Ok && rate_signal == verdict {
                 named.push(format!("rate {:.1}/s", rates[index]));
+                signals.push(Signal::Rate);
             }
             if verdict != Health::Ok && neighbour_signal == verdict {
                 named.push(format!("neighbour factor {:.1}", factor));
+                signals.push(Signal::NeighbourFactor);
             }
             if verdict != Health::Ok && coverage_signal == verdict {
                 named.push(format!("coverage {:.2}", coverage.unwrap_or(0.0)));
+                signals.push(Signal::Coverage);
             }
             LineHealth {
                 line: index,
@@ -259,6 +276,7 @@ pub fn analyze(
                 } else {
                     named.join(", ")
                 },
+                signals,
             }
         })
         .collect()

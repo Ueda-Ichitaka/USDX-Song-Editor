@@ -37,6 +37,7 @@ mod ffi {
         // Permanent regression checks (phase-5 fixes).
         fn usdx_drawer_check(engine: &QQmlApplicationEngine) -> bool;
         fn usdx_sheet_interaction_check(engine: &QQmlApplicationEngine) -> bool;
+        fn usdx_block_drag_check(engine: &QQmlApplicationEngine) -> bool;
         fn usdx_playhead_check(engine: &QQmlApplicationEngine) -> bool;
         fn usdx_text_edit_check(engine: &QQmlApplicationEngine) -> bool;
         fn usdx_song_end_check(engine: &QQmlApplicationEngine) -> bool;
@@ -44,9 +45,9 @@ mod ffi {
 }
 
 pub use ffi::{
-    usdx_drawer_check, usdx_install_message_handler, usdx_open_song, usdx_playhead_check,
-    usdx_qml_click_child, usdx_qml_root_object_exists, usdx_qml_root_property_bool,
-    usdx_qt_warning_count, usdx_selftest_load_song, usdx_selftest_start_screen,
-    usdx_selftest_ui_paths, usdx_sheet_interaction_check, usdx_song_end_check,
-    usdx_text_edit_check,
+    usdx_block_drag_check, usdx_drawer_check, usdx_install_message_handler, usdx_open_song,
+    usdx_playhead_check, usdx_qml_click_child, usdx_qml_root_object_exists,
+    usdx_qml_root_property_bool, usdx_qt_warning_count, usdx_selftest_load_song,
+    usdx_selftest_start_screen, usdx_selftest_ui_paths, usdx_sheet_interaction_check,
+    usdx_song_end_check, usdx_text_edit_check,
 };

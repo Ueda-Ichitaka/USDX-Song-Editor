@@ -205,10 +205,6 @@ Rectangle {
             }
         }
 
-        Item {
-            Layout.fillHeight: true
-        }
-
         QQC2.Label {
             objectName: "betweenAnchorsLabel"
             Layout.fillWidth: true
@@ -218,72 +214,107 @@ Rectangle {
             text: qsTr("BETWEEN ANCHORS")
         }
 
-        // The Note lengths toggle: exclusive buttons, Keep checked by
-        // default (user decision 2026-11-17).
-        RowLayout {
+        // The form (UI_SPEC 4.6 item 3): Note lengths [Scale | Keep] (Keep
+        // checked by default, user decision 2026-11-17), the stretch factor
+        // of the section and the collisions pill.
+        GridLayout {
             Layout.fillWidth: true
-            spacing: 6
+            columns: 2
+            columnSpacing: Kirigami.Units.largeSpacing
+            rowSpacing: Kirigami.Units.smallSpacing
 
             QQC2.Label {
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                 text: qsTr("Note lengths")
-                color: root.Kirigami.Theme.textColor
+                color: root.Kirigami.Theme.disabledTextColor
             }
 
-            QQC2.Button {
-                objectName: "noteLengthsScale"
-                checkable: true
-                autoExclusive: true
-                checked: root.repair && root.repair.noteLengths === 0
-                text: qsTr("Scale")
-                onToggled: if (checked) root.repair.setNoteLengths(0)
+            RowLayout {
+                spacing: 0
+
+                QQC2.Button {
+                    objectName: "noteLengthsScale"
+                    checkable: true
+                    autoExclusive: true
+                    checked: root.repair && root.repair.noteLengths === 0
+                    text: qsTr("Scale")
+                    onToggled: if (checked) root.repair.setNoteLengths(0)
+                }
+
+                QQC2.Button {
+                    objectName: "noteLengthsKeep"
+                    checkable: true
+                    autoExclusive: true
+                    checked: !root.repair || root.repair.noteLengths === 1
+                    text: qsTr("Keep")
+                    onToggled: if (checked) root.repair.setNoteLengths(1)
+                }
             }
-
-            QQC2.Button {
-                objectName: "noteLengthsKeep"
-                checkable: true
-                autoExclusive: true
-                checked: !root.repair || root.repair.noteLengths === 1
-                text: qsTr("Keep")
-                onToggled: if (checked) root.repair.setNoteLengths(1)
-            }
-        }
-
-        QQC2.Label {
-            objectName: "stretchFactor"
-            visible: root.repair && root.repair.sectionFirst >= 0
-            Layout.fillWidth: true
-            elide: Text.ElideRight
-            font.family: Kirigami.Theme.fixedWidthFont.family
-            color: root.Kirigami.Theme.textColor
-            text: root.repair && root.repair.sectionFirst >= 0
-                  ? root.factorText(root.repair.sectionFactor)
-                    + qsTr(" (lines %1-%2)")
-                      .arg(root.repair.sectionFirst + 1)
-                      .arg(root.repair.sectionLast + 1)
-                  : ""
-        }
-
-        // The collisions pill: the rounding pass shortens notes when
-        // stretched notes would overlap.
-        Rectangle {
-            objectName: "collisionsPill"
-            Layout.fillWidth: true
-            implicitHeight: collisionsLabel.implicitHeight + 2 * 4
-            radius: height / 2
-            color: root.repair && root.repair.shortenedNotes > 0
-                   ? root.Kirigami.Theme.neutralTextColor
-                   : root.Kirigami.Theme.positiveTextColor
 
             QQC2.Label {
-                id: collisionsLabel
-
-                anchors.centerIn: parent
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                color: root.Kirigami.Theme.backgroundColor
-                text: root.repair && root.repair.shortenedNotes > 0
-                      ? qsTr("%1 notes shortened").arg(root.repair.shortenedNotes)
-                      : qsTr("none after rounding")
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                visible: stretchFactor.visible
+                text: qsTr("Stretch factor")
+                color: root.Kirigami.Theme.disabledTextColor
             }
+
+            QQC2.Label {
+                id: stretchFactor
+
+                objectName: "stretchFactor"
+                visible: root.repair && root.repair.sectionFirst >= 0
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                font.family: Kirigami.Theme.fixedWidthFont.family
+                color: root.Kirigami.Theme.textColor
+                text: root.repair && root.repair.sectionFirst >= 0
+                      ? root.factorText(root.repair.sectionFactor)
+                        + qsTr(" (lines %1-%2)")
+                          .arg(root.repair.sectionFirst + 1)
+                          .arg(root.repair.sectionLast + 1)
+                      : ""
+            }
+
+            QQC2.Label {
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                text: qsTr("Collisions")
+                color: root.Kirigami.Theme.disabledTextColor
+            }
+
+            // The collisions pill (the house pill: smallFont bold, the
+            // text colour on the matching background, fully rounded, 1 / 7
+            // px padding): positive "none after rounding", neutral when the
+            // rounding pass shortened notes.
+            Rectangle {
+                objectName: "collisionsPill"
+
+                readonly property bool shortened:
+                    root.repair !== null && root.repair.shortenedNotes > 0
+
+                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
+                implicitWidth: collisionsLabel.implicitWidth + 2 * metrics.pillPaddingHorizontal
+                implicitHeight: collisionsLabel.implicitHeight + 2 * metrics.pillPaddingVertical
+                radius: height / 2
+                color: shortened ? root.Kirigami.Theme.neutralBackgroundColor
+                                 : root.Kirigami.Theme.positiveBackgroundColor
+
+                QQC2.Label {
+                    id: collisionsLabel
+
+                    anchors.centerIn: parent
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    font.bold: true
+                    color: parent.shortened ? root.Kirigami.Theme.neutralTextColor
+                                            : root.Kirigami.Theme.positiveTextColor
+                    text: parent.shortened
+                          ? qsTr("%1 notes shortened").arg(root.repair.shortenedNotes)
+                          : qsTr("none after rounding")
+                }
+            }
+        }
+
+        Item {
+            Layout.fillHeight: true
         }
 
         RowLayout {
@@ -302,6 +333,7 @@ Rectangle {
 
             QQC2.Button {
                 objectName: "repairApplyButton"
+                Accessible.defaultButton: true
                 text: qsTr("Apply stretch")
                 enabled: root.repair && root.repair.hasPreview
                 onClicked: root.repair.apply()

@@ -236,8 +236,17 @@ pub fn match_anchor_units(
     Ok(bound)
 }
 
+/// One check finding of the export dialog: the song line (voice P1,
+/// 0-based) of the anchor it is about, which "Leave it out" drops, and the
+/// message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportProblem {
+    pub source_line: usize,
+    pub message: String,
+}
+
 /// export_problems runs the export dialog's checks and returns one
-/// message per problem. With `lyrics` (the lyrics.txt lines) the
+/// finding per problem. With `lyrics` (the lyrics.txt lines) the
 /// Factory's matching decides: an anchor text that is not found, or that
 /// binds to a different occurrence than the song line it came from,
 /// warns. Without lyrics.txt a text that appears again on a later song
@@ -246,7 +255,7 @@ pub fn export_problems(
     entries: &[AnchorEntry],
     song_lines: &[String],
     lyrics: Option<&[String]>,
-) -> Vec<String> {
+) -> Vec<ExportProblem> {
     let Some(lyrics) = lyrics else {
         let mut problems = Vec::new();
         for entry in entries {
@@ -257,11 +266,14 @@ pub fn export_problems(
                 .skip(entry.source_line + 1)
                 .any(|(_, text)| normalize(text) == wanted);
             if repeats_later {
-                problems.push(format!(
-                    "{} | {}: the Factory would bind this text to a later line",
-                    format_time(entry.time_ms),
-                    entry.text
-                ));
+                problems.push(ExportProblem {
+                    source_line: entry.source_line,
+                    message: format!(
+                        "{} | {}: the Factory would bind this text to a later line",
+                        format_time(entry.time_ms),
+                        entry.text
+                    ),
+                });
             }
         }
         return problems;
@@ -276,22 +288,28 @@ pub fn export_problems(
         match (0..limit).rev().find(|&i| normalised[i] == wanted) {
             Some(index) => {
                 if index != entry.source_line {
-                    problems.push(format!(
-                        "{} | {}: binds to lyrics line {}, a different occurrence than the song line {} it came from",
-                        format_time(entry.time_ms),
-                        entry.text,
-                        index,
-                        entry.source_line
-                    ));
+                    problems.push(ExportProblem {
+                        source_line: entry.source_line,
+                        message: format!(
+                            "{} | {}: binds to lyrics line {}, a different occurrence than the song line {} it came from",
+                            format_time(entry.time_ms),
+                            entry.text,
+                            index,
+                            entry.source_line
+                        ),
+                    });
                 }
                 limit = index;
             }
             None => {
-                problems.push(format!(
-                    "{} | {}: the text is not found in lyrics.txt (in this order)",
-                    format_time(entry.time_ms),
-                    entry.text
-                ));
+                problems.push(ExportProblem {
+                    source_line: entry.source_line,
+                    message: format!(
+                        "{} | {}: the text is not found in lyrics.txt (in this order)",
+                        format_time(entry.time_ms),
+                        entry.text
+                    ),
+                });
             }
         }
     }

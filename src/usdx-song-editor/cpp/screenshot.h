@@ -57,7 +57,42 @@ bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fractio
 // document or the dialog.
 bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, const QString &text);
 
-// Pushes the repair page over the editor (the repair demo state, task
-// P7-08) through the shell's showRepairPage; false when the shell has no
-// such method.
-bool usdx_open_demo_repair(const QQmlApplicationEngine &engine);
+// Pushes the repair page, switches the repair bridge to the block mode
+// and seeds the block over the global lines first..=last (the block demo
+// state, task P7-08); false when the seed does not land in the bridge
+// (the blockFirst/blockLast/mode properties are read back).
+bool usdx_open_demo_repair_block(const QQmlApplicationEngine &engine, int first, int last);
+
+// Sets up the repair demo states on the synthetic fault of plan 6.7 (UI_SPEC
+// 8.1): opens the repair page, compresses a run of lines to a quarter of its
+// duration with a block transform (lines 15-22 on a song of at least 24
+// lines, else the first line), and then either pins the first compressed
+// line and the line after the run at their original starts in the anchor
+// mode (the fault moves the following lines along, so the line after the
+// run leaves its place), or selects the compressed lines in the block mode
+// with their old end as the new end (the fault keeps the following lines
+// in place). Returns the summary line
+// the harness prints ("repair demo: lines 15-22 compressed to a quarter,
+// anchors 2, preview yes"), empty when a step failed.
+QString usdx_open_demo_repair_fault(const QQmlApplicationEngine &engine, bool blockMode);
+
+// Sets up the tap-along demo state (UI_SPEC 8.1): the synthetic fault of the
+// anchor demo, then the tap-along page over the compressed lines in the
+// syllable mode, the session recording with up to 12 taps at the note
+// starts (fed as positions, no playback). Returns the summary line the
+// harness prints ("tap demo: lines 15-22, taps 12 / 57, state recording"),
+// empty when a step failed.
+QString usdx_open_demo_tap_along(const QQmlApplicationEngine &engine);
+
+// Sets up the export-anchors demo state (UI_SPEC 8.1): the anchor demo on
+// the synthetic fault, the stretch applied, then the Export anchors dialog
+// open. Returns the summary line the harness prints ("export demo: 9 lines,
+// 7 changed, 2 pinned"), empty when a step failed.
+QString usdx_open_demo_export_anchors(const QQmlApplicationEngine &engine);
+
+// Sets up the latency-calibration demo state (UI_SPEC 8.1, 5.7): the
+// tap-along demo's page with the Measure tap latency dialog open, the clicks
+// stopped and five taps fed at 34, 38, 36, 31 and 37 ms after clicks 1 to 5.
+// Returns the summary line the harness prints ("calibration demo: 5 taps,
+// median 36 ms"), empty when a step failed.
+QString usdx_open_demo_latency_calibration(const QQmlApplicationEngine &engine);

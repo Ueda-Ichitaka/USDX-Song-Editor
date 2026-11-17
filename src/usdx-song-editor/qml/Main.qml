@@ -60,6 +60,18 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // The repair page's pending state and the tap-along session; the
+    // repair page (task P7-08) reads and drives them.
+    property Usdx.Repair repair: Usdx.Repair {
+        objectName: "repair"
+        document: root.songDocument
+    }
+    property Usdx.TapSession tapSession: Usdx.TapSession {
+        objectName: "tapSession"
+        document: root.songDocument
+        player: root.player
+    }
+
     // The action waiting behind a Save changes? or Song changed on disk
     // dialog; null while no transition is pending.
     property var pendingAction: null
@@ -71,6 +83,11 @@ Kirigami.ApplicationWindow {
     title: root.songDocument.windowTitle
 
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
+    // The page stack must stay single-column: Kirigami's PageRow switches to
+    // a wide two-column mode when the window fits two default columns, which
+    // keeps the editor visible beside a pushed page. defaultColumnWidth is
+    // bound so the wide mode's condition can never hold.
+    pageStack.defaultColumnWidth: root.width / 2 + 1
     pageStack.initialPage: Usdx.EditorPage {
         document: root.songDocument
         player: root.player
@@ -183,6 +200,14 @@ Kirigami.ApplicationWindow {
 
     function showAboutPage() {
         root.pageStack.push(aboutPageComponent);
+    }
+
+    function showRepairPage() {
+        root.pageStack.push(repairPageComponent);
+    }
+
+    function showEditorPage() {
+        root.pageStack.pop();
     }
 
     function rememberWindowSize() {
@@ -448,4 +473,15 @@ Kirigami.ApplicationWindow {
         credits: [],
         translators: []
     })
+
+    Component {
+        id: repairPageComponent
+
+        Usdx.RepairPage {
+            document: root.songDocument
+            player: root.player
+            repair: root.repair
+            shell: root
+        }
+    }
 }

@@ -249,6 +249,13 @@ impl TapSession {
         self.taps.len().min(self.targets.len())
     }
 
+    /// range_end returns the last target's end in audio milliseconds,
+    /// the end of the playback range the pre-roll plays into. `None`
+    /// without a target.
+    pub fn range_end(&self) -> Option<f64> {
+        self.targets.last().map(|&(_, end)| end)
+    }
+
     /// use_taps builds the patch the mapping functions plan from the
     /// collected taps: the line mode's lines move rigidly onto their
     /// taps, the syllable mode's notes onto theirs.

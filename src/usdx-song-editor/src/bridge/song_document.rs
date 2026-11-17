@@ -17,9 +17,10 @@
 //! dialog signal. The editing invokables cover the selection, the note
 //! moves and actions (P5-04 to P5-06) and the line text: the Edit line
 //! dialog's text, preview JSON and apply and the inline syllable edit
-//! (P6-02); the health and
-//! anchor roles stay neutral (0, empty) until the analysis (P7) and repair
-//! (P6.3) phases fill them.
+//! (P6-02). The Repair and TapSession QObjects (declared here next to
+//! the document they mirror, their logic living in bridge/repair.rs)
+//! hold the repair page's pending state (P7-08); the health roles stay
+//! neutral (0, empty) until the analysis (P7) fills them.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,6 +33,7 @@ use usdx_format::headers::{Headers, Version};
 use usdx_format::rows::{NoteType, RowId};
 
 use crate::bridge::player::PlayerCore;
+use crate::bridge::repair::{TapStartError, current_repair_target, line_range_target};
 use crate::controller::editing::{Edge, SelectionMode, snapped_move, snapped_resize};
 use crate::controller::inspector::{InspectorState, inspector_state};
 use crate::controller::line_text;
@@ -40,16 +42,18 @@ use crate::controller::notes::{
     PhraseEndRow, VisibleNote, all_lines, song_end_beat, type_char, visible_notes,
     visible_phrase_ends,
 };
+use crate::controller::repair::{RepairController, RepairMode};
 use crate::controller::save::SaveError;
 use crate::controller::settings::{Settings, settings_path};
 use crate::controller::sheet::{LineNotes, line_notes};
 use crate::controller::shell;
+use crate::controller::tap::TapMode;
 use crate::controller::view::{TimeView, follow_line};
 use crate::controller::{EditorController, SaveService};
 
 /// The QVariantList (QList<QVariant>) the sheet note properties use; the
 /// bridge declares the same cxx-qt-lib type.
-type QVariantList = cxx_qt_lib::QList<QVariant>;
+pub(crate) type QVariantList = cxx_qt_lib::QList<QVariant>;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -1026,6 +1030,251 @@ pub mod qobject {
     }
 
     impl cxx_qt::Threading for Player {}
+
+    extern "RustQt" {
+        /// The repair QObject: the pending state of the repair page's
+        /// modes (plan 8.3, task P7-08). The state itself lives in the
+        /// document's repair controller; every invokable mirrors it
+        /// into the properties.
+        #[qobject]
+        #[qml_element]
+        #[qproperty(*mut SongDocument, document)]
+        // The WRITE setter is the setMode invokable below: a generated
+        // setter would collide with it on the Rust side.
+        #[qproperty(i32, mode, READ, WRITE = set_mode, NOTIFY)]
+        #[qproperty(QList_QVariant, anchors)]
+        #[qproperty(bool, preview_enabled, cxx_name = "previewEnabled")]
+        // A negative end pin means "no end pin"; setEndPin clears with
+        // a negative value.
+        #[qproperty(f64, end_pin_ms, cxx_name = "endPinMs")]
+        #[qproperty(bool, has_preview, cxx_name = "hasPreview")]
+        #[qproperty(QList_QVariant, preview_notes, cxx_name = "previewNotes")]
+        // Empty while the preview computes; the refused reason
+        // otherwise (the QML decides how to show it).
+        #[qproperty(QString, preview_error, cxx_name = "previewError")]
+        // The overview strip's data (UI_SPEC 4.6): one hash per line of
+        // the voice (startMs, endMs, health) and the racing sections as
+        // inclusive ranges (first, last), plus the anchors as flag marks
+        // (timeMs, badge).
+        #[qproperty(QList_QVariant, overview_lines, cxx_name = "overviewLines")]
+        #[qproperty(QList_QVariant, racing_sections, cxx_name = "racingSections")]
+        #[qproperty(QList_QVariant, overview_anchors, cxx_name = "overviewAnchors")]
+        // The racing section around the repair target in global line
+        // numbers (0-based, -1 when the line is calm or unknown), its
+        // verdict (0 ok, 1 suspicious, 2 racing), the target line's
+        // neighbour factor and vocal coverage (-1 unknown) for the repair
+        // page's header, warning and status bar.
+        #[qproperty(i32, section_first, cxx_name = "sectionFirst")]
+        #[qproperty(i32, section_last, cxx_name = "sectionLast")]
+        #[qproperty(i32, section_health, cxx_name = "sectionHealth")]
+        #[qproperty(f64, section_factor, cxx_name = "sectionFactor")]
+        #[qproperty(f64, section_coverage, cxx_name = "sectionCoverage")]
+        // The section's old end and the end the pending preview gives it
+        // (-1 without a section), the status bar's "becomes" times.
+        #[qproperty(f64, section_start_ms, cxx_name = "sectionStartMs")]
+        #[qproperty(f64, section_end_ms, cxx_name = "sectionEndMs")]
+        #[qproperty(f64, section_new_end_ms, cxx_name = "sectionNewEndMs")]
+        // The notes the pending preview's rounding pass had to shorten
+        // (the collisions pill; 0 when no preview is pending).
+        #[qproperty(i32, shortened_notes, cxx_name = "shortenedNotes")]
+        // The panel's Note lengths toggle: 0 Scale, 1 Keep (the default,
+        // user decision 2026-11-17). The WRITE setter is the
+        // setNoteLengths invokable below.
+        #[qproperty(i32, note_lengths, cxx_name = "noteLengths", READ, WRITE = set_note_lengths, NOTIFY)]
+        type Repair = super::RepairRust;
+    }
+
+    /// The repair page's modes (plan 6.7-6.9); the values double as the
+    /// i32 of the mode property.
+    #[qenum(Repair)]
+    enum RepairModeKind {
+        /// Anchor and stretch.
+        Anchor,
+        /// Block move and scale.
+        Block,
+        /// Tap-along.
+        Tap,
+    }
+
+    extern "RustQt" {
+        /// Pin the current line's start at `ms` audio milliseconds (the
+        /// anchor mode's A key or a line dragged onto the waveform).
+        #[qinvokable]
+        #[cxx_name = "pinCurrentLineAt"]
+        fn pin_current_line_at(self: Pin<&mut Repair>, ms: f64);
+
+        /// Switch the repair mode (0 anchor, 1 block, 2 tap); doubles
+        /// as the WRITE setter of the mode property. The pending state
+        /// of the other mode keeps, the preview recomputes.
+        #[qinvokable]
+        #[cxx_name = "setMode"]
+        fn set_mode(self: Pin<&mut Repair>, mode: i32);
+
+        /// Change the pinned time of the anchor `index`.
+        #[qinvokable]
+        #[cxx_name = "setAnchorMs"]
+        fn set_anchor_ms(self: Pin<&mut Repair>, index: i32, ms: f64);
+
+        /// Remove the anchor `index`.
+        #[qinvokable]
+        #[cxx_name = "removeAnchor"]
+        fn remove_anchor(self: Pin<&mut Repair>, index: i32);
+
+        /// Pin the song end at `ms` audio milliseconds; a negative
+        /// value clears the end pin.
+        #[qinvokable]
+        #[cxx_name = "setEndPin"]
+        fn set_end_pin(self: Pin<&mut Repair>, ms: f64);
+
+        /// Select the block mode's lines (the lines pane's global
+        /// numbering); both must belong to the same voice, otherwise
+        /// the call is a silent no-op.
+        #[qinvokable]
+        #[cxx_name = "setBlock"]
+        fn set_block(self: Pin<&mut Repair>, first: i32, last: i32);
+
+        /// Set the block's new start and end in audio milliseconds.
+        #[qinvokable]
+        #[cxx_name = "setBlockTimes"]
+        fn set_block_times(self: Pin<&mut Repair>, start_ms: f64, end_ms: f64);
+
+        /// Switch the panel's Note lengths toggle (0 Scale, 1 Keep)
+        /// and clear the pending preview.
+        #[qinvokable]
+        #[cxx_name = "setNoteLengths"]
+        fn set_note_lengths(self: Pin<&mut Repair>, lengths: i32);
+
+        /// Commit the current mode's patch as one history step and
+        /// refresh the document. False (and an `editRefused` on the
+        /// document) when the patch does not fit or no song is loaded.
+        #[qinvokable]
+        fn apply(self: Pin<&mut Repair>) -> bool;
+
+        /// Clear the pending preview; the document stays unchanged.
+        #[qinvokable]
+        fn cancel(self: Pin<&mut Repair>);
+
+        /// Build the export dialog's payload (UI_SPEC 5.5) without
+        /// writing: the file text, the changed and pinned counts, the
+        /// end pin and the Factory-matching problems. `excluded` lists
+        /// the source lines the "Leave it out" actions dropped.
+        #[qinvokable]
+        #[cxx_name = "exportPreviewJson"]
+        fn export_preview_json(self: &Repair, excluded: QList_i32) -> QHash_QString_QVariant;
+
+        /// Write anchors.txt next to the song (with the same "Leave it
+        /// out" exclusions the preview showed) and report success;
+        /// QML shows the passive notification.
+        #[qinvokable]
+        #[cxx_name = "exportAnchors"]
+        fn export_anchors(self: &Repair, url: QUrl, excluded: QList_i32) -> bool;
+    }
+
+    extern "RustQt" {
+        /// The tap-along session QObject (plan 8.3, UI_SPEC 4.8): a
+        /// mirror of the session the repair controller holds in tap
+        /// mode, plus the key and playback handling. The `player`
+        /// property is the playback the session drives (the pre-roll
+        /// seek, the pause at the end).
+        #[qobject]
+        #[qml_element]
+        #[qproperty(*mut SongDocument, document)]
+        #[qproperty(*mut Player, player)]
+        #[qproperty(bool, active)]
+        #[qproperty(i32, mode)]
+        #[qproperty(i32, state)]
+        #[qproperty(i32, tap_count, cxx_name = "tapCount")]
+        #[qproperty(i32, expected_count, cxx_name = "expectedCount")]
+        #[qproperty(i32, current_syllable, cxx_name = "currentSyllable")]
+        #[qproperty(f64, latency_ms, cxx_name = "latencyMs")]
+        // The pre-roll seek target, -1 without a session.
+        #[qproperty(f64, pre_roll_start_ms, cxx_name = "preRollStartMs")]
+        // The tap press times in audio milliseconds, for the lane's
+        // ticks.
+        #[qproperty(QList_QVariant, taps)]
+        type TapSession = super::TapSessionRust;
+    }
+
+    /// What one tap pins (the TapSession's mode enum).
+    #[qenum(TapSession)]
+    enum TapModeKind {
+        /// One tap per line; the line moves rigidly onto the tap.
+        Line,
+        /// One tap per syllable.
+        Syllable,
+    }
+
+    /// The session states shown in the status line (UI_SPEC 4.8).
+    #[qenum(TapSession)]
+    enum TapStateKind {
+        /// Before the first Space press.
+        Ready,
+        /// The pre-roll plays; presses record nothing yet.
+        PreRoll,
+        /// The playback is inside the range; presses record taps.
+        Recording,
+        /// The playback passed the last target; the session is done.
+        Finished,
+    }
+
+    extern "RustQt" {
+        /// Open a session over the global lines `first..=last` (the
+        /// lines pane's numbering; both must belong to one voice) at
+        /// the playback `rate`; the latency and the pre-roll come from
+        /// the settings. False (and an `editRefused` on the document)
+        /// when the song has no usable tempo or the range crosses a
+        /// voice border.
+        #[qinvokable]
+        #[cxx_name = "startSession"]
+        fn start_session(
+            self: Pin<&mut TapSession>,
+            first: i32,
+            last: i32,
+            mode: i32,
+            rate: f64,
+        ) -> bool;
+
+        /// Feed the playback position every frame: the pre-roll turns
+        /// into recording at the first target, the session finishes
+        /// past the last target's end (and pauses the playback).
+        #[qinvokable]
+        fn tick(self: Pin<&mut TapSession>, position_ms: f64);
+
+        /// A Space press: the first one starts the pre-roll (and
+        /// plays the pre-roll range), the later ones record a tap at
+        /// the playback position minus the latency.
+        #[qinvokable]
+        #[cxx_name = "keyDown"]
+        fn key_down(self: Pin<&mut TapSession>, position_ms: f64);
+
+        /// The Space release, for the tap's up time.
+        #[qinvokable]
+        #[cxx_name = "keyUp"]
+        fn key_up(self: Pin<&mut TapSession>, position_ms: f64);
+
+        /// Take the last tap back.
+        #[qinvokable]
+        #[cxx_name = "undoTap"]
+        fn undo_tap(self: Pin<&mut TapSession>);
+
+        /// End the session and pause the playback.
+        #[qinvokable]
+        fn stop(self: Pin<&mut TapSession>);
+
+        /// Commit the taps as one history step (the repair mode's
+        /// apply) and refresh the document. False when the taps do
+        /// not fit (reported through the document's `editRefused`).
+        #[qinvokable]
+        #[cxx_name = "useTaps"]
+        fn use_taps(self: Pin<&mut TapSession>) -> bool;
+
+        /// Write the calibration click track (8 clicks at 1 s
+        /// spacing) into the cache directory and return its url;
+        /// QML plays it and measures the latency (UI_SPEC 5.7). An
+        /// empty url when the cache directory is unavailable.
+        #[qinvokable]
+        fn calibrate(self: &TapSession) -> QUrl;
+    }
 }
 
 use core::pin::Pin;
@@ -1034,7 +1283,7 @@ use cxx_qt::CxxQtType;
 
 use crate::bridge::song_document::qobject::{
     ActivationKind, ChangedOnDiskKind, LinesModel, NoteRoles, NotesModel, PhraseEndRoles,
-    PhraseEndsModel, RecentRoles, RecentSongsModel, ResizeEdge, Roles, SaveChangesKind,
+    PhraseEndsModel, Player, RecentRoles, RecentSongsModel, ResizeEdge, Roles, SaveChangesKind,
     SelectionKind, SongDocument, TransitionKind, usdx_relative_date_text,
 };
 
@@ -1094,11 +1343,189 @@ impl Default for PlayerRust {
     }
 }
 
+/// The Rust side of the Repair: the Q_PROPERTY storage, mirrored from
+/// the document's repair controller. The logic lives in the impls in
+/// bridge/repair.rs.
+pub struct RepairRust {
+    /// The document whose repair controller is mirrored; QML sets it
+    /// once on startup.
+    pub(crate) document: *mut SongDocument,
+    // The Q_PROPERTY storage.
+    pub(crate) mode: i32,
+    pub(crate) anchors: QVariantList,
+    pub(crate) preview_enabled: bool,
+    pub(crate) end_pin_ms: f64,
+    pub(crate) has_preview: bool,
+    pub(crate) preview_notes: QVariantList,
+    pub(crate) preview_error: QString,
+    pub(crate) overview_lines: QVariantList,
+    pub(crate) racing_sections: QVariantList,
+    pub(crate) overview_anchors: QVariantList,
+    pub(crate) section_first: i32,
+    pub(crate) section_last: i32,
+    pub(crate) section_health: i32,
+    pub(crate) section_factor: f64,
+    pub(crate) section_coverage: f64,
+    pub(crate) section_start_ms: f64,
+    pub(crate) section_end_ms: f64,
+    pub(crate) section_new_end_ms: f64,
+    pub(crate) shortened_notes: i32,
+    pub(crate) note_lengths: i32,
+}
+
+impl Default for RepairRust {
+    /// default starts in the anchor mode with the preview on (UI_SPEC
+    /// 4.6: the Preview check is checked by default) and no end pin
+    /// (the negative endPinMs).
+    fn default() -> Self {
+        RepairRust {
+            document: std::ptr::null_mut(),
+            mode: 0,
+            anchors: QVariantList::default(),
+            preview_enabled: true,
+            end_pin_ms: -1.0,
+            has_preview: false,
+            preview_notes: QVariantList::default(),
+            preview_error: QString::default(),
+            overview_lines: QVariantList::default(),
+            racing_sections: QVariantList::default(),
+            overview_anchors: QVariantList::default(),
+            section_first: -1,
+            section_last: -1,
+            section_health: -1,
+            section_factor: 0.0,
+            section_coverage: -1.0,
+            section_start_ms: -1.0,
+            section_end_ms: -1.0,
+            section_new_end_ms: -1.0,
+            shortened_notes: 0,
+            note_lengths: 1,
+        }
+    }
+}
+
+/// The Rust side of the TapSession: the Q_PROPERTY storage, mirrored
+/// from the repair controller's tap session. The logic lives in the
+/// impls in bridge/repair.rs.
+pub struct TapSessionRust {
+    /// The document whose repair controller holds the session; QML
+    /// sets it once on startup.
+    pub(crate) document: *mut SongDocument,
+    /// The playback the session drives (the pre-roll seek, the pause
+    /// at the end); QML sets it once on startup.
+    pub(crate) player: *mut Player,
+    // The Q_PROPERTY storage.
+    pub(crate) active: bool,
+    pub(crate) mode: i32,
+    pub(crate) state: i32,
+    pub(crate) tap_count: i32,
+    pub(crate) expected_count: i32,
+    pub(crate) current_syllable: i32,
+    pub(crate) latency_ms: f64,
+    pub(crate) pre_roll_start_ms: f64,
+    pub(crate) taps: QVariantList,
+}
+
+impl Default for TapSessionRust {
+    /// default starts inactive with the settings' latency; the -1
+    /// preRollStartMs means "no session".
+    fn default() -> Self {
+        TapSessionRust {
+            document: std::ptr::null_mut(),
+            player: std::ptr::null_mut(),
+            active: false,
+            mode: 0,
+            state: 0,
+            tap_count: 0,
+            expected_count: 0,
+            current_syllable: 0,
+            latency_ms: 0.0,
+            pre_roll_start_ms: -1.0,
+            taps: QVariantList::default(),
+        }
+    }
+}
+
 impl SongDocumentRust {
     /// The controller behind the document; the player resolves the track
     /// files through it.
     pub(crate) fn editor(&self) -> &EditorController {
         &self.controller
+    }
+
+    /// apply_repair_patch commits the repair controller's current mode
+    /// patch as one history step: the tap mode applies the session's
+    /// voice, the other modes the current line's voice. `None` when
+    /// there is nothing to apply (no song, no current line).
+    pub(crate) fn apply_repair_patch(&mut self) -> Option<Result<(), usdx_edit::EditError>> {
+        let voice = match self.repair.mode() {
+            RepairMode::Tap => self.repair.voice(),
+            _ => match current_repair_target(&self.controller) {
+                Some((voice, _)) => voice,
+                None => return None,
+            },
+        };
+        match self.controller.loaded_mut() {
+            Some(loaded) => Some(self.repair.apply(loaded, voice)),
+            None => Some(Ok(())),
+        }
+    }
+
+    /// start_tap_session opens the repair controller's tap session over
+    /// the global lines first..=last: the range maps through one voice
+    /// and the latency and the pre-roll come from the settings. `None`
+    /// without a loaded song.
+    pub(crate) fn start_tap_session(
+        &mut self,
+        first: usize,
+        last: usize,
+        mode: TapMode,
+        rate: f64,
+    ) -> Option<Result<(), TapStartError>> {
+        let loaded = self.controller.loaded()?;
+        let Some((voice, first_line, last_line)) = line_range_target(&self.controller, first, last)
+        else {
+            return Some(Err(TapStartError::RangeCrossesVoices));
+        };
+        let latency_ms = f64::from(self.settings.latency_ms);
+        let preroll_ms = self.settings.preroll_s * 1000.0;
+        self.repair.set_mode(RepairMode::Tap);
+        Some(
+            self.repair
+                .start_tap_session(
+                    &loaded.document,
+                    &loaded.song,
+                    voice,
+                    first_line,
+                    last_line,
+                    mode,
+                    rate,
+                    latency_ms,
+                    preroll_ms,
+                )
+                .map_err(TapStartError::Edit),
+        )
+    }
+
+    /// refresh_repair_preview recomputes the repair controller's
+    /// pending preview against the loaded song and the current line's
+    /// voice; Ok(false) when there is nothing to preview (no song, no
+    /// current line).
+    pub(crate) fn refresh_repair_preview(&mut self) -> Result<bool, usdx_edit::EditError> {
+        let Some((voice, _)) = current_repair_target(&self.controller) else {
+            return Ok(false);
+        };
+        let Some(loaded) = self.controller.loaded() else {
+            return Ok(false);
+        };
+        self.repair
+            .preview(&loaded.document, &loaded.song, voice)
+            .map(|_| true)
+    }
+
+    /// The song title the anchors.txt header comment names.
+    pub(crate) fn title(&self) -> &QString {
+        &self.title
     }
 
     /// The settings behind the document; the player reads the default
@@ -1183,6 +1610,9 @@ pub struct PhraseEndsModelRust {
 /// settings and the Q_PROPERTY storage.
 pub struct SongDocumentRust {
     controller: EditorController,
+    /// The repair page's pending state (task P7-08); the Repair and
+    /// TapSession QObjects mirror it.
+    pub(crate) repair: RepairController,
     /// The sheet's time view and the song it belongs to; a different song
     /// starts a fresh view.
     view: Option<(std::path::PathBuf, TimeView)>,
@@ -1273,6 +1703,7 @@ impl Default for SongDocumentRust {
         let [width, height] = settings.window_size.unwrap_or([1280, 800]);
         SongDocumentRust {
             controller,
+            repair: RepairController::new(),
             saves,
             settings,
             recents_stale: true,
@@ -2599,7 +3030,7 @@ impl qobject::SongDocument {
 
     /// refresh mirrors the controller state into the Q_PROPERTYs and the
     /// models.
-    fn refresh(mut self: Pin<&mut Self>) {
+    pub(crate) fn refresh(mut self: Pin<&mut Self>) {
         self.as_mut().sync();
         self.as_mut().publish_inspector();
         if let Some(model) = unsafe { self.as_ref().lines_model().as_mut() } {
@@ -3063,7 +3494,7 @@ fn row_id_of(id: i64) -> Option<RowId> {
     u32::try_from(id).ok().map(RowId)
 }
 
-fn qurl_to_path(url: &QUrl) -> PathBuf {
+pub(crate) fn qurl_to_path(url: &QUrl) -> PathBuf {
     let text = match url.to_local_file() {
         Some(local) => String::from(&local),
         None => url.to_string(),

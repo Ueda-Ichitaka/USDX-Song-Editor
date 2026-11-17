@@ -1,8 +1,11 @@
 //! About me: the draw-list layout of the full note sheet (UI_SPEC section 3,
-//! task P5-02). Plain Rust so the sheet math is unit-testable without QML:
-//! layout() folds the sheet geometry, the analysis peaks and vocal activity,
-//! the visible lyric notes and the measured text metrics into draw ops that
-//! the SheetBackground bridge only replays. The vertical stack follows
+//! task P5-02) and of the repair page's whole-song overview strip
+//! (UI_SPEC 4.6, task P7-08). Plain Rust so the sheet math is unit-testable
+//! without QML: layout() folds the sheet geometry, the analysis peaks and
+//! vocal activity, the visible lyric notes and the measured text metrics
+//! into draw ops that the SheetBackground bridge only replays; the overview
+//! strip folds duration, line blocks, racing ranges, anchors, activity and
+//! the metrics the same way. The vertical stack follows
 //! UI_SPEC 3.1 (ruler 22 px, pitch rows, lyrics lane 34 px, 8 px gap,
 //! waveform 54 px, activity 6 px, gutter 46 px), the pitch rows follow 3.3,
 //! the ruler 3.4 and the lyrics lane 3.6; the lane column math lives in
@@ -37,6 +40,16 @@ pub enum ColorRole {
     Waveform,
     /// A vocal activity column.
     Activity,
+    /// A positive verdict colour (health ok blocks, theme role).
+    Positive,
+    /// A neutral verdict colour (suspicious health, theme role).
+    Neutral,
+    /// A negative verdict colour (racing blocks, underlays, theme role).
+    Negative,
+    /// The anchor colour (Palette, anchor flags and lines).
+    Anchor,
+    /// The readable text colour on the anchor colour (Palette).
+    AnchorText,
 }
 
 /// A font of the sheet, mapped to the font properties the bridge holds.
@@ -98,6 +111,26 @@ pub enum SheetOp {
         /// The width the bridge may elide the text to.
         max_width: f64,
         /// The opacity.
+        opacity: f64,
+    },
+    /// A filled rectangle with rounded corners (the overview strip's
+    /// line blocks and anchor flags).
+    RoundedRect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        radius: f64,
+        color: ColorRole,
+    },
+    /// A filled rectangle drawn at reduced opacity (the overview
+    /// strip's racing underlay).
+    FaintRect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        color: ColorRole,
         opacity: f64,
     },
 }
@@ -247,6 +280,179 @@ pub fn ruler_label(t_ms: f64) -> String {
     let minutes = (t / 60.0).floor();
     let seconds = t - minutes * 60.0;
     format!("{minutes}:{seconds:04.1}")
+}
+
+/// The overview strip's geometry in pixels (UI_SPEC 4.6): the strip is a
+/// fixed 64 px high drawing over the whole song duration.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverviewGeometry {
+    /// The strip width in pixels.
+    pub width: f64,
+    /// The strip height in pixels (64).
+    pub height: f64,
+}
+
+/// One line block of the overview strip: the line's note span in audio
+/// milliseconds and its health verdict (0 ok, 1 suspicious, 2 racing).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverviewBlock {
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub health: i32,
+}
+
+/// One anchor flag of the overview strip: the pinned time and the
+/// 0-based badge index (the flag reads A1, A2, ...).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverviewAnchor {
+    pub time_ms: f64,
+    pub badge: usize,
+}
+
+/// What the overview strip folds into draw ops.
+pub struct OverviewInputs<'a> {
+    /// The duration in audio milliseconds the strip maps onto its width.
+    pub duration_ms: f64,
+    /// The voice's lines with their spans and verdicts.
+    pub lines: &'a [OverviewBlock],
+    /// The racing sections as inclusive indexes into `lines`.
+    pub racing: &'a [(usize, usize)],
+    /// The pinned anchors.
+    pub anchors: &'a [OverviewAnchor],
+    /// The vocal activity of the vocals track, once analysed.
+    pub activity: Option<&'a Activity>,
+    /// The font metrics the bridge passes (UI_SPEC 2.2).
+    pub measure: &'a (dyn Fn(TextFont, &str) -> f64 + 'a),
+    pub baseline_offset: &'a (dyn Fn(TextFont) -> f64 + 'a),
+}
+
+/// overview_duration_ms picks the duration the overview strip maps time
+/// with: the caller's preferred duration (the player's pipeline duration,
+/// else the song's end) while it is known, else the finished vocal
+/// activity analysis's length (its bucket count times the bucket length,
+/// the pipeline duration can still be unknown when the strip paints),
+/// else 0.0 so the strip draws nothing.
+pub fn overview_duration_ms(preferred_ms: f64, activity: Option<&Activity>) -> f64 {
+    if preferred_ms > 0.0 {
+        return preferred_ms;
+    }
+    activity
+        .map(|activity| activity.bucket_ms * activity.active.len() as f64)
+        .unwrap_or(0.0)
+}
+
+/// The overview strip's fixed layout (UI_SPEC 4.6): line blocks 20 px at
+/// y 8, the racing underlay 2 px past the section at 10 % opacity over
+/// the full height, the activity lane 8 px at y 34, anchor lines from
+/// y 4 to y 46 with their 20 x 12 px flags on top, time labels every
+/// 30 s at the bottom.
+pub fn layout_overview(geometry: &OverviewGeometry, inputs: &OverviewInputs) -> Vec<SheetOp> {
+    let mut ops = Vec::new();
+    if geometry.width <= 0.0 || geometry.height <= 0.0 || inputs.duration_ms <= 0.0 {
+        return ops;
+    }
+    let x_of = |ms: f64| ms * geometry.width / inputs.duration_ms;
+    // The racing underlays first: full height, negative at 10 %, 2 px
+    // before and after the section's blocks.
+    for &(first, last) in inputs.racing {
+        let (Some(first_block), Some(last_block)) =
+            (inputs.lines.get(first), inputs.lines.get(last))
+        else {
+            continue;
+        };
+        let x1 = x_of(first_block.start_ms) - 2.0;
+        let x2 = x_of(last_block.end_ms) + 2.0;
+        ops.push(SheetOp::FaintRect {
+            x: x1,
+            y: 0.0,
+            width: (x2 - x1).max(0.0),
+            height: geometry.height,
+            color: ColorRole::Negative,
+            opacity: 0.10,
+        });
+    }
+    // The line blocks, coloured by the health verdict.
+    for block in inputs.lines {
+        let color = match block.health {
+            0 => ColorRole::Positive,
+            2 => ColorRole::Negative,
+            _ => ColorRole::Neutral,
+        };
+        let x1 = x_of(block.start_ms);
+        let x2 = x_of(block.end_ms);
+        ops.push(SheetOp::RoundedRect {
+            x: x1,
+            y: 8.0,
+            width: (x2 - x1).max(0.0),
+            height: 20.0,
+            radius: 2.0,
+            color,
+        });
+    }
+    // The activity lane: one column per pixel, the lane math's rule.
+    if let Some(activity) = inputs.activity {
+        let ms_per_pixel = inputs.duration_ms / geometry.width;
+        for pixel in 0..geometry.width as usize {
+            let t0 = pixel as f64 * ms_per_pixel;
+            let t1 = t0 + ms_per_pixel;
+            let window = activity.bucket_ms;
+            let first = (t0 / window).floor().max(0.0) as usize;
+            let last = ((t1 / window).ceil() as usize).min(activity.active.len());
+            if first < last && activity.active[first..last].iter().any(|active| *active) {
+                rect(&mut ops, pixel as f64, 34.0, 1.0, 8.0, ColorRole::Activity);
+            }
+        }
+    }
+    // The anchor lines with their flags and badges on top.
+    for anchor in inputs.anchors {
+        let x = x_of(anchor.time_ms);
+        line(&mut ops, x, 4.0, x, 46.0, ColorRole::Anchor, 1.6);
+        let badge = format!("A{}", anchor.badge + 1);
+        ops.push(SheetOp::RoundedRect {
+            x: x - 10.0,
+            y: 4.0,
+            width: 20.0,
+            height: 12.0,
+            radius: 2.0,
+            color: ColorRole::Anchor,
+        });
+        let width = (inputs.measure)(TextFont::SmallDemi, &badge);
+        text(
+            &mut ops,
+            TextLabel {
+                x: (x - width / 2.0).max(0.0),
+                y: 4.0 + 6.0 + (inputs.baseline_offset)(TextFont::SmallDemi),
+                content: &badge,
+                font: TextFont::SmallDemi,
+                color: ColorRole::AnchorText,
+                max_width: f64::INFINITY,
+                opacity: 1.0,
+            },
+        );
+    }
+    // The time labels every 30 s that fit on the strip.
+    let mut t = 0.0;
+    while t < inputs.duration_ms {
+        let x = x_of(t);
+        let label = ruler_label(t);
+        let width = (inputs.measure)(TextFont::Small, &label);
+        if x + width / 2.0 <= geometry.width {
+            text(
+                &mut ops,
+                TextLabel {
+                    x: (x - width / 2.0).max(0.0),
+                    y: geometry.height - 6.0,
+                    content: &label,
+                    font: TextFont::Small,
+                    color: ColorRole::DisabledText,
+                    max_width: f64::INFINITY,
+                    opacity: 1.0,
+                },
+            );
+        }
+        t += 30_000.0;
+    }
+    ops
 }
 
 impl SheetGeometry {

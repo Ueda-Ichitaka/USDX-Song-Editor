@@ -293,6 +293,17 @@ fn the_no_vocals_state_waits_for_the_waveform() {
 }
 
 #[test]
+fn the_repair_state_pushes_the_repair_page_and_screenshots_it() {
+    // The demo state opens the editor and pushes the repair page (task
+    // P7-08); the run must succeed on a generated fixture and show the
+    // page, so the RepairPage/RepairSheet/AnchorPanel QML tree loads
+    // without a QML error.
+    let (_dir, song) = audio_fixture(true);
+    let (status, stdout, written) = audio_state_run("repair", Some(&song));
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+}
+
+#[test]
 fn the_audio_states_need_a_song() {
     for state in [
         "audio-states-missing",

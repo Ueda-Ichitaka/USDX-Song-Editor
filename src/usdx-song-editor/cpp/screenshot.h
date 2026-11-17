@@ -56,3 +56,8 @@ bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fractio
 // the given text (the line-text demo state, UI_SPEC 5.4); false without the
 // document or the dialog.
 bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, const QString &text);
+
+// Pushes the repair page over the editor (the repair demo state, task
+// P7-08) through the shell's showRepairPage; false when the shell has no
+// such method.
+bool usdx_open_demo_repair(const QQmlApplicationEngine &engine);

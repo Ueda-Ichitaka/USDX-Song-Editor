@@ -204,6 +204,12 @@ fn a_session_without_a_usable_song_is_refused() {
 }
 
 #[test]
+fn range_end_reports_the_last_targets_end_for_the_preroll_playback() {
+    let (_dir, _doc, _song, session) = line_session();
+    assert!(session.range_end().is_some(), "the session has targets");
+}
+
+#[test]
 fn current_syllable_follows_the_taps_and_clamps_at_the_end() {
     let (_dir, _doc, _song, mut session) = line_session();
     assert_eq!(session.current_syllable(), 0, "the first target is next");

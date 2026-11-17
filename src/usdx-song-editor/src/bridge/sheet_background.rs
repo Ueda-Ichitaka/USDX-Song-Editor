@@ -3,7 +3,12 @@
 //! is not interactive (UI_SPEC section 3): the ruler with its ticks and
 //! song-time labels, the pitch rows with their shading, grid lines and
 //! labels, the lyrics lane with its two-row placement, the waveform lane
-//! and the activity lane at the item's bottom (task P4-04). The draw list
+//! and the activity lane at the item's bottom (task P4-04). In the repair
+//! page's overview mode (UI_SPEC 4.6, task P7-08) it paints the whole-song
+//! strip instead: the line blocks coloured by the health verdict, the
+//! racing underlays, the activity lane, the anchor flags and the time
+//! labels, folded by controller::sheet's layout_overview from the list
+//! properties QML binds to the Repair bridge's overview data. The draw list
 //! comes from controller::sheet's layout(); paint only replays it, eliding
 //! the lyric labels through the C++ textmetrics helpers (cxx-qt-lib has no
 //! QFontMetrics). The time view lives in the SheetViewport controller
@@ -27,6 +32,99 @@
 //! waveform…", "No audio" and the no-vocals note. The theme colours, fonts
 //! and lane heights come from QML (Palette.qml, Metrics.qml, the theme), so
 //! the item follows the theme.
+
+use cxx_qt_lib::{QHash, QList, QString, QVariant};
+
+use crate::controller::sheet::{OverviewAnchor, OverviewBlock};
+
+/// parse_overview_lines reads the Repair bridge's line hashes (startMs,
+/// endMs, health) into the overview strip's blocks; entries missing a key
+/// are skipped instead of painted wrong.
+pub fn parse_overview_lines(list: &QList<QVariant>) -> Vec<OverviewBlock> {
+    let mut blocks = Vec::new();
+    for index in 0..list.len() {
+        let Some(entry) = list
+            .get(index)
+            .and_then(|variant| variant.value::<QHash<_>>())
+        else {
+            continue;
+        };
+        let (Some(start_ms), Some(end_ms), Some(health)) = (
+            entry
+                .get(&QString::from("startMs"))
+                .and_then(|v| v.value::<f64>()),
+            entry
+                .get(&QString::from("endMs"))
+                .and_then(|v| v.value::<f64>()),
+            entry
+                .get(&QString::from("health"))
+                .and_then(|v| v.value::<i32>()),
+        ) else {
+            continue;
+        };
+        blocks.push(OverviewBlock {
+            start_ms,
+            end_ms,
+            health,
+        });
+    }
+    blocks
+}
+
+/// parse_overview_racing reads the racing sections' inclusive ranges
+/// (first, last) from the Repair bridge's hashes.
+pub fn parse_overview_racing(list: &QList<QVariant>) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    for index in 0..list.len() {
+        let Some(entry) = list
+            .get(index)
+            .and_then(|variant| variant.value::<QHash<_>>())
+        else {
+            continue;
+        };
+        let (Some(first), Some(last)) = (
+            entry
+                .get(&QString::from("first"))
+                .and_then(|v| v.value::<i32>()),
+            entry
+                .get(&QString::from("last"))
+                .and_then(|v| v.value::<i32>()),
+        ) else {
+            continue;
+        };
+        ranges.push((first.max(0) as usize, last.max(0) as usize));
+    }
+    ranges
+}
+
+/// parse_overview_anchors reads the anchors' pinned times and badges
+/// (timeMs, badge) from the Repair bridge's hashes.
+pub fn parse_overview_anchors(list: &QList<QVariant>) -> Vec<OverviewAnchor> {
+    let mut anchors = Vec::new();
+    for index in 0..list.len() {
+        let Some(entry) = list
+            .get(index)
+            .and_then(|variant| variant.value::<QHash<_>>())
+        else {
+            continue;
+        };
+        let (Some(time_ms), Some(badge)) = (
+            entry
+                .get(&QString::from("timeMs"))
+                .and_then(|v| v.value::<f64>()),
+            entry
+                .get(&QString::from("badge"))
+                .and_then(|v| v.value::<i32>()),
+        ) else {
+            continue;
+        };
+        anchors.push(OverviewAnchor {
+            time_ms,
+            badge: badge.max(0) as usize,
+        });
+    }
+    anchors
+}
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -71,6 +169,14 @@ pub mod qobject {
         fn usdx_text_baseline_offset(font: &QFont) -> f64;
         /// The text elided on the right so it fits the width.
         fn usdx_elide_text(font: &QFont, text: &QString, max_width: f64) -> QString;
+        /// Fills a rounded rectangle with a colour, no outline (the
+        /// overview strip's line blocks and anchor flags).
+        fn usdx_fill_rounded_rect(
+            painter: Pin<&mut QPainter>,
+            rect: &QRectF,
+            radius: f64,
+            color: &QColor,
+        );
     }
 
     unsafe extern "C++" {
@@ -138,6 +244,12 @@ pub mod qobject {
         // overview mode of the repair strip arrives with task P7-08.
         #[qproperty(bool, show_lyrics_lane, cxx_name = "showLyricsLane")]
         #[qproperty(bool, overview)]
+        // The overview strip's data (UI_SPEC 4.6), QML binds the Repair
+        // bridge's lists and the song's audio duration.
+        #[qproperty(f64, overview_duration_ms, cxx_name = "overviewDurationMs")]
+        #[qproperty(QList_QVariant, overview_lines, cxx_name = "overviewLines")]
+        #[qproperty(QList_QVariant, overview_racing, cxx_name = "overviewRacing")]
+        #[qproperty(QList_QVariant, overview_anchors, cxx_name = "overviewAnchors")]
         #[qproperty(QString, track_name, cxx_name = "trackName")]
         // The theme colours (UI_SPEC 2.3), passed from QML.
         #[qproperty(QColor, view_background_color, cxx_name = "viewBackgroundColor")]
@@ -150,6 +262,14 @@ pub mod qobject {
         #[qproperty(QColor, disabled_text_color, cxx_name = "disabledTextColor")]
         #[qproperty(QColor, waveform_color, cxx_name = "waveformColor")]
         #[qproperty(QColor, activity_color, cxx_name = "activityColor")]
+        // The overview strip's extra colours: the health verdicts (the
+        // theme's positive, neutral and negative roles) and the anchor
+        // colours (Palette, UI_SPEC 2.3).
+        #[qproperty(QColor, positive_color, cxx_name = "positiveColor")]
+        #[qproperty(QColor, neutral_color, cxx_name = "neutralColor")]
+        #[qproperty(QColor, negative_color, cxx_name = "negativeColor")]
+        #[qproperty(QColor, anchor_color, cxx_name = "anchorColor")]
+        #[qproperty(QColor, anchor_text_color, cxx_name = "anchorTextColor")]
         // The sheet fonts (UI_SPEC 2.2, 3.3, 3.6), complete from QML
         // (cxx-qt-lib's QFont cannot set point size or weight).
         #[qproperty(QFont, small_font, cxx_name = "smallFont")]
@@ -268,12 +388,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QColor, QFont, QLineF, QList, QPen, QPoint, QPointF, QRectF, QString, QVariant};
+use cxx_qt_lib::{QColor, QFont, QLineF, QPen, QPoint, QPointF, QRectF};
 use usdx_audio::analysis::{Activity, Peaks, analyze};
 
 use crate::controller::lanes::{AnalysisJob, LaneAnalysis, LaneStatus};
 use crate::controller::sheet::{
-    ColorRole, LyricNote, SheetGeometry, SheetInputs, SheetOp, TextFont, layout, pitch_rows,
+    ColorRole, LyricNote, OverviewGeometry, OverviewInputs, SheetGeometry, SheetInputs, SheetOp,
+    TextFont, layout, layout_overview, overview_duration_ms, pitch_rows,
 };
 use crate::controller::song_end::scroll_bounds;
 use crate::controller::viewport::{FitKey, SheetViewport};
@@ -329,6 +450,14 @@ pub struct SheetBackgroundRust {
     activity_height: f64,
     show_lyrics_lane: bool,
     overview: bool,
+    overview_duration_ms: f64,
+    overview_lines: QList<QVariant>,
+    overview_racing: QList<QVariant>,
+    overview_anchors: QList<QVariant>,
+    /// The parsed overview strip data (see the properties).
+    overview_line_blocks: Vec<OverviewBlock>,
+    overview_racing_ranges: Vec<(usize, usize)>,
+    overview_anchor_marks: Vec<OverviewAnchor>,
     track_name: QString,
     view_background_color: QColor,
     alternate_color: QColor,
@@ -340,6 +469,11 @@ pub struct SheetBackgroundRust {
     disabled_text_color: QColor,
     waveform_color: QColor,
     activity_color: QColor,
+    positive_color: QColor,
+    neutral_color: QColor,
+    negative_color: QColor,
+    anchor_color: QColor,
+    anchor_text_color: QColor,
     small_font: QFont,
     small_demi_font: QFont,
     lyrics_font: QFont,
@@ -377,6 +511,11 @@ impl SheetBackgroundRust {
             ColorRole::DisabledText => &self.disabled_text_color,
             ColorRole::Waveform => &self.waveform_color,
             ColorRole::Activity => &self.activity_color,
+            ColorRole::Positive => &self.positive_color,
+            ColorRole::Neutral => &self.neutral_color,
+            ColorRole::Negative => &self.negative_color,
+            ColorRole::Anchor => &self.anchor_color,
+            ColorRole::AnchorText => &self.anchor_text_color,
         }
     }
 
@@ -449,6 +588,33 @@ fn replay(mut painter: Pin<&mut qobject::QPainter>, op: &SheetOp, rust: &SheetBa
                 &QPoint::new((*x).round() as i32, (*y).round() as i32),
                 &shown,
             );
+            painter.as_mut().set_opacity(1.0);
+        }
+        SheetOp::RoundedRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+            color,
+        } => qobject::usdx_fill_rounded_rect(
+            painter.as_mut(),
+            &QRectF::new(*x, *y, *width, *height),
+            *radius,
+            rust.color_of(*color),
+        ),
+        SheetOp::FaintRect {
+            x,
+            y,
+            width,
+            height,
+            color,
+            opacity,
+        } => {
+            painter.as_mut().set_opacity(*opacity);
+            painter
+                .as_mut()
+                .fill_rect(&QRectF::new(*x, *y, *width, *height), rust.color_of(*color));
             painter.as_mut().set_opacity(1.0);
         }
     }
@@ -529,6 +695,21 @@ impl cxx_qt::Initialize for qobject::SheetBackground {
             .on_activity_color_changed(|item| item.update())
             .release();
         self.as_mut()
+            .on_positive_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_neutral_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_negative_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_anchor_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_anchor_text_color_changed(|item| item.update())
+            .release();
+        self.as_mut()
             .on_small_font_changed(|item| item.update())
             .release();
         self.as_mut()
@@ -562,6 +743,21 @@ impl cxx_qt::Initialize for qobject::SheetBackground {
             .on_show_lyrics_lane_changed(|item| item.update())
             .release();
         self.as_mut()
+            .on_overview_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_overview_duration_ms_changed(|item| item.update())
+            .release();
+        self.as_mut()
+            .on_overview_lines_changed(|item| item.sync_overview())
+            .release();
+        self.as_mut()
+            .on_overview_racing_changed(|item| item.sync_overview())
+            .release();
+        self.as_mut()
+            .on_overview_anchors_changed(|item| item.sync_overview())
+            .release();
+        self.as_mut()
             .on_track_name_changed(|item| item.update())
             .release();
         self.as_mut().publish();
@@ -587,6 +783,29 @@ impl qobject::SheetBackground {
         let size = self.as_ref().size();
         let (width, height) = (size.width(), size.height());
         let rust = self.rust();
+        // The repair page's overview mode paints the whole-song strip
+        // (UI_SPEC 4.6) instead of the sheet lanes.
+        if rust.overview {
+            let geometry = OverviewGeometry { width, height };
+            let measure = |font: TextFont, text: &str| {
+                qobject::usdx_text_width(rust.font_of(font), &QString::from(text))
+            };
+            let baseline_offset =
+                |font: TextFont| qobject::usdx_text_baseline_offset(rust.font_of(font));
+            let inputs = OverviewInputs {
+                duration_ms: overview_duration_ms(rust.overview_duration_ms, rust.lanes.activity()),
+                lines: &rust.overview_line_blocks,
+                racing: &rust.overview_racing_ranges,
+                anchors: &rust.overview_anchor_marks,
+                activity: rust.lanes.activity(),
+                measure: &measure,
+                baseline_offset: &baseline_offset,
+            };
+            for op in layout_overview(&geometry, &inputs) {
+                replay(painter.as_mut(), &op, rust);
+            }
+            return;
+        }
         // Without a song (no BPM) or size there is nothing to place.
         if width <= 0.0 || height <= 0.0 || rust.bpm <= 0.0 || rust.viewport.px_per_beat <= 0.0 {
             return;
@@ -839,6 +1058,16 @@ impl qobject::SheetBackground {
         let (top, row_height) = (rust.viewport.top_pitch, rust.viewport.px_per_semitone);
         self.as_mut().set_pitch_top(top);
         self.as_mut().set_px_per_semitone(row_height);
+        self.as_mut().update();
+    }
+
+    /// sync_overview parses the overview strip's list properties into the
+    /// draw data; QML binds them to the Repair bridge's lists.
+    pub fn sync_overview(mut self: Pin<&mut Self>) {
+        let mut rust = self.as_mut().rust_mut();
+        rust.overview_line_blocks = parse_overview_lines(&rust.overview_lines);
+        rust.overview_racing_ranges = parse_overview_racing(&rust.overview_racing);
+        rust.overview_anchor_marks = parse_overview_anchors(&rust.overview_anchors);
         self.as_mut().update();
     }
 

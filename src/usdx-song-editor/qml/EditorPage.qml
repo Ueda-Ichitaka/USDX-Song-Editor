@@ -288,7 +288,7 @@ Kirigami.Page {
                 text: qsTr("Repair timing")
                 display: QQC2.AbstractButton.TextBesideIcon
                 enabled: root.document && root.document.canRepair
-                onClicked: root.shell && root.shell.showNotYetAvailable()
+                onClicked: root.shell && root.shell.showRepairPage()
             }
 
             QQC2.ToolButton {
@@ -386,6 +386,13 @@ Kirigami.Page {
         sequence: "Ctrl+Z"
         enabled: root.document && root.document.canUndo && !root.textEditingFocus
         onActivated: root.document.undo()
+    }
+
+    // The repair page (UI_SPEC 4.6, Ctrl+R).
+    Shortcut {
+        sequence: "Ctrl+R"
+        enabled: root.document && root.document.canRepair
+        onActivated: root.shell && root.shell.showRepairPage()
     }
 
     Shortcut {

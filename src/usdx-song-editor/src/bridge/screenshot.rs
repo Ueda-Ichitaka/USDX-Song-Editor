@@ -30,11 +30,12 @@ mod ffi {
             line: i32,
             text: &QString,
         ) -> bool;
+        fn usdx_open_demo_repair(engine: &QQmlApplicationEngine) -> bool;
     }
 }
 
 pub use ffi::{
-    usdx_hold_lane_loading, usdx_open_demo_line_text, usdx_png_pixel, usdx_png_size,
-    usdx_resize_window, usdx_screenshot_window, usdx_seek_demo_playhead, usdx_select_demo_note,
-    usdx_settle_lanes,
+    usdx_hold_lane_loading, usdx_open_demo_line_text, usdx_open_demo_repair, usdx_png_pixel,
+    usdx_png_size, usdx_resize_window, usdx_screenshot_window, usdx_seek_demo_playhead,
+    usdx_select_demo_note, usdx_settle_lanes,
 };

@@ -8,10 +8,15 @@
 //! reference song lands on different rows), the gutter labels and the
 //! waveform and activity columns reused from the lane math.
 
+use cxx_qt_lib::{QHash, QHashPair_QString_QVariant, QList, QString, QVariant};
 use usdx_audio::analysis::{Activity, Peaks};
+use usdx_song_editor::bridge::sheet_background::{
+    parse_overview_anchors, parse_overview_lines, parse_overview_racing,
+};
 use usdx_song_editor::controller::sheet::{
-    ColorRole, LyricNote, SheetGeometry, SheetInputs, SheetOp, TextFont, layout, line_notes,
-    pitch_rows, ruler_label, tick_interval_s,
+    ColorRole, LyricNote, OverviewAnchor, OverviewBlock, OverviewGeometry, OverviewInputs,
+    SheetGeometry, SheetInputs, SheetOp, TextFont, layout, layout_overview, line_notes,
+    overview_duration_ms, pitch_rows, ruler_label, tick_interval_s,
 };
 
 /// The pitch area height of the 300 px geometry.
@@ -885,4 +890,366 @@ fn y_to_pitch_returns_the_pitch_row_under_the_y() {
     assert_eq!(geometry.y_to_pitch(y), pitch);
     // Above the pitch area the top pitch clamps the result.
     assert_eq!(geometry.y_to_pitch(0.0), geometry.top_pitch);
+}
+
+#[test]
+fn overview_blocks_color_by_health_at_their_spans() {
+    let geometry = OverviewGeometry {
+        width: 500.0,
+        height: 64.0,
+    };
+    let lines = [
+        OverviewBlock {
+            start_ms: 0.0,
+            end_ms: 750.0,
+            health: 0,
+        },
+        OverviewBlock {
+            start_ms: 750.0,
+            end_ms: 1500.0,
+            health: 2,
+        },
+        OverviewBlock {
+            start_ms: 1500.0,
+            end_ms: 2250.0,
+            health: 1,
+        },
+    ];
+    let (measure, baseline) = metrics();
+    let inputs = overview_inputs(&lines, &[], &[], None, &measure, &baseline);
+    let ops = layout_overview(&geometry, &inputs);
+    // 2500 ms over 500 px: one block per line at y 8, 20 px high,
+    // radius 2, coloured by the health verdict (positive, negative,
+    // neutral), spanning start to end in ms.
+    let blocks = all(&ops, |op| matches!(op, SheetOp::RoundedRect { .. }));
+    assert_eq!(blocks.len(), 3);
+    for (op, (x, color)) in blocks.iter().zip([
+        (0.0, ColorRole::Positive),
+        (150.0, ColorRole::Negative),
+        (300.0, ColorRole::Neutral),
+    ]) {
+        let SheetOp::RoundedRect {
+            x: rx,
+            y,
+            width,
+            height,
+            radius,
+            color: rc,
+        } = op
+        else {
+            unreachable!()
+        };
+        assert_eq!(*rx, x);
+        assert_eq!(*y, 8.0);
+        assert_eq!(*height, 20.0);
+        assert_eq!(*radius, 2.0);
+        assert_eq!(*rc, color);
+        assert!(*width > 0.0, "every block is visible");
+    }
+    let first = match &blocks[0] {
+        SheetOp::RoundedRect { width, .. } => *width,
+        _ => unreachable!(),
+    };
+    assert_eq!(first, 150.0, "750 ms maps to 150 px");
+}
+
+#[test]
+fn the_racing_underlay_spans_the_section_with_2px_extra() {
+    let geometry = OverviewGeometry {
+        width: 500.0,
+        height: 64.0,
+    };
+    let lines = [
+        OverviewBlock {
+            start_ms: 0.0,
+            end_ms: 750.0,
+            health: 0,
+        },
+        OverviewBlock {
+            start_ms: 750.0,
+            end_ms: 1500.0,
+            health: 2,
+        },
+    ];
+    let (measure, baseline) = metrics();
+    let inputs = overview_inputs(&lines, &[(1, 1)], &[], None, &measure, &baseline);
+    let ops = layout_overview(&geometry, &inputs);
+    // One faint negative band from 2 px before the racing block to
+    // 2 px after it, over the full strip height.
+    let bands = all(&ops, |op| matches!(op, SheetOp::FaintRect { .. }));
+    assert_eq!(bands.len(), 1);
+    let SheetOp::FaintRect {
+        x,
+        y,
+        width,
+        height,
+        color,
+        opacity,
+    } = &bands[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!((*x, *y, *width, *height), (148.0, 0.0, 154.0, 64.0));
+    assert_eq!(*color, ColorRole::Negative);
+    assert!((*opacity - 0.1).abs() < 1e-9);
+}
+
+#[test]
+fn overview_activity_columns_fill_the_lane_over_the_whole_duration() {
+    let geometry = OverviewGeometry {
+        width: 500.0,
+        height: 64.0,
+    };
+    let (measure, baseline) = metrics();
+    // 100 activity windows of 20 ms: the first 1000 ms are active.
+    let activity = Activity {
+        bucket_ms: 20.0,
+        active: vec![true; 50],
+        floor_db: -60.0,
+    };
+    let inputs = overview_inputs(&[], &[], &[], Some(&activity), &measure, &baseline);
+    let ops = layout_overview(&geometry, &inputs);
+    // 2500 ms over 500 px: 5 ms per pixel, the first 200 pixels active,
+    // the lane 8 px high at y 34.
+    let columns = all(&ops, |op| {
+        matches!(
+            op,
+            SheetOp::Rect {
+                color: ColorRole::Activity,
+                ..
+            }
+        )
+    });
+    assert_eq!(columns.len(), 200);
+    let SheetOp::Rect {
+        x,
+        y,
+        width,
+        height,
+        color,
+    } = &columns[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(
+        (*x, *y, *width, *height, color),
+        (0.0, 34.0, 1.0, 8.0, &ColorRole::Activity)
+    );
+}
+
+#[test]
+fn anchor_flags_and_lines_mark_the_anchor_times() {
+    let geometry = OverviewGeometry {
+        width: 500.0,
+        height: 64.0,
+    };
+    let (measure, baseline) = metrics();
+    let anchors = [OverviewAnchor {
+        time_ms: 500.0,
+        badge: 0,
+    }];
+    let inputs = overview_inputs(&[], &[], &anchors, None, &measure, &baseline);
+    let ops = layout_overview(&geometry, &inputs);
+    // 2500 ms over 500 px: the anchor time sits at x 100. The line runs
+    // 1.6 px wide from y 4 to y 46; the 20 x 12 px flag with radius 2
+    // tops it and carries the A1 badge in the anchor text colour.
+    let lines = all(&ops, |op| matches!(op, SheetOp::Line { .. }));
+    assert_eq!(lines.len(), 1);
+    let SheetOp::Line {
+        x1,
+        y1,
+        x2,
+        y2,
+        color,
+        width,
+    } = &lines[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!((*x1, *y1, *x2, *y2), (100.0, 4.0, 100.0, 46.0));
+    assert_eq!((*color, *width), (ColorRole::Anchor, 1.6));
+    let flags = all(&ops, |op| matches!(op, SheetOp::RoundedRect { .. }));
+    assert_eq!(flags.len(), 1);
+    let SheetOp::RoundedRect {
+        x,
+        y,
+        width: w,
+        height: h,
+        radius,
+        color,
+    } = &flags[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(
+        (*x, *y, *w, *h, *radius, color),
+        (90.0, 4.0, 20.0, 12.0, 2.0, &ColorRole::Anchor)
+    );
+    let labels = all(&ops, |op| matches!(op, SheetOp::Text { .. }));
+    // The badge plus the 0:00.0 time label of the bottom.
+    assert_eq!(labels.len(), 2);
+    let badge = one(
+        &ops,
+        |op| matches!(op, SheetOp::Text { text, .. } if text == "A1"),
+    );
+    let SheetOp::Text {
+        x,
+        y,
+        text,
+        font,
+        color,
+        ..
+    } = &badge
+    else {
+        unreachable!()
+    };
+    assert_eq!(text, "A1");
+    assert_eq!(*font, TextFont::SmallDemi);
+    assert_eq!(*color, ColorRole::AnchorText);
+    assert_eq!(
+        *x, 90.0,
+        "the badge is centred with the 10 px per char metrics"
+    );
+    assert_eq!(*y, 4.0 + 6.0 + 3.0, "vertically centred in the flag");
+}
+
+#[test]
+fn overview_duration_falls_back_to_the_activity_length() {
+    // The player's pipeline duration can still be unknown when the strip
+    // paints; the finished vocal activity analysis then knows the audio's
+    // length as its bucket count times the bucket length.
+    let activity = Activity {
+        bucket_ms: 250.0,
+        active: vec![true, false, true],
+        floor_db: -30.0,
+    };
+    // A known pipeline duration wins over the activity's length.
+    assert_eq!(overview_duration_ms(45_000.0, Some(&activity)), 45_000.0);
+    // Without it the audio's bucket length is the strip's duration.
+    assert_eq!(overview_duration_ms(0.0, Some(&activity)), 750.0);
+    // Neither known: the strip draws nothing.
+    assert_eq!(overview_duration_ms(0.0, None), 0.0);
+    assert_eq!(overview_duration_ms(-1.0, None), 0.0);
+}
+
+#[test]
+fn overview_time_labels_mark_every_30s_that_fits() {
+    let geometry = OverviewGeometry {
+        width: 500.0,
+        height: 64.0,
+    };
+    let (measure, baseline) = metrics();
+    // 45 s of duration: labels at 0:00.0 and 0:30.0, the 1:00.0 label
+    // would start past the right edge and stays off.
+    let inputs = overview_inputs(&[], &[], &[], None, &measure, &baseline);
+    let mut inputs = inputs;
+    inputs.duration_ms = 45_000.0;
+    let ops = layout_overview(&geometry, &inputs);
+    let labels = all(&ops, |op| matches!(op, SheetOp::Text { .. }));
+    assert_eq!(labels.len(), 2);
+    let texts: Vec<&str> = labels
+        .iter()
+        .map(|op| match op {
+            SheetOp::Text { text, .. } => text.as_str(),
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(texts, ["0:00.0", "0:30.0"]);
+    let SheetOp::Text {
+        x, y, font, color, ..
+    } = &labels[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!((*font, color), (TextFont::Small, &ColorRole::DisabledText));
+    assert_eq!(*x, 0.0, "the first label is centred on 0:00");
+    assert_eq!(*y, 64.0 - 6.0);
+}
+
+/// overview_inputs builds the overview strip inputs: 2500 ms duration by
+/// default, the measure and baseline metrics like the sheet tests.
+#[allow(clippy::too_many_arguments)]
+fn overview_inputs<'a>(
+    lines: &'a [OverviewBlock],
+    racing: &'a [(usize, usize)],
+    anchors: &'a [OverviewAnchor],
+    activity: Option<&'a Activity>,
+    measure: &'a (dyn Fn(TextFont, &str) -> f64 + 'a),
+    baseline: &'a (dyn Fn(TextFont) -> f64 + 'a),
+) -> OverviewInputs<'a> {
+    OverviewInputs {
+        duration_ms: 2500.0,
+        lines,
+        racing,
+        anchors,
+        activity,
+        measure,
+        baseline_offset: baseline,
+    }
+}
+
+/// The hash list one Repair property holds, built the same way: one hash
+/// per row holding all its key value pairs; doubles for the millisecond
+/// keys, ints for health, the racing range ends and the badge numbers.
+fn hash_list(rows: &[&[(&str, QVariant)]]) -> QList<QVariant> {
+    let mut list = QList::<QVariant>::default();
+    for row in rows {
+        let mut hash = QHash::<QHashPair_QString_QVariant>::default();
+        for (key, value) in row.iter() {
+            hash.insert(QString::from(*key), value.clone());
+        }
+        list.append(QVariant::from(&hash));
+    }
+    list
+}
+
+fn double(value: f64) -> QVariant {
+    QVariant::from(&value)
+}
+
+fn int(value: i32) -> QVariant {
+    QVariant::from(&value)
+}
+
+#[test]
+fn parse_overview_lines_reads_the_line_blocks_from_the_hashes() {
+    let lines = hash_list(&[&[
+        ("startMs", double(0.0)),
+        ("endMs", double(750.0)),
+        ("health", int(2)),
+    ]]);
+    assert_eq!(
+        parse_overview_lines(&lines),
+        vec![OverviewBlock {
+            start_ms: 0.0,
+            end_ms: 750.0,
+            health: 2
+        }]
+    );
+    // A hash missing a key is skipped instead of painted wrong.
+    let partial = hash_list(&[&[("startMs", double(0.0))]]);
+    assert!(parse_overview_lines(&partial).is_empty());
+    assert!(parse_overview_lines(&QList::<QVariant>::default()).is_empty());
+}
+
+#[test]
+fn parse_overview_racing_reads_the_inclusive_ranges_from_the_hashes() {
+    let racing = hash_list(&[&[("first", int(0)), ("last", int(2))]]);
+    assert_eq!(parse_overview_racing(&racing), vec![(0, 2)]);
+    let missing = hash_list(&[&[("first", int(0))]]);
+    assert!(parse_overview_racing(&missing).is_empty());
+}
+
+#[test]
+fn parse_overview_anchors_reads_the_times_and_badges_from_the_hashes() {
+    let anchors = hash_list(&[&[("timeMs", double(500.0)), ("badge", int(1))]]);
+    assert_eq!(
+        parse_overview_anchors(&anchors),
+        vec![OverviewAnchor {
+            time_ms: 500.0,
+            badge: 1
+        }]
+    );
+    let missing = hash_list(&[&[("badge", int(0))]]);
+    assert!(parse_overview_anchors(&missing).is_empty());
 }

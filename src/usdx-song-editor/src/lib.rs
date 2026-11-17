@@ -217,10 +217,11 @@ fn copy_song_with_audio(
 
 /// The demo states the harness knows (UI_SPEC 8.1); later tasks add theirs.
 #[cfg(debug_assertions)]
-const DEMO_STATES: [&str; 6] = [
+const DEMO_STATES: [&str; 7] = [
     "start-screen",
     "editor",
     "line-text",
+    "repair",
     "audio-states-missing",
     "audio-states-loading",
     "audio-states-no-vocals",
@@ -241,7 +242,10 @@ fn check_demo_state(state: &str, has_song: bool) -> Result<(), String> {
             DEMO_STATES.join(", ")
         ));
     }
-    if (state.starts_with("audio-states-") || state == "editor" || state == "line-text")
+    if (state.starts_with("audio-states-")
+        || state == "editor"
+        || state == "line-text"
+        || state == "repair")
         && !has_song
     {
         return Err(format!("the demo state \"{state}\" needs --song"));
@@ -281,6 +285,14 @@ fn apply_demo_state(
         // The playhead stands inside the current line, as in the mockup.
         if !bridge::screenshot::usdx_seek_demo_playhead(engine, 0.6) {
             return Err(String::from("the playhead could not be placed"));
+        }
+    }
+    if state == "repair" {
+        // The repair page of task P7-08: the demo pushes the page over
+        // the editor so the RepairPage/RepairSheet/AnchorPanel tree
+        // loads (and the screenshot shows it).
+        if !bridge::screenshot::usdx_open_demo_repair(engine) {
+            return Err(String::from("the repair page could not be opened"));
         }
     }
     if state == "line-text" {

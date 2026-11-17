@@ -14,6 +14,7 @@ use tempfile::TempDir;
 use usdx_edit::EditError;
 use usdx_edit::anchors_export::{AnchorEntry, render};
 use usdx_edit::block::{Follow, block_transform};
+use usdx_edit::patch::{Patch, RowOp};
 use usdx_edit::retime::{Anchor, Lengths, Outside, Pin, StretchOptions, anchor_stretch};
 use usdx_format::bytes::decode;
 use usdx_format::rows::{Document, RowKind, classify};
@@ -242,7 +243,7 @@ fn tap_mode_previews_the_session_result() {
         .start_tap_session(&doc, &song, 0, 0, 1, TapMode::Line, 1.0, 0.0, 2000.0)
         .expect("the session builds");
     {
-        let session = repair.tap_session().expect("the session exists");
+        let session = repair.tap_session_mut().expect("the session exists");
         session.start();
         session.tick(0.0);
         session.tick(500.0);
@@ -310,4 +311,64 @@ fn an_anchor_below_beat_zero_surfaces_the_gap_shift() {
         repair.preview(&doc, &song, 0),
         Err(EditError::NeedsGapShift(_))
     ));
+    // A refused preview leaves no patch to ghost.
+    assert!(repair.preview_patch().is_none());
+}
+
+#[test]
+fn preview_patch_exposes_the_pending_patch_for_the_ghost_notes() {
+    let (_dir, doc, song) = loaded();
+    let mut repair = RepairController::new();
+    assert!(repair.preview_patch().is_none(), "nothing previewed yet");
+    repair.pin_current_line_at(0, 500.0);
+    repair.preview(&doc, &song, 0).expect("the preview plans");
+    assert!(repair.preview_patch().is_some(), "the patch is pending");
+    repair.cancel();
+    assert!(repair.preview_patch().is_none(), "cancel clears it");
+}
+
+#[test]
+fn the_note_lengths_toggle_switches_the_planner() {
+    let (_dir, doc, song) = loaded();
+    let mut repair = RepairController::new();
+    // Keep is the default (user decision 2026-11-17).
+    assert_eq!(repair.note_lengths(), Lengths::Keep);
+    // Line 0 stays, line 2 lands at beat 48 (3000 ms): the middle line
+    // stretches by 3.5x.
+    repair.pin_current_line_at(0, 0.0);
+    repair.pin_current_line_at(2, 3000.0);
+    let keep = repair
+        .preview(&doc, &song, 0)
+        .expect("the preview plans")
+        .clone();
+    repair.set_note_lengths(Lengths::Scale);
+    let scale = repair
+        .preview(&doc, &song, 0)
+        .expect("the preview plans")
+        .clone();
+    // A note of the stretched middle line (row 4) keeps its 4-beat
+    // length under Keep and stretches under Scale.
+    let length_of = |patch: &Patch, row_id: u32| -> i64 {
+        for op in &patch.ops {
+            if let RowOp::Replace { id, after, .. } = op
+                && id.0 == row_id
+                && let RowKind::Note(note) = &after.kind
+            {
+                return note.length;
+            }
+        }
+        panic!("row {row_id} is not in the patch");
+    };
+    assert_eq!(length_of(&keep, 4), 4);
+    assert!(
+        length_of(&scale, 4) > 4,
+        "the stretched line's note lengths scale"
+    );
+    // Switching back restores the Keep patch.
+    repair.set_note_lengths(Lengths::Keep);
+    let keep_again = repair
+        .preview(&doc, &song, 0)
+        .expect("the preview plans")
+        .clone();
+    assert_eq!(length_of(&keep_again, 4), 4);
 }

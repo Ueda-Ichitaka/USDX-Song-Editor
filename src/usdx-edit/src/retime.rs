@@ -53,6 +53,7 @@ pub enum Outside {
 }
 
 /// Lengths says what happens to the note lengths of the mapped lines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lengths {
     /// The lengths scale with the line's stretch factor.
     Scale,

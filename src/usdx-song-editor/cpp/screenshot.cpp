@@ -236,3 +236,12 @@ bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, con
     return QMetaObject::invokeMethod(dialog, "openFor", Q_ARG(QVariant, QVariant(line)),
                                      Q_ARG(QVariant, QVariant(text)));
 }
+
+bool usdx_open_demo_repair(const QQmlApplicationEngine &engine) {
+    const auto roots = engine.rootObjects();
+    if (roots.isEmpty()) {
+        return false;
+    }
+    QObject *const root = roots.first();
+    return QMetaObject::invokeMethod(root, "showRepairPage");
+}

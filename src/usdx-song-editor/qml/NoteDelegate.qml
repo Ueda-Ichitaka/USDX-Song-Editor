@@ -40,8 +40,11 @@ Rectangle {
 
     // The sheet this note sits on and the painted background that owns the
     // beat axis; NoteSheet binds them. The names avoid the NoteSheet.qml
-    // ids: the delegate's own properties shadow them.
-    property Usdx.NoteSheet noteSheet
+    // ids: the delegate's own properties shadow them. The host is loosely
+    // typed QtObject: the repair sheet hosts the delegate too (task
+    // P7-08) and reads only document, editSyllable, moveActive, moveDBeat,
+    // moveDPitch and height from it.
+    property QtObject noteSheet
     property Usdx.SheetBackground bg
 
     // The committed deltas of the active drag: the previewMove /

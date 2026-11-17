@@ -49,6 +49,10 @@ pub struct RepairController {
     voice: u8,
     /// The anchors pinned in this session, in pin order.
     anchors: Vec<Anchor>,
+    /// What the mapped lines' note lengths do (UI_SPEC 4.6, the panel's
+    /// "Note lengths" toggle; Keep is the default, user decision
+    /// 2026-11-17).
+    lengths: Lengths,
     /// The end pin in audio milliseconds, `None` while unset.
     end_pin_ms: Option<f64>,
     /// The block's line range (half open), set by setBlock.
@@ -76,6 +80,7 @@ impl RepairController {
             mode: RepairMode::Anchor,
             voice: 0,
             anchors: Vec::new(),
+            lengths: Lengths::Keep,
             end_pin_ms: None,
             block: None,
             block_times: (0.0, 0.0),
@@ -100,6 +105,24 @@ impl RepairController {
     /// anchors returns the pinned anchors in pin order.
     pub fn anchors(&self) -> &[Anchor] {
         &self.anchors
+    }
+
+    /// note_lengths returns what the mapped lines' note lengths do.
+    pub fn note_lengths(&self) -> Lengths {
+        self.lengths
+    }
+
+    /// set_note_lengths switches the panel's Note lengths toggle and
+    /// clears the pending preview.
+    pub fn set_note_lengths(&mut self, lengths: Lengths) {
+        self.lengths = lengths;
+        self.preview = None;
+    }
+
+    /// voice returns the voice the repair acts on; the export maps the
+    /// anchors' voice line indexes through it.
+    pub fn voice(&self) -> u8 {
+        self.voice
     }
 
     /// pin_current_line_at pins `line`'s first note start to `ms`: an
@@ -190,8 +213,20 @@ impl RepairController {
     }
 
     /// tap_session returns the tap mode's session while one runs.
-    pub fn tap_session(&mut self) -> Option<&mut TapSession> {
+    pub fn tap_session(&self) -> Option<&TapSession> {
+        self.tap.as_ref()
+    }
+
+    /// tap_session_mut returns the tap session for the bridge's key and
+    /// playback handling.
+    pub fn tap_session_mut(&mut self) -> Option<&mut TapSession> {
         self.tap.as_mut()
+    }
+
+    /// preview_patch returns the patch the UI ghosts, until apply or
+    /// cancel.
+    pub fn preview_patch(&self) -> Option<&Patch> {
+        self.preview.as_ref()
     }
 
     /// compute_patch plans the patch of the current mode against the
@@ -202,7 +237,7 @@ impl RepairController {
                 let options = StretchOptions {
                     before: Outside::Keep,
                     after: Outside::Keep,
-                    lengths: Lengths::Keep,
+                    lengths: self.lengths,
                     end_pin_ms: self.end_pin_ms,
                 };
                 anchor_stretch(doc, song, voice, &self.anchors, &options)
@@ -282,8 +317,9 @@ impl RepairController {
 
 /// flat_p1_line_index maps a voice's line index to the flat index over
 /// all voice-P1 lines, which the anchors export compares. `None` for a
-/// voice that is not numbered 1 or a line the voice does not have.
-fn flat_p1_line_index(song: &Song, voice: u8, line: usize) -> Option<usize> {
+/// voice that is not numbered 1 or a line the voice does not have. The
+/// bridge's export preview reuses it for the pinned-count breakdown.
+pub(crate) fn flat_p1_line_index(song: &Song, voice: u8, line: usize) -> Option<usize> {
     let voice_index = usize::from(voice);
     let mut flat = 0;
     for (index, voice_data) in song.voices.iter().enumerate() {

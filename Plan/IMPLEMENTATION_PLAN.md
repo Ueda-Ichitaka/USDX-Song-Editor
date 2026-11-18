@@ -1278,6 +1278,70 @@ report the distributions (syllable rate, neighbour factor, vocal coverage) to th
 with the user: compare against songs the user names as broken and as good, adjust the
 defaults, and record the numbers in PROGRESS.md. Gate G-06.
 
+### Phase 7b - Offset and missing-line detection (draft 2026-11-18, deferred by the user 2026-11-18)
+
+Background (P7-10, user 2026-11-18): about half of the user's known bad songs look calm to
+the rate, factor and coverage signals; their faults are lines offset in time, missing or
+merged lines, and racing lines. Exploration on the labelled songs (opt-in reports
+`the_offset_and_missing_line_signals_against_the_users_labels` and
+`the_vocal_level_offsets_against_the_users_labels` in usdx-edit tests/health_corpus.rs):
+
+- The binary vocal activity is active during 65-100 % of the sung span in good and bad songs
+  alike (instrument bleed in the separated vocals), so shifting a line hardly changes its
+  coverage and the uncovered-vocals share is as high in good songs (Equilibrium, Ensiferum:
+  22-40 %, stretches up to 21 s) as in bad ones.
+- A per-line shift that maximises the vocal loudness contrast (notes against the line's own
+  gaps) is noisy: good songs show 6-61 % "shifted" lines, bad songs 5-73 %; no separation.
+- Every Factory song has exactly as many lines as its lyrics.txt, so a line count finds
+  nothing; missing lines are lines missing from lyrics.txt itself or sung text without notes.
+- 33 of the 49 bad songs (repaired/gap) have no `#VOCALS` track.
+
+The notes carry pitches, and UltraSinger derived them from the sung pitch, so the detected
+vocal pitch is a much more specific witness than loudness: a correct line's notes agree with
+the sung pitch, an offset line agrees only after a shift, sung pitch without notes is a
+missing line. The tasks below build on a pitch track of the vocals (which also serves P9-03).
+
+**P7-11 Line-level ground truth** (gate G-09). The user marks the faulty lines of at least six
+calm bad songs (line number as the lines pane shows it, the fault kind: offset with direction
+and rough size, missing lines before/after, merged, racing) and confirms the good songs are
+fully good. Stored as `src/usdx-edit/tests/line_labels.tsv`. Without it, no threshold can be
+judged per line.
+
+**P7-12 Vocal pitch track** (usdx-audio, 7.2). A YIN-style f0 estimator on the analysis
+pipeline's 22050 Hz mono samples, 10 ms hop, about 46 ms window, 70-1000 Hz:
+`Pitch { hop_ms, midi: Vec<Option<f32>> }` (None = unvoiced or low confidence), computed in
+the same streaming pass as the peaks (a ring buffer, memory bounded), stored in the cache
+(cache version 3). Tests first: new test media generators (a 440 Hz tone reads MIDI 69
+within 0.3 semitones, silence reads None, a 440 to 660 Hz step changes within 20 ms of the
+step), a cache round trip, and a time bound on a 5 minute file. Implementation choice (own
+YIN or a crate) at gate G-03.
+
+**P7-13 Offset signal** (usdx-edit, 6.10). Per line: the pitch agreement = the share of the
+line's voiced note frames whose detected pitch is within one semitone of the note pitch,
+octave-folded (the USDX scoring tolerance); the best shift in +-2 s (20 ms steps) and its
+agreement gain. `Signal::Offset` when the best shift is beyond `offset_ms` and the gain beyond
+`offset_gain` (first guesses 250 ms and 0.25, tuned in P7-15). A song-level summary: a common
+shift of most lines means a wrong GAP, a shift growing along the song a wrong BPM. Reason
+"Offset: sung about 0.8 s later". Tests first on synthetic songs with fake pitch tracks:
+aligned, one shifted line, all lines shifted (GAP), linear drift (BPM), unvoiced line.
+
+**P7-14 Missing and merged lines** (usdx-edit). Missing: voiced stretches of at least
+`unsung_s` (first guess 2 s) that no note covers within 200 ms, reported between the lines
+they fall between. Merged: the definition comes from the user at gate G-09; candidate: a line
+whose notes span a voiced-silent pause long enough to be a phrase break. Tests first on fake
+pitch tracks.
+
+**P7-15 Evaluation and tuning** (gate G-10). The labelled report gains per-line precision and
+recall against `line_labels.tsv` and a threshold grid for the new signals; defaults set with
+the user and recorded in PROGRESS.
+
+**P7-16 Editor integration**. The new signals in the line health (dot, tooltip, racing bar),
+the settings thresholds (with the untuned-defaults migration of P7-10), the missing-line
+marker between lines in the lines pane, and the repair page seeded from an offset line (block
+mode with the detected shift as the proposed move). Pitch analysis runs in the existing
+background analysis job; UI acceptance with a demo state for an offset line. UI_SPEC 4.3,
+4.6 updated first.
+
 ### Phase 8 - Properties, upgrade, packaging
 
 **P8-01 Upgrade planner** (6.12). Tests first: fixtures unversioned CP1252, BOM + CRLF,
@@ -1322,6 +1386,8 @@ Stop and ask when a task reaches one of these. Do not choose an answer.
 | G-05 | P8-02 | Properties page: plain `Kirigami.FormLayout` or Kirigami Addons `FormCard`? |
 | G-06 | P7-10 | Which songs to use for threshold tuning, and are the tuned values acceptable? |
 | G-07 | any | Any behaviour this plan or `Plan/UI_SPEC.md` does not define |
+| G-09 | P7-11 | Which lines of which songs are faulty, and what exactly is a "merged" line? What happens for songs without a `#VOCALS` track? |
+| G-10 | P7-15 | Are the tuned offset and missing-line thresholds acceptable? |
 | G-08 | P3-05 | If a `GlobalDrawer` with `isMenu: true` cannot be opened from our own toolbar button: which component to use for the main menu instead? |
 
 ---

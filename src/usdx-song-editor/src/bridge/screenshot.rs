@@ -5,7 +5,7 @@
 //! through these small extern functions; two more drive the waveform lane of
 //! the audio demo states (pin it loading, wait for it and describe it), and
 //! the rest set up the editor demo state (select a note, place the playhead),
-//! the line-text demo state (open the Edit line dialog) and the repair and
+//! the line-text demo state (open the line text editor) and the repair and
 //! tap-along demo states on the synthetic fault.
 
 #[cxx::bridge]

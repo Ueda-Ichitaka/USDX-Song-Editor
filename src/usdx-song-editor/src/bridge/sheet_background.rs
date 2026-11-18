@@ -243,6 +243,9 @@ pub mod qobject {
         // Repair sheets show the sheet without the lyrics lane; the
         // overview mode of the repair strip arrives with task P7-08.
         #[qproperty(bool, show_lyrics_lane, cxx_name = "showLyricsLane")]
+        // The editor sheet hides the lyrics lane's gutter label while its
+        // Edit line text button sits there (round R-06).
+        #[qproperty(bool, lyrics_label, cxx_name = "lyricsLabel")]
         #[qproperty(bool, overview)]
         // The overview strip's data (UI_SPEC 4.6), QML binds the Repair
         // bridge's lists and the song's audio duration.
@@ -449,6 +452,7 @@ pub struct SheetBackgroundRust {
     waveform_height: f64,
     activity_height: f64,
     show_lyrics_lane: bool,
+    lyrics_label: bool,
     overview: bool,
     overview_duration_ms: f64,
     overview_lines: QList<QVariant>,
@@ -743,6 +747,9 @@ impl cxx_qt::Initialize for qobject::SheetBackground {
             .on_show_lyrics_lane_changed(|item| item.update())
             .release();
         self.as_mut()
+            .on_lyrics_label_changed(|item| item.update())
+            .release();
+        self.as_mut()
             .on_overview_changed(|item| item.update())
             .release();
         self.as_mut()
@@ -821,6 +828,7 @@ impl qobject::SheetBackground {
             waveform_height: rust.waveform_height,
             activity_height: rust.activity_height,
             show_lyrics_lane: rust.show_lyrics_lane,
+            lyrics_label: rust.lyrics_label,
             start_beat: rust.viewport.start_beat,
             px_per_beat: rust.viewport.px_per_beat,
             top_pitch: rust.viewport.top_pitch.round() as i32,

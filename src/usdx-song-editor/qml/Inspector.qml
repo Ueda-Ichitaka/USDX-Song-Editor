@@ -8,8 +8,9 @@
 // disables the fields through the hash's editable key. Start commits as a
 // move of the note that keeps its length (user decision 2026-11-15), Length
 // as a resize of the end edge, so the changes are one undo step each. The type buttons take their checked
-// state from the hash imperatively: a click commits only a type change, so
-// pressing the current type again creates no empty undo step.
+// state from the hash imperatively: a click commits only when the selection's
+// type differs from the button's, so pressing the current type again creates
+// no empty undo step.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -105,13 +106,18 @@ Rectangle {
                 QQC2.ToolTip.visible: hovered
                 QQC2.ToolTip.text: tooltip
 
+                // A checkable button is already checked when clicked runs,
+                // so the selection's type decides: the current type again
+                // is no edit, and the checked state follows the hash after
+                // the commit (or stays on the old type when it is refused).
                 onClicked: {
-                    const wasChecked = checked;
-                    // An exclusive click never leaves the group without a
-                    // checked button; a repeated click is no edit.
-                    checked = true;
-                    if (!wasChecked) {
-                        root.document.setSelectionType(code);
+                    if (root.info.typeCode !== typeButton.code) {
+                        root.document.setSelectionType(typeButton.code);
+                    }
+                    for (const button of typeButton.parent.children) {
+                        if (button.code !== undefined) {
+                            button.checked = root.info.typeCode === button.code;
+                        }
                     }
                 }
 
@@ -128,22 +134,27 @@ Rectangle {
             }
 
             TypeButton {
+                objectName: "inspectorTypeNormal"
                 code: ":"
                 tooltip: qsTr("Normal")
             }
             TypeButton {
+                objectName: "inspectorTypeGolden"
                 code: "*"
                 tooltip: qsTr("Golden")
             }
             TypeButton {
+                objectName: "inspectorTypeFreestyle"
                 code: "F"
                 tooltip: qsTr("Freestyle")
             }
             TypeButton {
+                objectName: "inspectorTypeRap"
                 code: "R"
                 tooltip: qsTr("Rap")
             }
             TypeButton {
+                objectName: "inspectorTypeRapGolden"
                 code: "G"
                 tooltip: qsTr("Rap golden")
             }

@@ -8,8 +8,8 @@
 //! check, the dialog choices, quit) and fails on any Qt warning, because QML
 //! reports binding and script errors only as warnings. On a multi-note song
 //! it also runs the regression checks of the sheet interaction, the
-//! playhead, the text editing (the Edit line dialog and the inline syllable
-//! field, task P6-02), the song end (scroll limit, Home / End, End song
+//! playhead, the text editing (the line text editor in the lyrics lane and
+//! the inline syllable field, task P6-02, round R-06), the song end (scroll limit, Home / End, End song
 //! here, the drag guides) and the main menu drawer.
 
 use std::process::Command;

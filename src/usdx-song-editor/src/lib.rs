@@ -336,11 +336,11 @@ fn apply_demo_state(
         println!("{summary}");
     }
     if state == "line-text" {
-        // The Edit line dialog of line 3 with the mockup's edit: one word
+        // The line text editor of line 3 with the mockup's edit: one word
         // split into more syllables than it has notes (UI_SPEC 5.4).
         let text = QString::from("Are you free or just a slave of the~ au|tho|ri|ties?");
         if !bridge::screenshot::usdx_open_demo_line_text(engine, 2, &text) {
-            return Err(String::from("the Edit line dialog could not be opened"));
+            return Err(String::from("the line text editor could not be opened"));
         }
     }
     Ok(())

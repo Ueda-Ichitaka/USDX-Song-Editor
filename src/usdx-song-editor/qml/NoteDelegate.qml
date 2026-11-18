@@ -16,8 +16,9 @@
 // coordinates because the note moves under the pointer. While a drag runs,
 // dashed guides drop from the ghost's lower corners to the waveform lanes
 // (user decision 2026-11-15). A double click opens the sheet's inline
-// syllable field for the note. A host sheet that marks racing notes (the
-// repair sheet, through racingNote) gets them in the negative colour.
+// syllable field for the note. The note shows its syllable inside (user
+// decision 2026-11-18). A host sheet that marks racing notes (the repair
+// sheet, through racingNote) gets them in the negative colour.
 
 import QtQuick
 import QtQuick.Shapes
@@ -382,6 +383,21 @@ Rectangle {
         length: note.guideLength
         lineColor: Kirigami.Theme.highlightColor
         shown: note.dragging || note.endResizing
+    }
+
+    // The syllable inside the note (UI_SPEC 3.5, user decision 2026-11-18):
+    // trimmed, in the chip text colour, elided at the right edge, hidden on
+    // notes narrower than 14 px or lower than 10 px.
+    Text {
+        objectName: "noteSyllable"
+        x: 3
+        width: Math.max(0, note.width - 6)
+        anchors.verticalCenter: parent.verticalCenter
+        visible: note.width >= 14 && note.height >= 10
+        text: note.text.trim()
+        elide: Text.ElideRight
+        color: appPalette.chipText
+        font.pointSize: Kirigami.Theme.smallFont.pointSize
     }
 
     // The edge handles of a selected note (UI_SPEC 3.5): 4 x 12 px, radius

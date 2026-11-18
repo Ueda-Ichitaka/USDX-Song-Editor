@@ -156,6 +156,10 @@ pub struct SheetGeometry {
     pub activity_height: f64,
     /// Whether the lyrics lane is shown (repair sheets leave it out).
     pub show_lyrics_lane: bool,
+    /// Whether the lyrics lane's gutter shows the "Lyrics" label; the
+    /// editor sheet puts its Edit line text button there instead (round
+    /// R-06).
+    pub lyrics_label: bool,
     /// The beat at sheet x 0.
     pub start_beat: f64,
     /// Pixels per beat.
@@ -869,13 +873,15 @@ pub fn layout(geometry: &SheetGeometry, inputs: &SheetInputs) -> Vec<SheetOp> {
                 },
             );
         }
-        gutter_label(
-            &mut ops,
-            "Lyrics",
-            lyrics_top,
-            geometry.lyrics_height,
-            (inputs.baseline_offset)(TextFont::Small),
-        );
+        if geometry.lyrics_label {
+            gutter_label(
+                &mut ops,
+                "Lyrics",
+                lyrics_top,
+                geometry.lyrics_height,
+                (inputs.baseline_offset)(TextFont::Small),
+            );
+        }
         // The gap strip between the lyrics and the waveform lane.
         rect(
             &mut ops,

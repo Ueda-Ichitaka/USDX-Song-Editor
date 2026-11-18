@@ -45,6 +45,7 @@ fn geom(line_pitch: Option<(i32, i32)>) -> SheetGeometry {
         waveform_height: 54.0,
         activity_height: 6.0,
         show_lyrics_lane: true,
+        lyrics_label: true,
         start_beat: 0.0,
         px_per_beat: 20.0,
         top_pitch,
@@ -680,6 +681,30 @@ fn gutter_labels_sit_left_in_their_lanes() {
         }
         _ => panic!("a text op"),
     }
+}
+
+#[test]
+fn the_lyrics_gutter_label_gives_way_to_the_edit_button() {
+    // The editor sheet shows its Edit line text button in the lyrics lane's
+    // gutter instead of the label (round R-06); the syllables stay.
+    let mut geometry = geom(None);
+    geometry.lyrics_label = false;
+    let (measure, baseline) = metrics();
+    let notes = reference_line();
+    let ops = layout(
+        &geometry,
+        &inputs(&notes, None, measure.as_ref(), baseline.as_ref()),
+    );
+    let label = all(
+        &ops,
+        |op| matches!(op, SheetOp::Text { text, .. } if text == "Lyrics"),
+    );
+    assert!(label.is_empty(), "the Lyrics label must not be painted");
+    let syllables = all(
+        &ops,
+        |op| matches!(op, SheetOp::Text { text, .. } if text == "Are"),
+    );
+    assert_eq!(syllables.len(), 1, "the syllables stay");
 }
 
 #[test]

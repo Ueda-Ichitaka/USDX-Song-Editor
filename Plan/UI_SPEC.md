@@ -45,7 +45,7 @@ Version 1, 12 November 2026. Companion to `Plan/IMPLEMENTATION_PLAN.md` (the bui
 | `editor` | Editor | 4.3 |
 | `audio-states` | Missing audio, waveform loading, no vocals track | 4.4 |
 | `read-only` | Read-only song | 4.5 |
-| `line-text` | Line text dialog | 5.4 |
+| `line-text` | Line text editor in the lyrics lane | 5.4 |
 | `repair-anchor` | Repair: anchor + stretch | 4.6 |
 | `repair-block` | Repair: block move/scale | 4.7 |
 | `tap-along` | Tap-along | 4.8 |
@@ -159,7 +159,7 @@ Breeze icon names (all verified present in `/usr/share/icons/breeze` on 12 Novem
 | Loop | `media-playlist-repeat` |
 | Repair timing | `tools-wizard` |
 | Song properties | `document-properties` |
-| Edit text | `document-edit` |
+| Edit line text (lyrics lane) | `document-edit` |
 | Back, Editor (back) | `go-previous` |
 | Pin line start here | `pin` |
 | Preview | `view-visible` |
@@ -277,6 +277,7 @@ lyrics lane is left out.
 | Element | Drawing |
 |---|---|
 | Note | Rectangle from `x(start)` to `x(start + length) - 1.5 px`, top = row top + 2 px, height = row height - 4 px, radius 3 px, fill = note type colour. At least 2 px wide |
+| Syllable in the note | The note's text trimmed (`~` shown as `~`), `smallFont`, chip text colour (2.3), 3 px from the note's left edge, vertically centred, elided on the right at the note's right edge minus 3 px; hidden when the note is narrower than 14 px or lower than 10 px (user decision 2026-11-18) |
 | Notes of the previous and next line | Same, opacity 0.35. A click makes their line current and selects the note |
 | Selected note | 2 px border in `textColor`; two edge handles 4 x 12 px, radius 1, `textColor`, centred on the left and right edge (only when the note is at least 12 px wide) |
 | Hover | Cursor `Qt.SizeAllCursor` on the body, `Qt.SizeHorCursor` within 5 px of an edge |
@@ -301,6 +302,10 @@ lyrics lane is left out.
 - Current line: `pointSize` 9, `Font.DemiBold`, `textColor`. Neighbour lines: `pointSize` 9,
   normal weight, `disabledTextColor` at 70 % opacity.
 - Double-clicking a label edits that note's text (same as double-clicking the note).
+- In the gutter, right of the painted "Lyrics" label's row, a flat 22 x 22 px icon button
+  "Edit line text" (`document-edit`, 16 px icon, tooltip "Edit the line's text (Ctrl+E)")
+  opens the line text editor (5.4) for the current line (user decision 2026-11-18). It is
+  hidden in a read-only song and in the repair sheets.
 - The inline syllable field (user decision 2026-11-15, "Over the lyric label"): a
   `QQC2.TextField` over the lyrics lane at the note's `x(start)` (never left of the gutter),
   lane height minus 2 px, at least 90 px wide (`Metrics.inlineSyllableMinimumWidth`). It
@@ -431,7 +436,8 @@ remembered in the settings.
    colour on the matching background colour, fully rounded, 1 / 7 px padding), then `<->`,
    then "Line type" (`smallFont`, `disabledTextColor`) and a ComboBox with
    "Normal", "Golden", "Freestyle", "Rap", "Rap golden" (showing "Mixed", not selectable,
-   when the notes differ), then a button "Edit text…" (`document-edit`). The header says
+   when the notes differ). The line text is edited in the lyrics lane (3.6, 5.4; user
+   decision 2026-11-18). The header says
    "Whole line selected" in place of the times while the whole line is selected (Left past
    the first note).
 2. *Note sheet* (section 3), filling the remaining height.
@@ -474,7 +480,7 @@ unversioned" when there is no `#VERSION`), `<->`, then pills (same style as the 
   `This song uses format version 2.0.0. The editor can show and play it, but cannot change or save it.`
   (for a failed round trip: `This file cannot be saved back without changing parts you did not edit. The editor shows it read-only.`).
 - Disabled: Save, Undo, Redo, Repair timing, every editing shortcut, the line type combo,
-  Edit text, all inspector fields, all drag handlers. Enabled: navigation, selection,
+  the lyrics lane's Edit line text button, all inspector fields, all drag handlers. Enabled: navigation, selection,
   playback, Song properties (read-only form), Export anchors.
 - Title suffix " (read-only)"; status bar pill "read-only".
 
@@ -653,21 +659,34 @@ standard buttons, the platform order wins.
 "UltraStar songs (*.txt)" and "All files (*)", starting folder: the folder of the current
 song, else of the most recent song, else the home folder.
 
-### 5.4 Edit line (`line-text`)
+### 5.4 Line text editor (`line-text`)
 
-- `Kirigami.Dialog`, title "Edit line 3", preferred width 720 px.
-- Contents (16 px padding, 12 px spacing):
-  1. Help text `smallFont`, `disabledTextColor`: "Line text. A space separates words, | splits a word into syllables, ~ continues the previous syllable on a new note."
-  2. A `QQC2.TextField` with the line text (build plan 6.5 syntax), 15 px text size.
-  3. Section label "SYLLABLES ON NOTES", then a `Flow` of chips (1 px border, radius 4,
-     3 / 6 px padding, min width 38 px): syllable on top, start beat below in `smallFont`,
-     `disabledTextColor`. Changed syllable: `highlightColor` border on highlight at 20 %;
-     new note: `positiveTextColor` border on positive background.
-  4. An InlineMessage (Information) explaining a count difference, for example:
-     `13 syllables for 12 notes. "tho|ri|ties?" now has three syllables on two notes. The editor will split "thorities?" (25 beats) into two notes of 12 and 13 beats at the same pitch.`
-     Hidden when the counts match.
-  5. "When counts differ" [Split / merge longest notes | Ask me per note].
-- Buttons: "Apply" (default), "Cancel". Apply is one undo step.
+User decision 2026-11-18 ("Inline line field"): the line text is edited in the lyrics lane,
+not in a dialog. The editor is a non-modal popup of the note sheet whose top edge lies on
+the lyrics lane's top; the notes stay visible above it.
+
+- Opens: the lyrics lane's Edit line text button (3.6) and Ctrl+E, for the current line.
+  The current line cannot change while it is open (it closes first).
+- Row 1, over the lyrics lane from the gutter's right edge to the sheet's right edge: a
+  `QQC2.TextField` with the line text (build plan 6.5 syntax: a space separates words, |
+  splits a word into syllables, ~ continues the previous syllable on a new note), lane
+  height minus 2 px, its placeholder the help sentence. Enter applies, Esc cancels.
+- Below, a panel in the window background colour with a 1 px separator border on top,
+  spanning the whole sheet width, gutter included (it overlaps the gap and waveform lanes and, when taller, the
+  inspector; 6 px padding, 6 px spacing):
+  1. The preview strip, 24 px high: one chip per syllable at `x(beat)` of the sheet, so it
+     lines up with the notes above (1 px border, radius 4, 0 / 4 px padding, `smallFont`),
+     elided on the right at the next chip's x minus 2 px. Unchanged: neutral border on the
+     window background; changed syllable: `highlightColor` border on highlight at 20 %;
+     new note: `positiveTextColor` border on positive background. A chip left of the view
+     sits at the gutter edge; a chip narrower than 12 px is hidden.
+  2. The count message (Information InlineMessage) and the refusal (Error InlineMessage),
+     each hidden while empty; the texts are those of the "Local to the edit" rule below.
+  3. "Ask me per note": one row per count change (see below).
+  4. A row: "When counts differ" (`disabledTextColor`) [Split / merge longest notes | Ask
+     me per note], then right aligned "Apply" (`dialog-ok-apply`, default look, disabled
+     when the text cannot apply) and "Cancel" (`dialog-cancel`).
+- Apply is one undo step ("Edit line text"); an unchanged text just closes.
 - Count fixes (user decision 2026-11-15, "Local to the edit"): only the stretches of notes
   whose syllables changed are re-mapped (plan 6.5); the info message names each stretch:
   `<S> syllables for <N> notes.` then per stretch `"<syllables>" now has <m> syllables on
@@ -685,8 +704,6 @@ song, else of the most recent song, else the home folder.
 - A text that cannot apply (no syllable, notes too short, a count change in a relative-mode
   song) shows its reason in an Error InlineMessage under the info message and disables
   Apply; the chips are empty then.
-- The dialog renders inside the editor window (`Kirigami.Dialog`), not as the separate
-  window the mockup draws.
 
 ### 5.5 Export anchors for the Factory (`export-anchors`)
 
@@ -756,7 +773,7 @@ Error texts say what happened and what still works or what to do; no apologies.
 | Play, Play line, Loop, Track, Speed | ❌ | ❌ | ✅ | ✅ | ❌ (tap controls playback) |
 | Repair timing | ❌ | ✅ (tap-along needs audio) | ❌ | - | - |
 | Song properties | ❌ | ✅ | ✅ (read-only form) | ✅ | ❌ |
-| Note editing (mouse, keys, inspector, line type, Edit text) | ❌ | ✅ | ❌ | ❌ (repair tools only) | ❌ |
+| Note editing (mouse, keys, inspector, line type, line text) | ❌ | ✅ | ❌ | ❌ (repair tools only) | ❌ |
 | Export anchors | ❌ | ✅ | ✅ | ✅ | ❌ |
 | Settings | ✅ | ✅ | ✅ | ✅ | ❌ |
 

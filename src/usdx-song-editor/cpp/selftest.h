@@ -83,9 +83,11 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine);
 // "playhead: ok" on success.
 bool usdx_playhead_check(const QQmlApplicationEngine &engine);
 
-// Checks the text editing (task P6-02) through real key and mouse events:
-// the Edit line dialog (Ctrl+E, preview, Enter applies one undo step, an
-// added word splits a note) and the inline syllable field (a double click
+// Checks the text editing (task P6-02, round R-06) through real key and
+// mouse events: the syllable inside a wide note, the line text editor in the
+// lyrics lane (its gutter button and Ctrl+E, chips under their notes, Esc,
+// preview, Enter applies one undo step, an added word splits a note) and
+// the inline syllable field (a double click
 // on a note or its lyric label, Enter commits, Esc cancels). Prints "text
 // editing: ok" on success.
 bool usdx_text_edit_check(const QQmlApplicationEngine &engine);

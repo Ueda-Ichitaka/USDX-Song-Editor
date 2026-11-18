@@ -9,8 +9,8 @@
 // into the Kirigami.Actions of the menus when those arrive). The note
 // editing shortcuts N, G, F, R, Shift+R, S, M, Delete, Insert and B (task
 // P5-05) act on the selection; Enter edits the selected note's syllable in
-// place and Ctrl+E opens the Edit line dialog of the current line (task
-// P6-02, also the line header's Edit text button); Home and End and the
+// place and Ctrl+E opens the line text editor in the lyrics lane for the
+// current line (task P6-02, round R-06); Home and End and the
 // toolbar's skip buttons jump to the song start and end, and "End song here"
 // cuts the song at the playhead (user decisions 2026-11-15); the navigation
 // shortcuts Up, Down, Left,
@@ -499,7 +499,7 @@ Kirigami.Page {
 
     // The text shortcuts of the key table (plan 8.6, task P6-02): Enter
     // edits the selected note's syllable over its lyric label, Ctrl+E the
-    // current line's text in the Edit line dialog. Both stand back while a
+    // current line's text in the lyrics lane's line text editor. Both stand back while a
     // text input holds the focus, so Enter there commits the input.
     Shortcut {
         sequences: ["Return", "Enter"]
@@ -555,10 +555,11 @@ Kirigami.Page {
         }
     }
 
-    // editLineText opens the Edit line dialog for the current line.
+    // editLineText opens the line text editor in the lyrics lane for the
+    // current line (UI_SPEC 5.4).
     function editLineText() {
         if (root.canEditNotes) {
-            lineTextDialog.openFor(root.document.currentLine, null);
+            noteSheet.editLineText(null);
         }
     }
 
@@ -897,7 +898,6 @@ Kirigami.Page {
                 Usdx.LineHeader {
                     Layout.fillWidth: true
                     document: root.document
-                    onEditTextRequested: root.editLineText()
                 }
 
                 // The note sheet area (UI_SPEC 3): NoteSheet.qml holds the
@@ -922,14 +922,6 @@ Kirigami.Page {
                 }
             }
         }
-    }
-
-    // The Edit line dialog (UI_SPEC 5.4, task P6-02).
-    Usdx.LineTextDialog {
-        id: lineTextDialog
-
-        objectName: "lineTextDialog"
-        document: root.document
     }
 
     Usdx.Metrics {

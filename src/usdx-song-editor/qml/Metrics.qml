@@ -63,15 +63,17 @@ QtObject {
     property real dialogPadding: 16
     property real dialogSpacing: 12
 
-    // The Edit line dialog (UI_SPEC 5.4): its preferred width, the 15 px
-    // text of the line field and the syllable chips (1 px border, radius 4,
-    // 3 / 6 px padding, at least 38 px wide).
-    property real lineTextDialogWidth: 720
-    property real lineTextFieldPixelSize: 15
+    // The line text editor in the lyrics lane (UI_SPEC 5.4): the panel
+    // padding and spacing, the preview strip height and its syllable chips
+    // (1 px border, radius 4, 3 / 6 px padding), and the lyrics lane's
+    // Edit line text button with its icon (UI_SPEC 3.6).
+    property real lineTextPanelPadding: 6
+    property real lineTextStripHeight: 24
+    property real lineTextChipMinimumWidth: 12
+    property real lyricsEditButtonSize: 22
+    property real lyricsEditIconSize: 16
     property real syllableChipRadius: 4
-    property real syllableChipPaddingVertical: 3
     property real syllableChipPaddingHorizontal: 6
-    property real syllableChipMinimumWidth: 38
 
     // The Measure tap latency dialog (UI_SPEC 5.7): its preferred width and
     // the eight 18 px click circles 10 px apart.

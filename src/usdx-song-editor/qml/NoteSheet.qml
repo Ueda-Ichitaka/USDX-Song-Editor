@@ -27,7 +27,10 @@
 // lyric label in the lyrics lane after a double click on the note or the
 // label, or through editSyllable (the Enter key): Enter commits one undo
 // step, Esc cancels, Tab and Shift+Tab commit and move to the next or
-// previous note of the line, and leaving the field commits.
+// previous note of the line, and leaving the field commits. The lyrics
+// lane's gutter holds the Edit line text button, which (like Ctrl+E through
+// editLineText) opens the line text editor over the lane (UI_SPEC 5.4,
+// round R-06).
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -151,6 +154,7 @@ Rectangle {
         waveformHeight: metrics.waveformLaneHeight
         activityHeight: metrics.activityLaneHeight
         showLyricsLane: true
+        lyricsLabel: !lyricsEditButton.visible
         trackName: [qsTr("Mix"), qsTr("Vocals"), qsTr("Instr.")][root.player ? root.player.track : 0]
         // The theme colours (UI_SPEC 2.3); the grid lines interpolate
         // between the view background and text.
@@ -541,6 +545,52 @@ Rectangle {
 
         onDoubleClicked: (mouse) => root.editSyllable(
             root.document.noteAtLyricBeat(sheet.xToBeat(lyricsLane.x + mouse.x)))
+    }
+
+    // editLineText opens the line text editor in the lyrics lane for the
+    // current line (UI_SPEC 5.4, round R-06); `text` replaces the line's
+    // text when given (the screenshot demo state).
+    function editLineText(text) {
+        if (!root.document || root.document.readOnly || !root.songOpen) {
+            return;
+        }
+        root.closeSyllableField(false);
+        lineTextEditor.openFor(root.document.currentLine, text);
+    }
+
+    // The Edit line text button in the lyrics lane's gutter, in place of the
+    // painted "Lyrics" label (UI_SPEC 3.6, user decision 2026-11-18).
+    QQC2.ToolButton {
+        id: lyricsEditButton
+
+        objectName: "lyricsEditButton"
+        x: (sheet.gutterWidth - width) / 2
+        y: root.pitchBottom + (sheet.lyricsHeight - height) / 2
+        z: 7
+        width: metrics.lyricsEditButtonSize
+        height: metrics.lyricsEditButtonSize
+        visible: root.songOpen && root.document !== null && !root.document.readOnly
+        icon.name: "document-edit"
+        icon.width: metrics.lyricsEditIconSize
+        icon.height: metrics.lyricsEditIconSize
+        display: QQC2.AbstractButton.IconOnly
+        text: qsTr("Edit line text")
+        QQC2.ToolTip.visible: hovered
+        QQC2.ToolTip.text: qsTr("Edit the line's text (Ctrl+E)")
+        onClicked: root.editLineText()
+    }
+
+    // The line text editor over the lyrics lane (UI_SPEC 5.4).
+    Usdx.LineTextEditor {
+        id: lineTextEditor
+
+        objectName: "lineTextEditor"
+        document: root.document
+        sheet: sheet
+        x: 0
+        y: root.pitchBottom
+        width: root.width
+        onClosed: root.forceActiveFocus()
     }
 
     // The inline syllable field over the lyric label of the note it edits.

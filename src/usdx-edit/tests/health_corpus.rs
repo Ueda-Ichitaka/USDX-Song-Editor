@@ -199,12 +199,15 @@ fn the_health_signals_over_the_corpus() {
 
 /// One labelled song of tests/health_labels.tsv.
 struct Labelled {
+    path: PathBuf,
     good: bool,
     note: String,
     name: String,
     doc: Document,
     song: Song,
     activity: Option<usdx_audio::Activity>,
+    /// The vocals track's RMS per peak bucket, in dB.
+    vocal_db: Option<Vec<f32>>,
     audio_end_ms: Option<f64>,
 }
 
@@ -227,14 +230,9 @@ fn racing_lines(entry: &Labelled, cfg: &HealthConfig) -> usize {
         .sum()
 }
 
-#[test]
-#[ignore = "run by hand with USDX_FACTORY_OUTPUT for the threshold tuning (gate G-06)"]
-fn the_health_signals_against_the_users_labels() {
-    let Some(output) = std::env::var_os("USDX_FACTORY_OUTPUT") else {
-        eprintln!("skipped: USDX_FACTORY_OUTPUT is not set");
-        return;
-    };
-    let output = PathBuf::from(output);
+/// load_labelled reads the labelled songs below `output` (the Factory's
+/// stack/output) with their vocal activity and the main audio's length.
+fn load_labelled(output: &Path) -> Vec<Labelled> {
     let labels = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/health_labels.tsv"),
     )
@@ -258,8 +256,15 @@ fn the_health_signals_against_the_users_labels() {
             .get("VOCALS")
             .map(|vocals| path.with_file_name(vocals.trim()))
             .filter(|vocals| vocals.is_file())
-            .and_then(|vocals| usdx_audio::analyze(&vocals, BUCKET_MS, &cancel, &|_| {}).ok())
-            .map(|(_, activity)| activity);
+            .and_then(|vocals| usdx_audio::analyze(&vocals, BUCKET_MS, &cancel, &|_| {}).ok());
+        let vocal_db = activity.as_ref().map(|(peaks, _)| {
+            peaks
+                .rms
+                .iter()
+                .map(|rms| 20.0 * rms.max(1e-6).log10())
+                .collect::<Vec<f32>>()
+        });
+        let activity = activity.map(|(_, activity)| activity);
         let audio_end_ms = song
             .headers
             .get("AUDIO")
@@ -272,15 +277,28 @@ fn the_health_signals_against_the_users_labels() {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         songs.push(Labelled {
+            path: path.clone(),
             good: fields[0] == "good",
             note: fields[1].to_owned(),
             name,
             doc,
             song,
             activity,
+            vocal_db,
             audio_end_ms,
         });
     }
+    songs
+}
+
+#[test]
+#[ignore = "run by hand with USDX_FACTORY_OUTPUT for the threshold tuning (gate G-06)"]
+fn the_health_signals_against_the_users_labels() {
+    let Some(output) = std::env::var_os("USDX_FACTORY_OUTPUT") else {
+        eprintln!("skipped: USDX_FACTORY_OUTPUT is not set");
+        return;
+    };
+    let songs = load_labelled(&PathBuf::from(output));
     println!(
         "{} labelled songs: {} good, {} bad",
         songs.len(),
@@ -442,5 +460,247 @@ fn the_health_signals_against_the_users_labels() {
             .find(|r| r.3 == 10.0 && r.4 == factor && r.5 == coverage_bad && r.6 == 1)
             .expect("the defaults are on the grid");
         println!("the {label} defaults: {} / {}", point.1, point.2);
+    }
+}
+
+/// The note intervals of every voice in audio milliseconds.
+fn note_spans_ms(entry: &Labelled) -> Vec<Vec<(f64, f64)>> {
+    let Some(timing) = entry.song.timing else {
+        return Vec::new();
+    };
+    entry
+        .song
+        .voices
+        .iter()
+        .flat_map(|voice| voice.lines.iter())
+        .map(|line| {
+            line.notes
+                .iter()
+                .filter_map(|id| entry.song.note(&entry.doc, *id))
+                .map(|note| {
+                    (
+                        timing.beat_to_ms(note.start),
+                        timing.beat_to_ms(note.start + note.length as f64),
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// heard_share returns the share of the note time that is active when the
+/// notes move by `shift_ms`.
+fn heard_share(activity: &usdx_audio::Activity, notes: &[(f64, f64)], shift_ms: f64) -> f64 {
+    let window = activity.bucket_ms;
+    let (mut total, mut heard) = (0usize, 0usize);
+    for &(start, end) in notes {
+        let first = ((start + shift_ms) / window).floor().max(0.0) as usize;
+        let last = ((end + shift_ms) / window).ceil().max(0.0) as usize;
+        for index in first..last {
+            total += 1;
+            if activity.active.get(index).copied().unwrap_or(false) {
+                heard += 1;
+            }
+        }
+    }
+    if total == 0 {
+        0.0
+    } else {
+        heard as f64 / total as f64
+    }
+}
+
+#[test]
+#[ignore = "run by hand with USDX_FACTORY_OUTPUT for the offset and missing-line exploration"]
+fn the_offset_and_missing_line_signals_against_the_users_labels() {
+    let Some(output) = std::env::var_os("USDX_FACTORY_OUTPUT") else {
+        eprintln!("skipped: USDX_FACTORY_OUTPUT is not set");
+        return;
+    };
+    let songs = load_labelled(&PathBuf::from(output));
+    println!("label act%  uncov% longest_s  shift_med shifted%  lines lyrics  song (note)");
+    for entry in &songs {
+        let lines = note_spans_ms(entry);
+        let lyrics = std::fs::read_to_string(entry.path.with_file_name("lyrics.txt"))
+            .ok()
+            .map(|text| {
+                text.lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .count()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "-".to_owned());
+        let Some(activity) = &entry.activity else {
+            println!(
+                "{:5} {:>4} {:>6} {:>9} {:>10} {:>8} {:>6} {:>6}  {} {}",
+                if entry.good { "good" } else { "bad" },
+                "-",
+                "-",
+                "-",
+                "-",
+                "-",
+                lines.len(),
+                lyrics,
+                entry.name,
+                entry.note
+            );
+            continue;
+        };
+        let all: Vec<(f64, f64)> = lines.iter().flatten().copied().collect();
+        let first = all.iter().map(|n| n.0).fold(f64::INFINITY, f64::min);
+        let last = all.iter().map(|n| n.1).fold(0.0, f64::max);
+        let window = activity.bucket_ms;
+        // Active share over the sung span, and the active windows no note
+        // covers (with 200 ms tolerance on both sides of every note).
+        let mut covered = vec![false; activity.active.len()];
+        for &(start, end) in &all {
+            let a = ((start - 200.0) / window).floor().max(0.0) as usize;
+            let b = (((end + 200.0) / window).ceil() as usize).min(covered.len());
+            for flag in covered.iter_mut().take(b).skip(a) {
+                *flag = true;
+            }
+        }
+        let (span_a, span_b) = (
+            (first / window) as usize,
+            ((last / window) as usize).min(activity.active.len()),
+        );
+        let (mut active, mut uncovered, mut run, mut longest) = (0usize, 0usize, 0usize, 0usize);
+        for index in span_a..span_b {
+            if activity.active[index] {
+                active += 1;
+                if !covered[index] {
+                    uncovered += 1;
+                    run += 1;
+                    longest = longest.max(run);
+                    continue;
+                }
+            }
+            run = 0;
+        }
+        let span = (span_b - span_a).max(1);
+        // The best shift per line in -2..2 s (20 ms steps); a line counts as
+        // shifted when the best shift is beyond 250 ms and gains at least 0.15
+        // of heard share against no shift.
+        let mut shifts = Vec::new();
+        let mut shifted = 0usize;
+        for notes in lines.iter().filter(|notes| !notes.is_empty()) {
+            let base = heard_share(activity, notes, 0.0);
+            let (mut best, mut best_shift) = (base, 0.0);
+            for step in -100..=100 {
+                let shift = step as f64 * 20.0;
+                let share = heard_share(activity, notes, shift);
+                if share > best + 1e-9
+                    || (share >= best - 1e-9 && shift.abs() < f64::abs(best_shift))
+                {
+                    best = share;
+                    best_shift = shift;
+                }
+            }
+            if best_shift.abs() > 250.0 && best - base >= 0.15 {
+                shifted += 1;
+            }
+            shifts.push(best_shift.abs());
+        }
+        shifts.sort_by(|a, b| a.total_cmp(b));
+        let median = shifts.get(shifts.len() / 2).copied().unwrap_or(0.0);
+        println!(
+            "{:5} {:>4.0} {:>6.1} {:>9.1} {:>10.0} {:>8.0} {:>6} {:>6}  {} {}",
+            if entry.good { "good" } else { "bad" },
+            100.0 * active as f64 / span as f64,
+            100.0 * uncovered as f64 / active.max(1) as f64,
+            longest as f64 * window / 1000.0,
+            median,
+            100.0 * shifted as f64 / shifts.len().max(1) as f64,
+            lines.len(),
+            lyrics,
+            entry.name,
+            entry.note
+        );
+    }
+}
+
+/// contrast returns the mean vocal level (dB) inside the line's notes minus
+/// the mean level in the line's own gaps and 300 ms margins, with the notes
+/// moved by `shift_ms`.
+fn contrast(db: &[f32], notes: &[(f64, f64)], shift_ms: f64) -> f64 {
+    let bucket = BUCKET_MS;
+    let index = |ms: f64| ((ms + shift_ms) / bucket).floor().max(0.0) as usize;
+    let first = notes.first().map(|n| n.0).unwrap_or(0.0) - 300.0;
+    let last = notes.last().map(|n| n.1).unwrap_or(0.0) + 300.0;
+    let (a, b) = (index(first), index(last).min(db.len()));
+    if a >= b {
+        return 0.0;
+    }
+    let mut inside = vec![false; b - a];
+    for &(start, end) in notes {
+        for i in index(start).max(a)..index(end).min(b) {
+            inside[i - a] = true;
+        }
+    }
+    let (mut sum_in, mut n_in, mut sum_out, mut n_out) = (0.0, 0, 0.0, 0);
+    for (offset, flag) in inside.iter().enumerate() {
+        let value = f64::from(db[a + offset]);
+        if *flag {
+            sum_in += value;
+            n_in += 1;
+        } else {
+            sum_out += value;
+            n_out += 1;
+        }
+    }
+    if n_in == 0 || n_out == 0 {
+        return 0.0;
+    }
+    sum_in / n_in as f64 - sum_out / n_out as f64
+}
+
+#[test]
+#[ignore = "run by hand with USDX_FACTORY_OUTPUT for the offset exploration"]
+fn the_vocal_level_offsets_against_the_users_labels() {
+    let Some(output) = std::env::var_os("USDX_FACTORY_OUTPUT") else {
+        eprintln!("skipped: USDX_FACTORY_OUTPUT is not set");
+        return;
+    };
+    let songs = load_labelled(&PathBuf::from(output));
+    println!("label contrast0 shift_med shifted%  worst_lines(start s: shift ms)  song");
+    for entry in songs.iter().filter(|entry| entry.vocal_db.is_some()) {
+        let db = entry.vocal_db.as_ref().expect("filtered");
+        let lines = note_spans_ms(entry);
+        let (mut contrasts, mut shifts, mut shifted) = (Vec::new(), Vec::new(), Vec::new());
+        for notes in lines.iter().filter(|notes| !notes.is_empty()) {
+            let base = contrast(db, notes, 0.0);
+            let (mut best, mut best_shift) = (base, 0.0f64);
+            for step in -75..=75 {
+                let shift = step as f64 * 20.0;
+                let value = contrast(db, notes, shift);
+                if value > best + 1e-9 {
+                    best = value;
+                    best_shift = shift;
+                }
+            }
+            contrasts.push(base);
+            shifts.push(best_shift.abs());
+            if best_shift.abs() >= 300.0 && best - base >= 3.0 {
+                shifted.push((notes[0].0 / 1000.0, best_shift));
+            }
+        }
+        contrasts.sort_by(|a, b| a.total_cmp(b));
+        shifts.sort_by(|a, b| a.total_cmp(b));
+        let median = |v: &Vec<f64>| v.get(v.len() / 2).copied().unwrap_or(0.0);
+        let worst: Vec<String> = shifted
+            .iter()
+            .take(6)
+            .map(|(start, shift)| format!("{start:.0}:{shift:+.0}"))
+            .collect();
+        println!(
+            "{:5} {:9.1} {:9.0} {:8.0}  {:40}  {} {}",
+            if entry.good { "good" } else { "bad" },
+            median(&contrasts),
+            median(&shifts),
+            100.0 * shifted.len() as f64 / contrasts.len().max(1) as f64,
+            worst.join(" "),
+            entry.name,
+            entry.note
+        );
     }
 }

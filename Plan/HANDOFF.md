@@ -27,7 +27,7 @@ songs only as copies; never write to the user's files.
   (factor 2.0, coverage racing off), the past-end check with the audio length probed at
   open (`usdx_audio::duration_ms`, new dependency gstreamer-pbutils), the user's labels in
   `src/usdx-edit/tests/health_labels.tsv` with an opt-in report (PROGRESS P7-10).
-- Last full `scripts/dev.sh check`: green, 795 passed, 0 failed, 8 ignored (2026-11-18).
+- Last full `scripts/dev.sh check`: green, 796 passed, 0 failed, 10 ignored (2026-11-18).
 - Last full corpus sweep: 133 of 136, the 3 failures fixed and re-run with 10 more songs
   (PROGRESS P7-08).
 - `cargo` is not on the shell PATH: use `~/.cargo/bin/cargo fmt --all`; everything else runs
@@ -52,8 +52,11 @@ tests, PROGRESS and this file.
 
 ## 3. Open items, in order
 
-- Bad songs the health analysis cannot see yet (user, 2026-11-18): lines offset in time and
-  missing or merged lines; no signal exists for them (a possible later task, not planned).
+- **R-06** done (2026-11-18): the inspector's type buttons commit again, notes show their
+  syllable, the line text is edited in the lyrics lane (LineTextEditor.qml, the dialog is
+  gone).
+- **Phase 7b (P7-11 to P7-16)** offset and missing-line detection from a vocal pitch track,
+  drafted 2026-11-18 in the plan; deferred by the user (2026-11-18), questions at gate G-09.
 - **P8-01 to P8-05** upgrade planner, properties page, settings page, packaging, docs.
 
 User decisions that bind the repair UI: the controllers are standalone structs taking

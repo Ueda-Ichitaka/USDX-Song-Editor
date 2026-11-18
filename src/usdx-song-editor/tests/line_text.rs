@@ -1,5 +1,5 @@
 //! About me: tests for the line text controller of task P6-02 (UI_SPEC 3.6,
-//! 5.4, plan 8.3): the Edit line dialog's field text, its preview (the
+//! 5.4, plan 8.3): the line text editor's field text, its preview (the
 //! syllable chips with their states, the count message, the note picks of
 //! "Ask me per note" and the refusals that disable Apply), the preview JSON
 //! the bridge hands to QML, the apply as one undo step, and the inline

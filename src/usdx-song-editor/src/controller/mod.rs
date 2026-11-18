@@ -8,7 +8,7 @@
 //! analysis state and the column layout of the waveform lanes, and the sheet
 //! viewport (beats and pitches to pixels, zoom and scroll), the rule that
 //! lets the list models update in place, and the line text editing (the
-//! Edit line dialog's preview and apply, the inline syllable edit), the
+//! line text editor's preview and apply, the inline syllable edit), the
 //! song end rules (scroll bounds, the end jump, #END cuts); the repair
 //! controller (anchor, block and tap mode with preview, apply, cancel
 //! and the anchors export) and the tap-along session controller.

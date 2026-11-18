@@ -2,10 +2,9 @@
 // shows the line position, the time span with duration (or "Whole line
 // selected" while the selection is exactly the current line's notes, task
 // P5-06), note count and syllable rate, the timing health pill and the line
-// type combo with the Edit text button. The combo shows the line's type and
-// sets it for every note of the line; the button asks the editor page to
-// open the Edit line dialog (editTextRequested, task P6-02). The health pill
-// shows the current line's health analysis (task P7-09).
+// type combo. The combo shows the line's type and sets it for every note of
+// the line; the line text is edited in the lyrics lane (UI_SPEC 5.4). The
+// health pill shows the current line's health analysis (task P7-09).
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -20,8 +19,6 @@ Rectangle {
     // The document the header mirrors; set by the editor page.
     property Usdx.SongDocument document
 
-    // The Edit text button asks the editor page for the Edit line dialog.
-    signal editTextRequested()
 
     color: Kirigami.Theme.backgroundColor
     implicitHeight: headerRow.implicitHeight + 2 * metrics.columnPaddingVertical
@@ -153,11 +150,5 @@ Rectangle {
             }
         }
 
-        QQC2.Button {
-            icon.name: "document-edit"
-            text: qsTr("Edit text…")
-            enabled: document && document.isLoaded && !document.readOnly
-            onClicked: root.editTextRequested()
-        }
     }
 }

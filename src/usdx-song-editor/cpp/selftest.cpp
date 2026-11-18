@@ -11,7 +11,8 @@
 // locks in the note drag, rubber band and sheet navigation fixes (skipped on
 // a song whose current line has fewer than two notes), usdx_playhead_check
 // covers the waveform-lane seek, the playhead line and the playback follow,
-// usdx_text_edit_check the Edit line dialog and the inline syllable field,
+// usdx_text_edit_check the note syllables, the line text editor and the
+// inline syllable field,
 // and usdx_song_end_check the scroll bounds, Home / End, End song here and
 // the drag guides, all driven through synthesized mouse, wheel and key events
 // (send_mouse/send_wheel/send_key/send_text). The
@@ -47,7 +48,6 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
-#include <functional>
 #include <initializer_list>
 #include <algorithm>
 #include <cmath>
@@ -582,6 +582,65 @@ void find_current_line_delegates(QQuickWindow *window, QList<QObject *> &out) {
     walk(window->contentItem());
 }
 
+// close_passive_notifications hides every passive notification of the
+// window and waits (at most 3 s) until the notification list is empty: a
+// shown notification's list takes the clicks at the bottom of the window,
+// an empty one lets them through.
+bool close_passive_notifications(QQuickWindow *window, QObject *root) {
+    QQuickItem *top = window->contentItem();
+    while (top->parentItem() != nullptr) {
+        top = top->parentItem();
+    }
+    QList<QQuickItem *> lists;
+    std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+        for (QQuickItem *const child : item->childItems()) {
+            if (qobject_cast<QQuickItem *>(child) != nullptr && child->parent() != nullptr
+                && QString::fromUtf8(child->parent()->metaObject()->className())
+                       .startsWith(QStringLiteral("PassiveNotificationsManager"))
+                && child->property("count").isValid()) {
+                lists.append(child);
+            }
+            walk(child);
+        }
+    };
+    walk(top);
+    for (int round = 0; round < 30; ++round) {
+        bool open = false;
+        for (QQuickItem *const list : lists) {
+            if (list->property("count").toInt() > 0) {
+                open = true;
+            }
+        }
+        if (!open) {
+            return true;
+        }
+        QMetaObject::invokeMethod(root, "hidePassiveNotification", Q_ARG(QVariant, 0));
+        pump_events(100);
+    }
+    return false;
+}
+
+// find_items_named collects every item of the window's visual tree with the
+// object name, the popup overlay included (popup items are not QObject
+// children of their popup or the window).
+QList<QQuickItem *> find_items_named(QQuickWindow *window, const QString &name) {
+    QList<QQuickItem *> out;
+    std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+        for (QQuickItem *const child : item->childItems()) {
+            if (child->objectName() == name) {
+                out.append(child);
+            }
+            walk(child);
+        }
+    };
+    QQuickItem *top = window->contentItem();
+    while (top->parentItem() != nullptr) {
+        top = top->parentItem();
+    }
+    walk(top);
+    return out;
+}
+
 } // namespace
 
 // Locks in the phase-5 interaction fixes as regression checks: the
@@ -1052,6 +1111,69 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
         std::cerr << "sheet interaction: the inspector Start field was not found\n";
         return false;
     }
+    // The inspector's type buttons set the selected note's type with a
+    // real click, and the type stays when another note is selected.
+    {
+        // Two on-screen notes of the current line that no other note covers
+        // (the earlier drags may have pushed notes over each other).
+        qint64 typed_id = -1;
+        qint64 other_id = -1;
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        for (QObject *const candidate : current) {
+            if (!on_screen(candidate) || !uncovered(candidate)) {
+                continue;
+            }
+            if (typed_id < 0) {
+                typed_id = note_id_of(candidate);
+            } else if (other_id < 0) {
+                other_id = note_id_of(candidate);
+            }
+        }
+        auto *const golden =
+            root->findChild<QQuickItem *>(QStringLiteral("inspectorTypeGolden"));
+        // An edit refused by an earlier step shows a passive notification
+        // whose list lies over the bottom of the window (the inspector and
+        // low notes) and takes the clicks there while it shows.
+        if (!close_passive_notifications(window, root)) {
+            std::cerr << "sheet interaction: the passive notifications did not close\n";
+            return false;
+        }
+        const QPointer<QObject> typed = select_by_tap(typed_id);
+        if (golden == nullptr || typed.isNull() || !typed->property("selected").toBool()) {
+            std::cerr << "sheet interaction: the Golden type button or its selected note was "
+                         "not found\n";
+            return false;
+        }
+        const QString typeBefore = typed->property("type").toString();
+        const QPointF centre = golden->mapToScene(
+            QPointF(golden->width() / 2.0, golden->height() / 2.0));
+        send_mouse(window, centre, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                   next_time += 1000);
+        send_mouse(window, centre, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                   next_time += 10);
+        pump_events(50);
+        QObject *const after = find_by_id(typed_id);
+        if (after == nullptr || after->property("type").toString() != QStringLiteral("*")) {
+            std::cerr << "sheet interaction: the Golden button did not set the note's type (was "
+                      << typeBefore.toStdString() << ", now "
+                      << (after ? after->property("type").toString().toStdString() : "-")
+                      << ")\n";
+            return false;
+        }
+        if (other_id >= 0) {
+            select_by_tap(other_id);
+            QObject *const kept = find_by_id(typed_id);
+            if (kept == nullptr || kept->property("type").toString() != QStringLiteral("*")) {
+                std::cerr << "sheet interaction: the note's type was lost when another note was "
+                             "selected (now "
+                          << (kept ? kept->property("type").toString().toStdString() : "-")
+                          << ")\n";
+                return false;
+            }
+        }
+        std::cout << "sheet interaction: type button kept" << std::endl;
+    }
     // The line type combo shows the current line's type and sets it for
     // every note of the line (user decision 2026-11-15).
     if (QObject *const combo = root->findChild<QObject *>(QStringLiteral("lineTypeCombo"))) {
@@ -1403,9 +1525,12 @@ bool usdx_playhead_check(const QQmlApplicationEngine &engine) {
     return true;
 }
 
-// Checks the text editing of task P6-02 through real key and mouse events:
-// Ctrl+E opens the Edit line dialog with the current line's text, typing
-// previews, Enter applies one undo step that Ctrl+Z takes back, an added
+// Checks the text editing of task P6-02 and round R-06 through real key and
+// mouse events: a wide enough note shows its syllable inside, the lyrics
+// lane's Edit line text button and Ctrl+E open the line text editor in the
+// lyrics lane with the current line's text, its preview chips sit under
+// their notes, typing previews, Enter applies one undo step that Ctrl+Z
+// takes back, an added
 // word splits a note (when the line's last note is long enough), a double
 // click on a note opens the inline syllable field over its lyric label,
 // Enter commits it with the word space kept, Tab moves it to the next
@@ -1420,15 +1545,21 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     }
     auto *const window = qobject_cast<QQuickWindow *>(root);
     QObject *const document = root->property("songDocument").value<QObject *>();
-    QObject *const dialog = root->findChild<QObject *>(QStringLiteral("lineTextDialog"));
+    QObject *const dialog = root->findChild<QObject *>(QStringLiteral("lineTextEditor"));
+    auto *const editButton = root->findChild<QQuickItem *>(QStringLiteral("lyricsEditButton"));
     auto *const lineField = root->findChild<QQuickItem *>(QStringLiteral("lineTextField"));
     auto *const inlineField =
         root->findChild<QQuickItem *>(QStringLiteral("inlineSyllableField"));
     auto *const lyrics = root->findChild<QQuickItem *>(QStringLiteral("lyricsLaneArea"));
     if (window == nullptr || document == nullptr || dialog == nullptr || lineField == nullptr
-        || inlineField == nullptr || lyrics == nullptr) {
+        || inlineField == nullptr || lyrics == nullptr || editButton == nullptr) {
         std::cerr << "text editing: an object is missing (window, songDocument, "
-                     "lineTextDialog, lineTextField, inlineSyllableField or lyricsLaneArea)\n";
+                     "lineTextEditor, lineTextField, inlineSyllableField, lyricsLaneArea or "
+                     "lyricsEditButton)\n";
+        return false;
+    }
+    if (root->findChild<QObject *>(QStringLiteral("lineTextDialog")) != nullptr) {
+        std::cerr << "text editing: the Edit line dialog still exists\n";
         return false;
     }
     if (document->property("readOnly").toBool()) {
@@ -1458,16 +1589,103 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     window->contentItem()->forceActiveFocus();
     pump_events(50);
 
-    // Ctrl+E opens the dialog with the line's text.
+    // A note at least 30 px wide and 10 px high shows its syllable inside.
+    {
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        bool checked = false;
+        for (QObject *const candidate : current) {
+            auto *const item = qobject_cast<QQuickItem *>(candidate);
+            if (item->width() < 30.0 || item->height() < 10.0) {
+                continue;
+            }
+            auto *const label = candidate->findChild<QQuickItem *>(QStringLiteral("noteSyllable"));
+            const QString wanted = candidate->property("text").toString().trimmed();
+            if (label == nullptr || !label->isVisible()
+                || label->property("text").toString() != wanted) {
+                std::cerr << "text editing: a " << item->width() << " px note does not show \""
+                          << wanted.toStdString() << "\" inside (label "
+                          << (label ? label->property("text").toString().toStdString() : "missing")
+                          << ")\n";
+                return false;
+            }
+            checked = true;
+            break;
+        }
+        if (!checked) {
+            std::cout << "text editing: skipped the note syllable (no note is 30 px wide)"
+                      << std::endl;
+        }
+    }
+
+    // The Edit line text button in the lyrics lane's gutter opens the
+    // editor; its chips sit under their notes; Esc closes it unchanged.
+    {
+        const QPointF centre =
+            editButton->mapToScene(QPointF(editButton->width() / 2.0, editButton->height() / 2.0));
+        send_mouse(window, centre, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                   40000);
+        send_mouse(window, centre, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                   40010);
+        pump_events(400);
+        if (!dialog->property("visible").toBool()
+            || lineField->property("text").toString() != original) {
+            std::cerr << "text editing: the Edit line text button did not open the editor with "
+                         "the line's text\n";
+            return false;
+        }
+        QList<QObject *> current;
+        find_current_line_delegates(window, current);
+        int aligned = 0;
+        for (QQuickItem *const chip :
+             find_items_named(window, QStringLiteral("lineTextChip"))) {
+            if (!chip->isVisible()) {
+                continue;
+            }
+            const double beat = chip->property("beat").toDouble();
+            for (QObject *const candidate : current) {
+                auto *const item = qobject_cast<QQuickItem *>(candidate);
+                if (candidate->property("start").toDouble() != beat) {
+                    continue;
+                }
+                const double noteX = item->mapToScene(QPointF(0, 0)).x();
+                const double chipX = chip->mapToScene(QPointF(0, 0)).x();
+                if (noteX < 0.0 || noteX > window->width()) {
+                    continue;
+                }
+                if (std::abs(noteX - chipX) > 1.5) {
+                    std::cerr << "text editing: the chip at beat " << beat << " sits at x "
+                              << chipX << ", its note at " << noteX << "\n";
+                    return false;
+                }
+                ++aligned;
+            }
+        }
+        if (aligned == 0) {
+            std::cerr << "text editing: no preview chip lies under an on-screen note\n";
+            return false;
+        }
+        send_key(window, Qt::Key_Escape, Qt::NoModifier);
+        pump_events(200);
+        if (dialog->property("visible").toBool()
+            || document_text(document, "lineText", 0) != original) {
+            std::cerr << "text editing: Esc did not close the editor unchanged\n";
+            return false;
+        }
+        window->contentItem()->forceActiveFocus();
+        pump_events(50);
+    }
+
+    // Ctrl+E opens the editor with the line's text.
     auto open_dialog = [&]() -> bool {
         send_key(window, Qt::Key_E, Qt::ControlModifier);
         pump_events(400);
         if (!dialog->property("visible").toBool()) {
-            std::cerr << "text editing: Ctrl+E did not open the Edit line dialog\n";
+            std::cerr << "text editing: Ctrl+E did not open the line text editor\n";
             return false;
         }
         if (lineField->property("text").toString() != original) {
-            std::cerr << "text editing: the dialog field shows \""
+            std::cerr << "text editing: the editor field shows \""
                       << lineField->property("text").toString().toStdString()
                       << "\" instead of \"" << original.toStdString() << "\"\n";
             return false;
@@ -1489,7 +1707,7 @@ bool usdx_text_edit_check(const QQmlApplicationEngine &engine) {
     send_key(window, Qt::Key_Return, Qt::NoModifier);
     pump_events(400);
     if (dialog->property("visible").toBool()) {
-        std::cerr << "text editing: Enter did not apply and close the dialog\n";
+        std::cerr << "text editing: Enter did not apply and close the editor\n";
         return false;
     }
     if (document_text(document, "lineText", 0) != original + QStringLiteral("zz")

@@ -771,7 +771,7 @@ pub mod qobject {
         #[cxx_name = "lineText"]
         fn line_text(self: &SongDocument, line: i32) -> QString;
 
-        /// The Edit line dialog's preview of a text as JSON: the syllable
+        /// The line text editor's preview of a text as JSON: the syllable
         /// chips, the count changes with their note picks, the count
         /// message, the refusal reason and whether Apply is possible.
         /// `picks` lists the picked line note per count change,
@@ -785,7 +785,7 @@ pub mod qobject {
             picks: QString,
         ) -> QString;
 
-        /// Apply a line text as one undo step (the Edit line dialog's
+        /// Apply a line text as one undo step (the line text editor's
         /// Apply); a refusal reports through editRefused.
         #[qinvokable]
         #[cxx_name = "applyLineText"]

@@ -1,7 +1,7 @@
 //! The line text controller (plan 8.3, UI_SPEC 3.6 and 5.4, task P6-02).
 //!
 //! About me: this module holds the editor side of the text editing. The
-//! Edit line dialog shows the current line in the line text syntax
+//! line text editor in the lyrics lane shows the current line in the line text syntax
 //! (`line_text`), previews every keystroke as syllable chips on the notes
 //! with their states, the count message of UI_SPEC 5.4 item 4 and the note
 //! picks of "Ask me per note" (`preview_line_text`, handed to QML as JSON by
@@ -57,7 +57,7 @@ pub struct ChangeChoice {
     pub chosen: usize,
 }
 
-/// The Edit line dialog's preview of a line text.
+/// The line text editor's preview of a line text.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LineTextPreview {
     pub chips: Vec<Chip>,
@@ -198,7 +198,7 @@ fn pick_options(change: &CountChange, notes: &[NoteRow]) -> Vec<PickOption> {
 
 impl EditorController {
     /// line_text returns the line's text in the line text syntax for the
-    /// Edit line dialog's field; `None` past the last line.
+    /// line text editor's field; `None` past the last line.
     pub fn line_text(&self, line: usize) -> Option<String> {
         let loaded = self.loaded()?;
         let notes = line_notes(&loaded.document, &self.line_data(line)?.notes).ok()?;

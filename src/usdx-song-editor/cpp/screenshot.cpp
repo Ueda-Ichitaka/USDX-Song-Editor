@@ -228,15 +228,14 @@ bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, con
     }
     QObject *const root = roots.first();
     QObject *const document = root->property("songDocument").value<QObject *>();
-    QObject *const dialog = root->findChild<QObject *>(QStringLiteral("lineTextDialog"));
-    if (document == nullptr || dialog == nullptr) {
+    QObject *const sheet = root->findChild<QObject *>(QStringLiteral("sheetArea"));
+    if (document == nullptr || sheet == nullptr) {
         return false;
     }
     if (!QMetaObject::invokeMethod(document, "goToLine", Q_ARG(int, line))) {
         return false;
     }
-    return QMetaObject::invokeMethod(dialog, "openFor", Q_ARG(QVariant, QVariant(line)),
-                                     Q_ARG(QVariant, QVariant(text)));
+    return QMetaObject::invokeMethod(sheet, "editLineText", Q_ARG(QVariant, QVariant(text)));
 }
 
 bool usdx_open_demo_repair_block(const QQmlApplicationEngine &engine, int first, int last) {

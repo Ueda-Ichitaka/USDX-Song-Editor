@@ -52,9 +52,9 @@ bool usdx_select_demo_note(const QQmlApplicationEngine &engine, int position);
 // mockup; false without a document or player.
 bool usdx_seek_demo_playhead(const QQmlApplicationEngine &engine, double fraction);
 
-// Makes the global line current and opens the Edit line dialog for it with
-// the given text (the line-text demo state, UI_SPEC 5.4); false without the
-// document or the dialog.
+// Makes the global line current and opens the line text editor in the
+// lyrics lane for it with the given text (the line-text demo state, UI_SPEC
+// 5.4); false without the document or the note sheet.
 bool usdx_open_demo_line_text(const QQmlApplicationEngine &engine, int line, const QString &text);
 
 // Pushes the repair page, switches the repair bridge to the block mode

@@ -548,6 +548,34 @@ fn overview_lines_reports_the_line_spans_and_health_verdicts() {
 }
 
 #[test]
+fn overview_lines_mark_the_lines_after_the_audio_end() {
+    // Three calm lines at 0, 750 and 1500 ms (BPM 240); the audio ends at
+    // 1400 ms, so the third line starts after it and races (task P7-10).
+    let calm = concat!(
+        "#TITLE:T\n#BPM:240\n",
+        ": 0 4 0 a \n: 4 4 2 b \n: 8 4 4 c \n- 12\n",
+        ": 12 4 0 d \n: 16 4 2 e \n: 20 4 4 f \n- 24\n",
+        ": 24 4 0 g \n: 28 4 2 h \n: 32 4 4 i \nE\n",
+    );
+    let (dir, path) = fixture(calm);
+    let doc = classify(
+        decode(&std::fs::read(&path).expect("the song is read")).expect("the song decodes"),
+    );
+    let song = Song::from_document(&doc);
+    let basis = HealthBasis {
+        audio_end_ms: Some(1400.0),
+        ..HealthBasis::plain()
+    };
+    let health: Vec<i32> = overview_lines(&doc, &song, 0, &basis)
+        .iter()
+        .map(|line| line.health)
+        .collect();
+    assert_eq!(health, vec![0, 0, 2]);
+    assert_eq!(racing_ranges(&doc, &song, 0, &basis), vec![(2, 2)]);
+    drop(dir);
+}
+
+#[test]
 fn overview_lines_is_empty_without_a_usable_timing_or_voice() {
     let (_dir, doc, song) = loaded();
     assert!(

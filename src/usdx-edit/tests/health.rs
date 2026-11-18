@@ -10,7 +10,9 @@
 //! (beat 0 at 1 s), so a note's audio time is `1000 + beat * 50` ms.
 
 use usdx_audio::Activity;
-use usdx_edit::health::{Health, HealthConfig, LineHealth, Signal, analyze, racing_sections};
+use usdx_edit::health::{
+    Health, HealthConfig, LineHealth, Signal, analyze, analyze_with_end, racing_sections,
+};
 use usdx_format::bytes::decode;
 use usdx_format::rows::{Document, classify};
 use usdx_format::song::Song;
@@ -61,6 +63,19 @@ fn activity_of(window_ms: f64, active: &[usize]) -> Activity {
 }
 
 #[test]
+fn the_defaults_are_the_tuned_values() {
+    // Task P7-10, user decision 2026-11-18: the neighbour factor races from
+    // 2.0, the coverage races only without any heard vocals.
+    let cfg = HealthConfig::default();
+    assert_eq!(
+        (cfg.rate_warn, cfg.rate_bad, cfg.neighbour_factor_warn),
+        (7.0, 10.0, 2.0)
+    );
+    assert_eq!((cfg.coverage_warn, cfg.coverage_bad), (0.40, 0.0));
+    assert_eq!(cfg.neighbourhood, 6);
+}
+
+#[test]
 fn calm_lines_report_their_rates_and_stay_ok() {
     // Each line: 2 notes over a 10-beat span (0.5 s), so 4.0/s; the
     // neighbour rates are equal, so the factor is 1.0 and no signal
@@ -95,12 +110,23 @@ fn the_rate_signals_warn_and_race() {
     assert!((health[0].neighbour_factor - 1.0).abs() < 1e-9);
     assert_eq!(health[1].health, Health::Racing);
 
+    // An 8/s line next to a 4/s line: suspicious by rate, and its factor
+    // 2.0 reaches the tuned 2.0 bound (task P7-10), so it races by the
+    // factor.
     let medium = song_text(&[&[(0, 2), (3, 2)], &[(12, 4), (18, 4)]]);
     let health = health_of(&medium, &HealthConfig::default());
-    assert_eq!(health[0].health, Health::Suspicious);
-    assert_eq!(health[0].reason, "rate 8.0/s");
+    assert_eq!(health[0].health, Health::Racing);
+    assert_eq!(health[0].reason, "neighbour factor 2.0");
     assert!((health[0].neighbour_factor - 2.0).abs() < 1e-9);
     assert_eq!(health[1].health, Health::Ok);
+    // Under the bound the rate alone makes it suspicious.
+    let lenient = HealthConfig {
+        neighbour_factor_warn: 2.5,
+        ..HealthConfig::default()
+    };
+    let health = health_of(&medium, &lenient);
+    assert_eq!(health[0].health, Health::Suspicious);
+    assert_eq!(health[0].reason, "rate 8.0/s");
 }
 
 #[test]
@@ -198,6 +224,32 @@ fn several_racing_signals_are_named_together() {
         health[0].signals,
         vec![Signal::Rate, Signal::NeighbourFactor]
     );
+}
+
+#[test]
+fn a_line_that_starts_after_the_audio_end_races() {
+    // Three calm lines at beats 0, 24 and 48 (audio ms 1000, 2200 and
+    // 3400); the audio ends at 3000 ms: the third line starts after it
+    // (lyrics past the song end, task P7-10, user decision 2026-11-18).
+    let text = song_text(&[&[(0, 4), (6, 4)], &[(24, 4), (30, 4)], &[(48, 4), (54, 4)]]);
+    let (doc, song) = loaded(&text);
+    let cfg = HealthConfig::default();
+    let health = analyze_with_end(&doc, &song, 0, None, Some(3000.0), &cfg);
+    assert_eq!(health[2].health, Health::Racing);
+    assert_eq!(health[2].signals.first(), Some(&Signal::PastEnd));
+    assert_eq!(health[2].reason, "past the audio end");
+    assert_eq!(health[0].health, Health::Ok);
+    // A line that starts before the end and runs past it stays: only its
+    // start counts. The second line starts at 2200 ms and ends at 2700 ms.
+    let health = analyze_with_end(&doc, &song, 0, None, Some(2300.0), &cfg);
+    assert_eq!(health[1].health, Health::Ok);
+    assert_eq!(health[2].signals.first(), Some(&Signal::PastEnd));
+    // Without the audio end the check is off; analyze is the same as no end.
+    assert_eq!(
+        analyze_with_end(&doc, &song, 0, None, None, &cfg),
+        analyze(&doc, &song, 0, None, &cfg)
+    );
+    assert_eq!(analyze(&doc, &song, 0, None, &cfg)[2].health, Health::Ok);
 }
 
 #[test]

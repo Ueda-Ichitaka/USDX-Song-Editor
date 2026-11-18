@@ -1,0 +1,76 @@
+# About me: the user's labels of known good and known bad songs (2026-11-18) for the
+# health threshold tuning of task P7-10 (gate G-06), read by tests/health_corpus.rs.
+# Columns: label (good / bad), note, the song file relative to the Factory's stack/output.
+good		new/Faun - Belladonna/song.txt
+good		new/Pol1z1stens0hn - Ich hab Polizei/Pol1z1stens0hn - Ich hab Polizei.txt
+good		new/Pol1z1stens0hn - Bürgermeister/Pol1z1stens0hn - Bürgermeister.txt
+good		new/RotFront - Sovietoblaster/RotFront - Sovietoblaster.txt
+good		new/AsapSCIENCE - The Periodic Table Song/song.txt
+good	minor bugs	new/AsapSCIENCE - Science Wars Acapella Parody/AsapSCIENCE - Science Wars Acapella Parody.txt
+good		new/BoyInABand - Scale of the Universe/BoyInABand - Scale of the Universe.txt
+good		new/Equilibrium - Wirtshaus Gaudi/Equilibrium - Wirtshaus Gaudi.txt
+good	okayish	new/Equilibrium - Blut Im Auge/Equilibrium - Blut Im Auge.txt
+good		new/Ensiferum - One More Magic Potion/Ensiferum - One More Magic Potion.txt
+good		new/Ensiferum - LAI LAI HEI/Ensiferum - LAI LAI HEI.txt
+good		new/ASP - Betteljunge/ASP - Betteljunge.txt
+good		new/ASP - Denn Ich bin der Meister/ASP - Denn Ich bin der Meister.txt
+good		new/ASP - Der Schnitter Tod/ASP - Der Schnitter Tod.txt
+good		new/ASP - Die Teufelsmühle/ASP - Die Teufelsmühle.txt
+good		new/ASP - Duett (Minnelied der Incubi)/ASP - Duett (Minnelied der Incubi).txt
+good		new/ASP - Geh und heb dein Grab aus mein Freund/ASP - Geh und heb dein Grab aus mein Freund.txt
+good		new/ASP - Spottlied auf die harten Wandersjahre/ASP - Spottlied auf die harten Wandersjahre.txt
+good		new/ASP - Zaubererbruder/ASP - Zaubererbruder.txt
+good		new/Aequitas - A Leap into the Dark/Aequitas - A Leap into the Dark.txt
+good		new/Black Messiah - Wildsau/Black Messiah - Wildsau.txt
+good		new/Black Messiah - Söldnerschwein/Black Messiah - Söldnerschwein.txt
+good		new/Bonaparte - Computer in Love/Bonaparte - Computer in Love.txt
+good		new/Grausame Töchter - Die ganze Welt ist ein Zirkus/Grausame Töchter - Die ganze Welt ist ein Zirkus.txt
+bad		new/Grausame Töchter - Wie eine Spinne/Grausame Töchter - Wie eine Spinne.txt
+bad		new/Cultus Ferox - Götterdämmerung/Cultus Ferox - Götterdämmerung.txt
+bad	racing from 1:06	new/Feuerschwanz - Schubsetanz Black Metal Edition/Feuerschwanz - Schubsetanz Black Metal Edition.txt
+bad		new/Grausame Töchter - Annika nimmt Drogen/Grausame Töchter - Annika nimmt Drogen.txt
+bad		new/Grausame Töchter - Ich darf das!/Grausame Töchter - Ich darf das!.txt
+bad		new/ASP - Verwandlungen/ASP - Verwandlungen.txt
+bad		new/Lord of the Lost - Utopya/Lord of the Lost - Utopya.txt
+bad		new/Lord of the Lost - Blood for Blood/Lord of the Lost - Blood for Blood.txt
+bad		new/Russkaja - Energia/Russkaja - Energia.txt
+bad		new/Russkaja - Psycho Traktor/Russkaja - Psycho Traktor.txt
+bad		new/Sabaton - Attack of the Dead Men/Sabaton - Attack of the Dead Men.txt
+bad		new/Sabaton - Poltava (Swedish)/Sabaton - Poltava (Swedish).txt
+bad		new/Therion - Summernight City/Therion - Summernight City.txt
+bad		new/Korpiklaani - Rauta/Korpiklaani - Rauta.txt
+bad		new/Korpiklaani - Sahti/Korpiklaani - Sahti.txt
+bad		new/Lil Mariko - Catboys/Lil Mariko - Catboys.txt
+bad		repaired/gap/Boney M. - Kalimba de luna/Boney M. - Kalimba de luna.txt
+bad		repaired/gap/Aimer - Zankyou Sanka (TV)/Aimer - Zankyou Sanka (TV).txt
+bad		repaired/gap/AKB48 - Seifuku ga jama wo suru/AKB48 - Seifuku ga jama wo suru.txt
+bad		repaired/gap/Babymetal - Maya/Babymetal - Maya.txt
+bad		repaired/gap/Babymetal - No Rain, No Rainbow/Babymetal - No Rain, No Rainbow.txt
+bad		repaired/gap/Boney M. - Brown Girl In The Ring/Boney M. - Brown Girl In The Ring.txt
+bad		repaired/gap/Boney M. - Gotta Go Home/Boney M. - Gotta Go Home.txt
+bad	duet	repaired/gap/Boney M. - Ma Baker/Boney M. - Ma Baker [DUET].txt
+bad	1977	repaired/gap/Boney M. - Ma Baker/Boney M. - Ma Baker.txt
+bad	1994	repaired/recreated/Boney M. - Ma Baker (ZDF Disco)/Boney M. - Ma Baker.txt
+bad		repaired/recreated/Boney M. - Sunny/Boney M. - Sunny.txt
+bad		repaired/recreated/Bon Jovi - Living On A Prayer/Bon Jovi - Living on a Prayer.txt
+bad		repaired/gap/Britney Spears - My Prerogative (Album Version)/Britney Spears - My Prerogative (Album Version).txt
+bad	duet	repaired/gap/Disney’s Der König der Löwen - Hakuna Matata/Disney’s Der König der Löwen - Hakuna Matata [DUET].txt
+bad		repaired/gap/Disney’s Mulan - Spiegelbild/Disney’s Mulan - Spiegelbild.txt
+bad		repaired/gap/Disney’s Pocahontas - Das Farbenspiel des Winds/Disney’s Pocahontas - Das Farbenspiel des Winds.txt
+bad		repaired/recreated/Disney’s The Lion King 2 - He Lives In You/Disney’s The Lion King 2 - He Lives in You.txt
+bad	lyrics past song end	repaired/gap/Faun - Mit dem Wind/Faun - Mit dem Wind.txt
+bad		repaired/gap/Ghost - Body And Blood/BodyAndBlood-1556.txt
+bad		repaired/gap/Kyary Pamyu Pamyu - Fashion Monster/Kyary Pamyu Pamyu - Fashion Monster.txt
+bad	lyrics past song end	repaired/gap/Lady Gaga - Poker Face/PokerFace-2392.txt
+bad	lyrics past song end	repaired/gap/Manowar - Warriors Of The World United/Manowar - Warriors Of The World United.txt
+bad	lyrics past song end	repaired/gap/Michael Jackson - Human Nature/HumanNature-1697.txt
+bad	duet	repaired/gap/Morat & Álvaro Soler - Yo contigo, tú conmigo/Morat & Álvaro Soler - Yo contigo, tú conmigo [DUET].txt
+bad		repaired/gap/Naruto - Kanashimi wo Yasashisa ni/Naruto - Kanashimi wo Yasashisa ni.txt
+bad		repaired/gap/One Piece - Hands Up! (TV)/One Piece - Hands Up! (TV).txt
+bad	duet	repaired/gap/Paul McCartney & Michael Jackson - Say Say Say/Paul McCartney & Michael Jackson - Say Say Say [DUET].txt
+bad		repaired/gap/Rascal Flatts - Bless The Broken Road (Acoustic)/Rascal Flatts - Bless The Broken Road (Acoustic).txt
+bad		repaired/gap/Subway to Sally - Veitstanz/Subway to Sally - Veitstanz.txt
+bad		repaired/gap/Taylor Swift feat. Colbie Caillat - Breathe/Taylor Swift feat. Colbie Caillat - Breathe.txt
+bad		repaired/gap/TWICE - Feel Special/TWICE - Feel Special.txt
+bad		repaired/gap/Versailles - Serenade/Versailles - Serenade.txt
+bad		repaired/gap/Wise Guys - Deutsche Bahn (a cappella)/Wise Guys - Deutsche Bahn (a cappella).txt

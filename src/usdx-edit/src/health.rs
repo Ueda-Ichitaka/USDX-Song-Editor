@@ -9,7 +9,10 @@
 //! line's note time where the passed `usdx-audio` `Activity` is active;
 //! `None` without an activity, which the caller passes when the song has
 //! no `#VOCALS` track). The worst signal decides the health and the
-//! reason names the signals at that level. `racing_sections` merges
+//! reason names the signals at that level. `analyze_with_end` also takes
+//! the end of the song's audio: a line whose first note starts after it
+//! races with the reason "past the audio end" alone (lyrics past the song
+//! end, task P7-10, user decision 2026-11-18); `analyze` has no audio end. `racing_sections` merges
 //! neighbouring Racing lines into the line ranges a repair would touch.
 //! The analysis only reads: a relative song is analyzed like an absolute
 //! one, and a song without a usable tempo or an unknown voice analyzes
@@ -22,8 +25,7 @@ use usdx_format::rows::Document;
 use usdx_format::song::Song;
 use usdx_format::timing::Timing;
 
-/// HealthConfig holds the health thresholds. The defaults are the plan's
-/// first guesses.
+/// HealthConfig holds the health thresholds.
 #[derive(Clone, Copy, Debug)]
 pub struct HealthConfig {
     /// The syllable rate in notes per second where a line becomes
@@ -42,13 +44,16 @@ pub struct HealthConfig {
 }
 
 impl Default for HealthConfig {
+    /// default holds the values tuned against the user's labelled songs
+    /// (task P7-10, user decision 2026-11-18): the neighbour factor races
+    /// from 2.0, the coverage races only when no vocals are heard at all.
     fn default() -> Self {
         HealthConfig {
             rate_warn: 7.0,
             rate_bad: 10.0,
-            neighbour_factor_warn: 2.5,
+            neighbour_factor_warn: 2.0,
             coverage_warn: 0.40,
-            coverage_bad: 0.20,
+            coverage_bad: 0.0,
             neighbourhood: 6,
         }
     }
@@ -71,12 +76,15 @@ pub enum Signal {
     NeighbourFactor,
     /// The share of the note time with active vocals.
     Coverage,
+    /// The line starts after the end of the song's audio.
+    PastEnd,
 }
 
 /// LineHealth is one line's report: its index in the voice, its verdict,
 /// the raw signals, the reason naming the signals at the verdict's level
 /// and those signals themselves (in the order rate, neighbour factor,
-/// coverage; empty for a calm line).
+/// coverage; only `PastEnd` for a line after the audio end; empty for a
+/// calm line).
 #[derive(Clone, Debug, PartialEq)]
 pub struct LineHealth {
     pub line: usize,
@@ -200,6 +208,20 @@ pub fn analyze(
     activity: Option<&Activity>,
     cfg: &HealthConfig,
 ) -> Vec<LineHealth> {
+    analyze_with_end(doc, song, voice, activity, None, cfg)
+}
+
+/// analyze_with_end is `analyze` with the end of the song's audio in
+/// milliseconds: a line whose first note starts after `audio_end_ms`
+/// races by `Signal::PastEnd` alone. `None` turns the check off.
+pub fn analyze_with_end(
+    doc: &Document,
+    song: &Song,
+    voice: u8,
+    activity: Option<&Activity>,
+    audio_end_ms: Option<f64>,
+    cfg: &HealthConfig,
+) -> Vec<LineHealth> {
     let Some(timing) = song.timing else {
         return Vec::new();
     };
@@ -244,6 +266,21 @@ pub fn analyze(
                 false,
             );
             let coverage = coverage_of(&timing, notes, activity);
+            let past_end = match (audio_end_ms, notes.first()) {
+                (Some(end), Some(&(first, _))) => timing.beat_to_ms(first) > end,
+                _ => false,
+            };
+            if past_end {
+                return LineHealth {
+                    line: index,
+                    health: Health::Racing,
+                    syllables_per_s: rates[index],
+                    neighbour_factor: factor,
+                    vocal_coverage: coverage,
+                    reason: "past the audio end".to_owned(),
+                    signals: vec![Signal::PastEnd],
+                };
+            }
             let coverage_signal = coverage
                 .map(|value| severity_of(value, cfg.coverage_warn, cfg.coverage_bad, true))
                 .unwrap_or(Health::Ok);

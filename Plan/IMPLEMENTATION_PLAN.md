@@ -674,14 +674,18 @@ pub enum Health { Ok, Suspicious, Racing }
 pub struct LineHealth { pub line: usize, pub health: Health, pub syllables_per_s: f64,
                         pub neighbour_factor: f64, pub vocal_coverage: Option<f64>, pub reason: String }
 pub fn analyze(doc, song, voice, activity: Option<&Activity>, cfg: &HealthConfig) -> Vec<LineHealth>;
+pub fn analyze_with_end(doc, song, voice, activity, audio_end_ms: Option<f64>, cfg) -> Vec<LineHealth>;
 pub fn racing_sections(health: &[LineHealth]) -> Vec<Range<usize>>;   // neighbouring Racing lines merged
 ```
 
-Defaults (first guesses, tuned in task R-10 and stored in the settings): `rate_warn = 7.0`,
-`rate_bad = 10.0` notes per second; `neighbour_factor_warn = 2.5` against the median of the
-`neighbourhood = 6` surrounding lines; `coverage_warn = 0.40`, `coverage_bad = 0.20` (share of
-note time where the vocals track is active). The worst signal decides; the reason names it.
-Without a `#VOCALS` track, the coverage signal is `None`.
+Defaults (tuned in task P7-10 against the user's labelled songs, 2026-11-18, and stored in the
+settings): `rate_warn = 7.0`, `rate_bad = 10.0` notes per second; `neighbour_factor_warn = 2.0`
+against the median of the `neighbourhood = 6` surrounding lines; `coverage_warn = 0.40`,
+`coverage_bad = 0.0` (share of note time where the vocals track is active; racing only without
+any heard vocals). The worst signal decides; the reason names it. Without a `#VOCALS` track,
+the coverage signal is `None`. `analyze_with_end` adds the past-end check: a line whose first
+note starts after the song's audio ends (`usdx_audio::duration_ms` of `#AUDIO`, else `#MP3`,
+probed when the song opens) races with the reason "past the audio end" alone.
 
 ### 6.11 anchors.txt export (`anchors_export.rs`, `changes.rs`)
 

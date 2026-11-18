@@ -1,6 +1,6 @@
 # About me: manifest of the usdx-audio library crate. It holds the GStreamer playback
-# engine (playbin3 player with rate and range control) and the waveform/vocal-activity
-# analysis with its cache, independent of Qt.
+# engine (playbin3 player with rate and range control), the waveform/vocal-activity
+# analysis with its cache and the audio length probe, independent of Qt.
 
 [package]
 name = "usdx-audio"
@@ -11,10 +11,11 @@ license.workspace = true
 
 # The GStreamer dependency is used by the player (P4-02) and the test media
 # helper (a cfg(test) module); gstreamer-app joins in P4-03 for the analysis
-# appsink.
+# appsink; gstreamer-pbutils holds the Discoverer of the length probe (P7-10).
 [dependencies]
 gstreamer = "0.25.4"
 gstreamer-app = "0.25.2"
+gstreamer-pbutils = "0.25.4"
 thiserror = "2.0.21"
 dirs = "7.0.0"
 

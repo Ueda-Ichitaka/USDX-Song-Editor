@@ -1993,7 +1993,7 @@ bool usdx_block_drag_check(const QQmlApplicationEngine &engine) {
     pump_events(300);
     const double bpm = document->property("bpm").toDouble();
     const double gap = document->property("gapMs").toDouble();
-    const double pxPerBeat = bg->property("pxPerBeat").toDouble();
+    double pxPerBeat = bg->property("pxPerBeat").toDouble();
     if (bpm <= 0.0 || pxPerBeat <= 0.0) {
         std::cerr << "block band: the song timing or the sheet zoom is unknown\n";
         return false;
@@ -2037,12 +2037,21 @@ bool usdx_block_drag_check(const QQmlApplicationEngine &engine) {
         std::cerr << "block band: skipped (a band edge lies off screen)\n";
         return true;
     }
+    // New times outside the view refit it, so the zoom is read again.
+    pxPerBeat = bg->property("pxPerBeat").toDouble();
 
     // The body drag moves both times by one snapped beat; the length
-    // keeps.
+    // keeps. The view stays where it is: the band moves, not the sheet.
     const double bodyStart = repair->property("blockNewStartMs").toDouble();
     const double bodyEnd = repair->property("blockNewEndMs").toDouble();
+    const double viewStart = bg->property("startBeat").toDouble();
     drag(bodyDrag, pxPerBeat * 1.4, Qt::NoModifier);
+    if (std::abs(bg->property("startBeat").toDouble() - viewStart) > 1e-6
+        || std::abs(bg->property("pxPerBeat").toDouble() - pxPerBeat) > 1e-6) {
+        std::cerr << "block band: the view moved after a drag inside it (start beat "
+                  << viewStart << " -> " << bg->property("startBeat").toDouble() << ")\n";
+        return false;
+    }
     const double bodyStartAfter = repair->property("blockNewStartMs").toDouble();
     const double bodyEndAfter = repair->property("blockNewEndMs").toDouble();
     if (std::abs((bodyStartAfter - bodyStart) / msPerBeat - 1.0) > 0.02

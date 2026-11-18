@@ -429,16 +429,33 @@ pub struct OverviewLine {
     pub health: i32,
 }
 
-/// overview_lines analyzes the voice's lines for the overview strip and
-/// the racing warning. The analysis runs without the vocal activity for
-/// now, so the coverage signal stays neutral and the rate and the
-/// neighbour factor decide.
 /// HealthBasis holds what the repair page's health analysis shares with the
-/// lines pane (task P7-09): the settings' thresholds and the #VOCALS track's
-/// vocal activity from the analysis cache, when there is one.
+/// lines pane (task P7-09): the settings' thresholds, the #VOCALS track's
+/// vocal activity from the analysis cache, when there is one, and the
+/// length of the song's audio, when known (task P7-10).
 pub struct HealthBasis<'a> {
     pub cfg: HealthConfig,
     pub activity: Option<&'a usdx_audio::Activity>,
+    pub audio_end_ms: Option<f64>,
+}
+
+impl HealthBasis<'_> {
+    /// analyze runs the health analysis of one voice on this basis.
+    pub fn analyze(
+        &self,
+        doc: &Document,
+        song: &Song,
+        voice: u8,
+    ) -> Vec<usdx_edit::health::LineHealth> {
+        usdx_edit::health::analyze_with_end(
+            doc,
+            song,
+            voice,
+            self.activity,
+            self.audio_end_ms,
+            &self.cfg,
+        )
+    }
 }
 
 impl HealthBasis<'static> {
@@ -448,17 +465,20 @@ impl HealthBasis<'static> {
         HealthBasis {
             cfg: HealthConfig::default(),
             activity: None,
+            audio_end_ms: None,
         }
     }
 }
 
+/// overview_lines analyzes the voice's lines for the overview strip and
+/// the racing warning with the basis's thresholds, activity and audio end.
 pub fn overview_lines(
     doc: &Document,
     song: &Song,
     voice: u8,
     basis: &HealthBasis,
 ) -> Vec<OverviewLine> {
-    let healths = usdx_edit::health::analyze(doc, song, voice, basis.activity, &basis.cfg);
+    let healths = basis.analyze(doc, song, voice);
     healths
         .iter()
         .map(|report| {
@@ -502,7 +522,7 @@ pub fn racing_ranges(
     voice: u8,
     basis: &HealthBasis,
 ) -> Vec<(usize, usize)> {
-    let healths = usdx_edit::health::analyze(doc, song, voice, basis.activity, &basis.cfg);
+    let healths = basis.analyze(doc, song, voice);
     usdx_edit::health::racing_sections(&healths)
         .into_iter()
         .map(|range| (range.start, range.end - 1))
@@ -623,6 +643,7 @@ fn health_basis(rust: &SongDocumentRust) -> HealthBasis<'_> {
     HealthBasis {
         cfg: crate::controller::line_health::health_config(&rust.editor_settings().health),
         activity: rust.vocal_activity.as_ref(),
+        audio_end_ms: rust.audio_end_ms,
     }
 }
 
@@ -658,7 +679,7 @@ pub fn repair_section(
         factor: 0.0,
         coverage: None,
     };
-    let reports = usdx_edit::health::analyze(doc, song, voice, basis.activity, &basis.cfg);
+    let reports = basis.analyze(doc, song, voice);
     let Some(report) = reports.iter().find(|report| report.line == line) else {
         return none;
     };

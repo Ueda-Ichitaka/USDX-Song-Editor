@@ -7,7 +7,9 @@
 //! controllers read one tested source of defaults: a missing or broken
 //! settings file loads the defaults with a log warning, changes are written
 //! back at once, and restoring the defaults keeps the recent songs and the
-//! window size (UI_SPEC 4.10).
+//! window size (UI_SPEC 4.10). The health thresholds' defaults are the values
+//! tuned in task P7-10; a stored set equal to the untuned defaults loads as
+//! the tuned ones.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -62,16 +64,32 @@ pub struct HealthThresholds {
 }
 
 impl Default for HealthThresholds {
+    /// default holds the values tuned against the user's labelled songs
+    /// (task P7-10, user decision 2026-11-18).
     fn default() -> Self {
         HealthThresholds {
             rate_warn: 7.0,
             rate_bad: 10.0,
-            neighbour_factor_warn: 2.5,
+            neighbour_factor_warn: 2.0,
             neighbourhood: 6,
             coverage_warn: 0.40,
-            coverage_bad: 0.20,
+            coverage_bad: 0.0,
         }
     }
+}
+
+impl HealthThresholds {
+    /// The defaults before the tuning (plan 6.10's first guesses). Every
+    /// save writes the full settings, so a file from before the tuning
+    /// holds exactly these; they load as the tuned defaults.
+    const UNTUNED: HealthThresholds = HealthThresholds {
+        rate_warn: 7.0,
+        rate_bad: 10.0,
+        neighbour_factor_warn: 2.5,
+        neighbourhood: 6,
+        coverage_warn: 0.40,
+        coverage_bad: 0.20,
+    };
 }
 
 /// The audio analysis thresholds. The first entry is the level in dB above
@@ -151,7 +169,12 @@ impl Settings {
             }
         };
         match Self::from_toml(&String::from_utf8_lossy(&bytes)) {
-            Ok(settings) => settings,
+            Ok(mut settings) => {
+                if settings.health == HealthThresholds::UNTUNED {
+                    settings.health = HealthThresholds::default();
+                }
+                settings
+            }
             Err(error) => {
                 log::warn!(
                     "The settings file at {} is broken ({error}); using the defaults.",

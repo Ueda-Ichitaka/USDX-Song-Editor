@@ -418,7 +418,8 @@ remembered in the settings.
   `highlightedTextColor` for all its text. A racing line has a 3 px bar in
   `negativeTextColor` on its left edge (repair screens and editor alike).
 - Tooltip on the health dot: the health reason ("Racing: 11.9 syllables per second",
-  "Suspicious: vocals heard during 34 % of the note time", "Timing looks plausible").
+  "Racing: 3.2 times faster than the lines around it", "Suspicious: vocals heard during
+  34 % of the note time", "Racing: starts after the audio ends", "Timing looks plausible").
 
 **Editor column**:
 

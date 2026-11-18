@@ -56,10 +56,13 @@ fn the_defaults_match_the_ui_spec() {
         HealthThresholds {
             rate_warn: 7.0,
             rate_bad: 10.0,
-            neighbour_factor_warn: 2.5,
+            // The tuned values (task P7-10, user decision 2026-11-18): the
+            // neighbour factor races from 2.0, the coverage races only when
+            // no vocals are heard at all.
+            neighbour_factor_warn: 2.0,
             neighbourhood: 6,
             coverage_warn: 0.40,
-            coverage_bad: 0.20,
+            coverage_bad: 0.0,
         }
     );
     assert_eq!(settings.analysis.activity_floor_db, 12.0);
@@ -67,6 +70,35 @@ fn the_defaults_match_the_ui_spec() {
         settings.window_size, None,
         "the window size is unset until saved"
     );
+}
+
+#[test]
+fn stored_old_default_thresholds_load_as_the_tuned_ones() {
+    // Every save writes the full settings, so a file from before the tuning
+    // holds the old defaults; they load as the tuned defaults, while
+    // thresholds the user set stay.
+    let dir = tempfile::tempdir().expect("the temporary directory is created");
+    let path = dir.path().join("settings.toml");
+    let old = Settings {
+        health: HealthThresholds {
+            rate_warn: 7.0,
+            rate_bad: 10.0,
+            neighbour_factor_warn: 2.5,
+            neighbourhood: 6,
+            coverage_warn: 0.40,
+            coverage_bad: 0.20,
+        },
+        latency_ms: 50,
+        ..Settings::default()
+    };
+    old.save(&path).expect("the settings are written");
+    let loaded = Settings::load(&path);
+    assert_eq!(loaded.health, HealthThresholds::default());
+    assert_eq!(loaded.latency_ms, 50, "the other fields stay");
+
+    let custom = non_default();
+    custom.save(&path).expect("the settings are written");
+    assert_eq!(Settings::load(&path).health, custom.health);
 }
 
 #[test]

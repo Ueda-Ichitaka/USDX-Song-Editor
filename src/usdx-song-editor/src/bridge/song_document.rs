@@ -1780,6 +1780,10 @@ pub struct SongDocumentRust {
     /// cache, the line health's coverage signal (task P7-09); none until
     /// the sheet's analysis wrote the cache.
     pub(crate) vocal_activity: Option<usdx_audio::Activity>,
+    /// The length of the song's audio (#AUDIO, else #MP3), probed when the
+    /// song opens; the line health's past-end check (task P7-10, user
+    /// decision 2026-11-18). None without a readable audio file.
+    pub(crate) audio_end_ms: Option<f64>,
     /// The repair page's pending state (task P7-08); the Repair and
     /// TapSession QObjects mirror it.
     pub(crate) repair: RepairController,
@@ -1869,11 +1873,12 @@ impl Default for SongDocumentRust {
         let settings = load_settings();
         let controller = EditorController::default();
         let saves = SaveService::new();
-        let snapshot = build_snapshot(&controller, &settings, None);
+        let snapshot = build_snapshot(&controller, &settings, None, None);
         let [width, height] = settings.window_size.unwrap_or([1280, 800]);
         SongDocumentRust {
             controller,
             vocal_activity: None,
+            audio_end_ms: None,
             repair: RepairController::new(),
             saves,
             settings,
@@ -1998,6 +2003,7 @@ impl qobject::LinesModel {
                     &rust.controller,
                     &rust.settings,
                     rust.vocal_activity.as_ref(),
+                    rust.audio_end_ms,
                 );
                 let rows = if search.is_empty() {
                     all
@@ -3149,6 +3155,7 @@ impl qobject::SongDocument {
                     persist_settings(&rust.settings);
                     rust.recents_stale = true;
                     rust.vocal_activity = cached_vocal_activity(&rust.controller);
+                    rust.audio_end_ms = probed_audio_end(&rust.controller);
                 }
                 self.as_mut().refresh();
                 self.as_mut().song_loaded();
@@ -3258,6 +3265,7 @@ impl qobject::SongDocument {
             &self.controller,
             &self.settings,
             self.vocal_activity.as_ref(),
+            self.audio_end_ms,
         );
         self.as_mut().set_file_path(snapshot.file_path);
         self.as_mut().set_title(snapshot.title);
@@ -3478,6 +3486,7 @@ fn build_snapshot(
     controller: &EditorController,
     settings: &Settings,
     activity: Option<&usdx_audio::Activity>,
+    audio_end_ms: Option<f64>,
 ) -> Snapshot {
     let enablement = shell::enablement(controller);
     let audio = shell::audio_state(controller);
@@ -3540,7 +3549,7 @@ fn build_snapshot(
         .map(|index| index as i32)
         .unwrap_or(-1);
     snapshot.voice_count = controller.voice_count() as i32;
-    if let Some(current) = line_rows(controller, settings, activity)
+    if let Some(current) = line_rows(controller, settings, activity, audio_end_ms)
         .into_iter()
         .find(|row| row.is_current)
     {
@@ -3565,6 +3574,7 @@ fn line_rows(
     controller: &EditorController,
     settings: &Settings,
     activity: Option<&usdx_audio::Activity>,
+    audio_end_ms: Option<f64>,
 ) -> Vec<LineRow> {
     let Some(loaded) = controller.loaded() else {
         return Vec::new();
@@ -3575,6 +3585,7 @@ fn line_rows(
         &loaded.song,
         &health_config(&settings.health),
         activity,
+        audio_end_ms,
     );
     let doc = &loaded.document;
     let song = &loaded.song;
@@ -3689,6 +3700,20 @@ impl SongDocumentRust {
 fn cached_vocal_activity(controller: &EditorController) -> Option<usdx_audio::Activity> {
     let path = shell::track_path(controller, shell::TrackKind::Vocals)?;
     usdx_audio::cache::cached_activity(&path, 10.0)
+}
+
+/// probed_audio_end reads the length of the song's main audio (#AUDIO,
+/// else #MP3) without playing it; None without the file or a readable
+/// length.
+fn probed_audio_end(controller: &EditorController) -> Option<f64> {
+    let path = shell::track_path(controller, shell::TrackKind::Mix)?;
+    match usdx_audio::duration_ms(&path) {
+        Ok(ms) => Some(ms),
+        Err(error) => {
+            log::warn!("The length of {} is unknown: {error}", path.display());
+            None
+        }
+    }
 }
 
 /// persist_settings writes the settings file; a failure is logged, the

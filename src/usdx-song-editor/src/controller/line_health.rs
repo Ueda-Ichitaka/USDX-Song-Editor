@@ -6,12 +6,14 @@
 //! 2 racing) and the tooltip reason of UI_SPEC 4.3 named after the first
 //! deciding signal ("Racing: 11.9 syllables per second", "Racing: 3.2 times
 //! faster than the lines around it", "Suspicious: vocals heard during 34 %
-//! of the note time"), or "Timing looks plausible" for a calm line. The
-//! thresholds come from the settings; the vocal activity of the #VOCALS
-//! track, when the analysis cache has it, feeds the coverage signal.
+//! of the note time", "Racing: starts after the audio ends"), or "Timing
+//! looks plausible" for a calm line. The thresholds come from the settings;
+//! the vocal activity of the #VOCALS track, when the analysis cache has it,
+//! feeds the coverage signal, and the song's audio length, when known, the
+//! past-end check (task P7-10).
 
 use usdx_audio::Activity;
-use usdx_edit::health::{Health, HealthConfig, LineHealth, Signal, analyze};
+use usdx_edit::health::{Health, HealthConfig, LineHealth, Signal, analyze_with_end};
 use usdx_format::rows::Document;
 use usdx_format::song::Song;
 
@@ -59,6 +61,7 @@ fn mark_of(line: &LineHealth) -> LineMark {
             "vocals heard during {} % of the note time",
             (line.vocal_coverage.unwrap_or(0.0) * 100.0).round()
         ),
+        Some(Signal::PastEnd) => String::from("starts after the audio ends"),
     };
     LineMark {
         health,
@@ -67,17 +70,19 @@ fn mark_of(line: &LineHealth) -> LineMark {
 }
 
 /// line_marks analyses every voice and returns one mark per line in the
-/// lines pane's global order (the voices one after another).
+/// lines pane's global order (the voices one after another); `audio_end_ms`
+/// is the length of the song's audio, `None` while unknown.
 pub fn line_marks(
     doc: &Document,
     song: &Song,
     cfg: &HealthConfig,
     activity: Option<&Activity>,
+    audio_end_ms: Option<f64>,
 ) -> Vec<LineMark> {
     (0..song.voices.len())
         .flat_map(|voice| {
             let voice = u8::try_from(voice).unwrap_or(u8::MAX);
-            let healths = analyze(doc, song, voice, activity, cfg);
+            let healths = analyze_with_end(doc, song, voice, activity, audio_end_ms, cfg);
             healths.iter().map(mark_of).collect::<Vec<_>>()
         })
         .collect()

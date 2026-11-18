@@ -23,11 +23,13 @@ songs only as copies; never write to the user's files.
 
 ## 2. State
 
-- Phases 0-6 done; rounds R-02 to R-05 done; phase 7: P7-01 to P7-07 and P7-09 done, P7-08
-  (repair UI) functionally complete with all five demo states and the UI acceptance in
-  PROGRESS (marked done once the full corpus sweep below passes), P7-10 waiting at gate
-  G-06 (the report step is done, the numbers are in PROGRESS).
-- Last full `scripts/dev.sh check`: green, 786 passed, 0 failed, 6 ignored (2026-11-17).
+- Phases 0-7 done; rounds R-02 to R-05 done. P7-10 (2026-11-18): tuned health defaults
+  (factor 2.0, coverage racing off), the past-end check with the audio length probed at
+  open (`usdx_audio::duration_ms`, new dependency gstreamer-pbutils), the user's labels in
+  `src/usdx-edit/tests/health_labels.tsv` with an opt-in report (PROGRESS P7-10).
+- Last full `scripts/dev.sh check`: green, 795 passed, 0 failed, 8 ignored (2026-11-18).
+- Last full corpus sweep: 133 of 136, the 3 failures fixed and re-run with 10 more songs
+  (PROGRESS P7-08).
 - `cargo` is not on the shell PATH: use `~/.cargo/bin/cargo fmt --all`; everything else runs
   through `scripts/dev.sh check | test <crate> [--test name] | build | corpus`.
 - Corpus self-test sweep: copies of the 136 corpus songs (songs only, no audio) in
@@ -50,10 +52,8 @@ tests, PROGRESS and this file.
 
 ## 3. Open items, in order
 
-- **Full corpus sweep** over this session's changes (started 2026-11-17; result to go into
-  PROGRESS row P7-08, then mark P7-08 done).
-- **P7-10** threshold tuning with the user (gate G-06): the user names known broken and
-  known good songs; adjust `HealthThresholds::default()` and record the numbers.
+- Bad songs the health analysis cannot see yet (user, 2026-11-18): lines offset in time and
+  missing or merged lines; no signal exists for them (a possible later task, not planned).
 - **P8-01 to P8-05** upgrade planner, properties page, settings page, packaging, docs.
 
 User decisions that bind the repair UI: the controllers are standalone structs taking

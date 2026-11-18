@@ -118,18 +118,45 @@ Rectangle {
     readonly property bool anchorMode: !root.repair || root.repair.mode === 0
 
     // The block mode's time view: the union of the block's old and new
-    // spans with 10 % of it on both sides.
+    // spans with 10 % of it on both sides. It is fitted when the block's
+    // lines or the mode change and when the new span leaves the view; a
+    // drag inside the view leaves it still, so the band moves, not the
+    // sheet.
     readonly property bool blockView:
         root.repair !== null && root.repair.mode === 1 && root.repair.blockStartMs >= 0
         && root.repair.blockNewEndMs >= 0
-    readonly property real blockSpanStartMs: blockView
-        ? Math.min(root.repair.blockStartMs, root.repair.blockNewStartMs) : 0
-    readonly property real blockSpanEndMs: blockView
-        ? Math.max(root.repair.blockEndMs, root.repair.blockNewEndMs) : 0
-    readonly property real blockViewStartMs:
-        Math.max(0, blockSpanStartMs - (blockSpanEndMs - blockSpanStartMs) * 0.1)
-    readonly property real blockViewEndMs:
-        blockSpanEndMs + (blockSpanEndMs - blockSpanStartMs) * 0.1
+    property real blockViewStartMs: 0
+    property real blockViewEndMs: 0
+
+    function fitBlockView() {
+        if (!root.blockView) {
+            return;
+        }
+        const start = Math.min(root.repair.blockStartMs, root.repair.blockNewStartMs);
+        const end = Math.max(root.repair.blockEndMs, root.repair.blockNewEndMs);
+        root.blockViewStartMs = Math.max(0, start - (end - start) * 0.1);
+        root.blockViewEndMs = end + (end - start) * 0.1;
+    }
+
+    // fitBlockViewIfOutside refits when the new span left the view.
+    function fitBlockViewIfOutside() {
+        if (root.blockView && (root.repair.blockNewStartMs < root.blockViewStartMs
+                               || root.repair.blockNewEndMs > root.blockViewEndMs)) {
+            root.fitBlockView();
+        }
+    }
+
+    Connections {
+        target: root.repair
+        function onBlockFirstChanged() { root.fitBlockView(); }
+        function onBlockLastChanged() { root.fitBlockView(); }
+        function onBlockStartMsChanged() { root.fitBlockView(); }
+        function onModeChanged() { root.fitBlockView(); }
+        function onBlockNewStartMsChanged() { root.fitBlockViewIfOutside(); }
+        function onBlockNewEndMsChanged() { root.fitBlockViewIfOutside(); }
+    }
+
+    Component.onCompleted: root.fitBlockView()
 
     // Column header (UI_SPEC 4.6): the section's line range, the timing
     // health pill, the vocal coverage and the Preview toggle.

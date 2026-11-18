@@ -4,8 +4,10 @@
 //! reason of UI_SPEC 4.3 named after the first deciding signal - "Racing:
 //! 11.9 syllables per second", "Racing: 3.2 times faster than the lines
 //! around it", "Suspicious: vocals heard during 34 % of the note time" - or
-//! "Timing looks plausible" for a calm line. The thresholds come from the
-//! settings. The fixtures use BPM 300 (one beat is 50 ms) and GAP 1000.
+//! "Timing looks plausible" for a calm line; a line that starts after the
+//! end of the song's audio reads "Racing: starts after the audio ends" (task
+//! P7-10). The thresholds come from the settings. The fixtures use BPM 300
+//! (one beat is 50 ms) and GAP 1000.
 
 use usdx_audio::Activity;
 use usdx_format::bytes::decode;
@@ -23,6 +25,7 @@ fn marks(text: &str, activity: Option<&Activity>) -> Vec<LineMark> {
         &song,
         &health_config(&HealthThresholds::default()),
         activity,
+        None,
     )
 }
 
@@ -112,4 +115,21 @@ fn every_voice_follows_in_the_global_line_order() {
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0].health, 0);
     assert_eq!(lines[1], mark(2, "Racing: 20.0 syllables per second"));
+}
+
+#[test]
+fn a_line_after_the_audio_end_names_the_end() {
+    // Line 1 starts at 1000 ms, line 2 at 3000 ms; the audio ends at
+    // 2500 ms.
+    let text = concat!(
+        "#TITLE:T\n#BPM:300\n#GAP:1000\n",
+        ": 0 4 0 a \n: 6 4 0 b \n- 12\n",
+        ": 40 4 0 c \n: 46 4 0 d \nE\n",
+    );
+    let doc = classify(decode(text.as_bytes()).expect("the text decodes"));
+    let song = Song::from_document(&doc);
+    let cfg = health_config(&HealthThresholds::default());
+    let lines = line_marks(&doc, &song, &cfg, None, Some(2500.0));
+    assert_eq!(lines[0], mark(0, "Timing looks plausible"));
+    assert_eq!(lines[1], mark(2, "Racing: starts after the audio ends"));
 }

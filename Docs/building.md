@@ -15,7 +15,6 @@ System packages (Arch package names):
 | kirigami, qqc2-desktop-style | the UI framework and its style |
 | gstreamer, gst-plugins-base, gst-plugins-good | playback and audio tests |
 | extra-cmake-modules, cmake (3.28+) | the install |
-| kcoreaddons, ki18n, kconfig | ECM dependency chain |
 | git | fetching the source |
 
 Rust crates are fetched from crates.io by cargo (cxx-qt 0.10, cxx-qt-lib 0.10,

@@ -478,6 +478,147 @@ fn insert_without_a_selection_chains_after_the_current_line() {
     assert_eq!(selected(&controller), vec![RowId(5)]);
 }
 
+// ---- Insert at a beat (round R-07, user decision 2026-11-18) ----
+
+/// Two lines with a gap: line 1 ends at the phrase end 10, line 2 starts
+/// at 14. Rows: 2 a, 3 b, 4 the phrase end, 5 d, 6 e, 7 E.
+const GAP_SONG: &str = concat!(
+    "#TITLE:T\n#BPM:240\n",
+    ": 0 4 0 a\n: 4 4 2 b\n- 10\n",
+    ": 14 4 0 d\n: 18 4 2 e\nE\n",
+);
+
+/// gap_controller loads GAP_SONG.
+fn gap_controller() -> (TempDir, EditorController) {
+    let (dir, path) = fixture(GAP_SONG);
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    (dir, controller)
+}
+
+#[test]
+fn insert_at_places_the_note_after_the_last_note_starting_before_it() {
+    let (_dir, mut controller) = controller();
+    controller
+        .insert_note_at(5, 2, 7)
+        .expect("the note is inserted");
+    // b starts at 4 <= 5, so the new note follows b (row 3) as row 4 with
+    // the given start, length and pitch and the default text.
+    assert_eq!(
+        note_data(&controller, RowId(4)),
+        (5.0, 2, 7, "~".to_owned())
+    );
+    assert_eq!(note_type(&controller, RowId(4)), ':');
+    assert_eq!(
+        note_data(&controller, RowId(5)),
+        (8.0, 4, 4, "c".to_owned())
+    );
+    assert_eq!(selected(&controller), vec![RowId(4)]);
+    assert_eq!(controller.current_line(), 0);
+    let loaded = controller.loaded().expect("the song is loaded");
+    assert_eq!(loaded.history.undo_label(), Some("Insert note"));
+    // One undo step.
+    controller.undo();
+    assert_eq!(
+        note_data(&controller, RowId(4)),
+        (8.0, 4, 4, "c".to_owned())
+    );
+}
+
+#[test]
+fn insert_at_before_the_phrase_end_joins_the_line_before_it() {
+    let (_dir, mut controller) = gap_controller();
+    controller
+        .insert_note_at(9, 1, 0)
+        .expect("the note is inserted");
+    assert_eq!(
+        note_data(&controller, RowId(4)),
+        (9.0, 1, 0, "~".to_owned())
+    );
+    let loaded = controller.loaded().expect("the song is loaded");
+    assert_eq!(loaded.song.voices[0].lines[0].notes.len(), 3);
+    assert_eq!(controller.current_line(), 0);
+}
+
+#[test]
+fn insert_at_after_the_phrase_end_starts_the_next_line() {
+    let (_dir, mut controller) = gap_controller();
+    controller
+        .insert_note_at(11, 2, 0)
+        .expect("the note is inserted");
+    // No note of line 2 starts at or before 11: the note goes right before
+    // d, after the phrase end (row 4), and line 2 becomes current.
+    assert_eq!(
+        note_data(&controller, RowId(5)),
+        (11.0, 2, 0, "~".to_owned())
+    );
+    assert_eq!(
+        note_data(&controller, RowId(6)),
+        (14.0, 4, 0, "d".to_owned())
+    );
+    let loaded = controller.loaded().expect("the song is loaded");
+    assert_eq!(loaded.song.voices[0].lines[1].notes.len(), 3);
+    assert_eq!(controller.current_line(), 1);
+    assert_eq!(selected(&controller), vec![RowId(5)]);
+}
+
+#[test]
+fn insert_at_after_the_last_line_joins_the_last_line() {
+    let (_dir, mut controller) = gap_controller();
+    controller
+        .insert_note_at(30, 4, 3)
+        .expect("the note is inserted");
+    assert_eq!(
+        note_data(&controller, RowId(7)),
+        (30.0, 4, 3, "~".to_owned())
+    );
+    let loaded = controller.loaded().expect("the song is loaded");
+    assert_eq!(loaded.song.voices[0].lines[1].notes.len(), 3);
+}
+
+#[test]
+fn insert_at_lands_in_the_current_lines_voice() {
+    // A duet: rows 2 P1, 3 a, 4 phrase end, 5 b, 6 P2, 7 c, 8 phrase end,
+    // 9 d. With voice 2's first line current, the note joins voice 2.
+    let (_dir, path) = fixture(concat!(
+        "#TITLE:T\n#BPM:240\n",
+        "P1\n: 0 4 0 a\n- 6\n: 8 4 0 b\n",
+        "P2\n: 0 4 0 c\n- 6\n: 8 4 0 d\nE\n",
+    ));
+    let mut controller = EditorController::new();
+    controller.open(&path).expect("the song loads");
+    controller.go_to_line(2);
+    controller
+        .insert_note_at(2, 1, 5)
+        .expect("the note is inserted");
+    assert_eq!(
+        note_data(&controller, RowId(8)),
+        (2.0, 1, 5, "~".to_owned())
+    );
+    let loaded = controller.loaded().expect("the song is loaded");
+    assert_eq!(loaded.song.voices[1].lines[0].notes.len(), 2);
+    assert_eq!(loaded.song.voices[0].lines[0].notes.len(), 1);
+    assert_eq!(controller.current_line(), 2);
+}
+
+#[test]
+fn insert_at_refuses_a_length_below_one_and_a_negative_beat() {
+    let (_dir, mut controller) = controller();
+    assert!(matches!(
+        controller.insert_note_at(5, 0, 0),
+        Err(EditError::LengthBelowOne)
+    ));
+    assert!(matches!(
+        controller.insert_note_at(-1, 2, 0),
+        Err(EditError::BeforeSongStart)
+    ));
+    let loaded = controller.loaded().expect("the song is loaded");
+    assert!(
+        loaded.history.undo_label().is_none(),
+        "a refusal adds no undo step"
+    );
+}
+
 #[test]
 fn deleting_the_whole_line_removes_its_orphaned_phrase_end() {
     let (_dir, mut controller) = controller();

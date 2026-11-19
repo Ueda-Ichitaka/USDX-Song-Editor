@@ -195,7 +195,8 @@ full manual is `Docs/dev-script.1` (`man Docs/dev-script.1`). `scripts/ui-shots.
 4. Edit notes on the note sheet, play the song at the current position with **Play** (or
    the Space key), and check the timing health marks before you save. The pencil in the
    lyrics lane (or Ctrl+E) edits the whole line's text; a double click on a note edits
-   its syllable.
+   its syllable. Shift+drag on empty sheet space, or **Add note** in the toolbar and a
+   click, adds a note.
 5. **Save** writes the song losslessly and keeps a one-time `.bak` backup of the file as
    it was when the session started. Ctrl+S saves, Ctrl+Z undoes.
 

@@ -701,6 +701,15 @@ pub mod qobject {
         #[cxx_name = "insertNote"]
         fn insert_note(self: Pin<&mut SongDocument>) -> bool;
 
+        /// Insert a note at the beat with the length and the pitch (MIDI,
+        /// the sheet's axis) into the current line's voice: the sheet's
+        /// Shift+drag and the Add note button (round R-07). The note joins
+        /// the line its phrase end places it in and becomes the selection.
+        #[qinvokable]
+        #[cxx_name = "insertNoteAt"]
+        fn insert_note_at(self: Pin<&mut SongDocument>, beat: i64, length: i64, pitch: i32)
+        -> bool;
+
         /// Delete every selected note (the Delete key).
         #[qinvokable]
         #[cxx_name = "deleteSelection"]
@@ -2541,6 +2550,21 @@ impl qobject::SongDocument {
             return false;
         }
         let result = self.as_mut().rust_mut().controller.insert_note_after();
+        self.as_mut().finish_edit(result)
+    }
+
+    /// insert_note_at inserts a note at the beat with the length and the
+    /// MIDI pitch (round R-07).
+    pub fn insert_note_at(mut self: Pin<&mut Self>, beat: i64, length: i64, pitch: i32) -> bool {
+        if !self.as_mut().edit_allowed() {
+            return false;
+        }
+        let relative = i64::from(pitch - crate::controller::notes::PITCH_C4_MIDI);
+        let result = self
+            .as_mut()
+            .rust_mut()
+            .controller
+            .insert_note_at(beat, length, relative);
         self.as_mut().finish_edit(result)
     }
 

@@ -157,6 +157,7 @@ Breeze icon names (all verified present in `/usr/share/icons/breeze` on 12 Novem
 | Play / Pause / Stop | `media-playback-start` / `media-playback-pause` / `media-playback-stop` |
 | Play line | `view-media-lyrics` |
 | Loop | `media-playlist-repeat` |
+| Add note | `list-add` |
 | Repair timing | `tools-wizard` |
 | Song properties | `document-properties` |
 | Edit line text (lyrics lane) | `document-edit` |
@@ -288,8 +289,22 @@ lyrics lane is left out.
 | Song end (`#END`) | The area after `#END` shaded in `neutralTextColor` at 12 %, a 2 px `neutralTextColor` line at `#END`, and at its top (4 px below the ruler) the label "Song end (#END)" (`smallFont`, `neutralTextColor`) with an icon button "Remove song end" (`edit-delete-remove`) (user decision 2026-11-15) |
 | End song here | While paused with the playhead after 0:00 in a writable song: a 22 x 22 px icon button (`edit-cut`, 16 px icon) in the ruler 8 px right of the playhead line, tooltip "End the song here: sets #END at the playhead and deletes the notes after it" (user decision 2026-11-15) |
 | Rubber band | `highlightColor` at 15 % opacity fill, 1 px `highlightColor` border |
+| New note (while adding) | Ghost outline (2.3) from the snapped start to the snapped end at the pressed pitch row, drawn above the notes |
 | Ghost note (preview) | Ghost outline (2.3) at the preview position, drawn above the notes |
 | Notes of a racing line in the repair sheets | Fill `negativeTextColor` instead of the type colour |
+
+Adding a note (round R-07, user decision 2026-11-18): Shift+drag on empty space of the
+pitch rows, or a press anywhere on the pitch rows while the toolbar's Add note is checked,
+draws a new note. Its pitch is the row under the press; its start is the press's beat and
+its end the pointer's beat, both rounded to whole beats (dragging left of the press makes
+the pointer the start); a press released within 3 px (a Shift+click on empty space, or a
+click in Add note mode) makes a 4-beat note. A Shift+click on a note still extends the
+selection. The release
+commits one undo step ("Insert note"): the note carries the text `~`, joins the current
+line's voice in the first line whose phrase end lies after its start (the last line when
+none does), becomes the selection, and its line becomes current. A length below one beat
+or a start before beat 0 is refused (passive notification). A plain drag on empty space
+stays the rubber band.
 
 ### 3.6 Lyrics lane
 
@@ -389,13 +404,22 @@ Layout (top to bottom): toolbar, then a `QQC2.SplitView` (horizontal) with the l
 and the editor column, then the status bar.
 
 **Toolbar**:
-`[Main menu, icon only] [Open] [Save] | [Undo] [Redo] | [Go to song start (media-skip-backward), icon only] [Go to song end (media-skip-forward), icon only] [Play] [Play line] [Loop] "Track" [ComboBox: Mix, Vocals, Instrumental] "Speed" [ComboBox: 0.5x, 0.75x, 1x] <-> [Repair timing] [Song properties]`
+`[Main menu, icon only] [Open] [Save] | [Undo] [Redo] | [Go to song start (media-skip-backward), icon only] [Go to song end (media-skip-forward), icon only] [Play] [Play line] [Loop] [Add note] "Track" [ComboBox: Mix, Vocals, Instrumental] "Speed" [ComboBox: 0.5x, 0.75x, 1x] <-> [Repair timing] [Song properties]`
 
 - Go to song start / Go to song end (user decision 2026-11-15; Home / End; tooltips "Go to
   song start (Home)" / "Go to song end (End)"): move the playhead and the view to 0:00 and to
   the song end (`#END`, else the audio end, else the last note's end).
 - Play is checkable: unchecked shows "Play" with `media-playback-start`; checked shows
   "Pause" with `media-playback-pause`. Loop is checkable.
+- Add note (round R-07, user decision 2026-11-18) is checkable, tooltip "Add a note: click
+  or drag on the note sheet (Esc cancels)". While checked, the pitch rows show the
+  crosshair cursor over notes and empty space alike; a press there places one new note
+  (3.5, "Adding a note"), then the button unchecks. Esc or a second click on the button
+  unchecks it without a note.
+- The toolbar fits the window (user decision 2026-11-18, "Icon-only when narrow"): when the
+  labelled toolbar is wider than the window, Play line, Loop, Add note, Repair timing and
+  Song properties show their icons only (tooltips name them); the labels return once the
+  window is as wide as the labelled toolbar was.
 - "Track" and "Speed" are `QQC2.Label`s in `disabledTextColor`, `smallFont`. The track combo
   lists only existing tracks enabled; missing ones are listed but disabled.
 - Undo/Redo tooltips: "Undo <label>" / "Redo <label>" with the history label (for example
@@ -773,7 +797,7 @@ Error texts say what happened and what still works or what to do; no apologies.
 | Play, Play line, Loop, Track, Speed | ❌ | ❌ | ✅ | ✅ | ❌ (tap controls playback) |
 | Repair timing | ❌ | ✅ (tap-along needs audio) | ❌ | - | - |
 | Song properties | ❌ | ✅ | ✅ (read-only form) | ✅ | ❌ |
-| Note editing (mouse, keys, inspector, line type, line text) | ❌ | ✅ | ❌ | ❌ (repair tools only) | ❌ |
+| Note editing (mouse, keys, inspector, line type, line text, Add note) | ❌ | ✅ | ❌ | ❌ (repair tools only) | ❌ |
 | Export anchors | ❌ | ✅ | ✅ | ✅ | ❌ |
 | Settings | ✅ | ✅ | ✅ | ✅ | ❌ |
 

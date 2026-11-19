@@ -387,6 +387,41 @@ impl EditorController {
         self.commit(patch)
     }
 
+    /// insert_note_at inserts a note at the beat with the length and the
+    /// pitch (USDX-relative) into the current line's voice: the add-note
+    /// gestures of the sheet (Shift+drag on empty space and the Add note
+    /// button, round R-07, user decision 2026-11-18). The note joins the
+    /// first line of the voice whose phrase end lies after the beat (the
+    /// last line when none does) and follows the line's last note starting
+    /// at or before the beat, or goes right before the line's first note.
+    /// It carries the default text "~", becomes the selection and makes its
+    /// line current; one undo step ("Insert note").
+    pub fn insert_note_at(&mut self, beat: i64, length: i64, pitch: i64) -> Result<(), EditError> {
+        let (after, global_line) = {
+            let loaded = self.require_loaded()?;
+            insertion_point(loaded, self.current_line(), beat as f64)?
+        };
+        let patch = {
+            let loaded = self.require_loaded()?;
+            ops::insert_note(
+                &loaded.document,
+                &loaded.song,
+                Some(after),
+                beat,
+                length,
+                pitch,
+                None,
+            )?
+        };
+        self.commit(patch)?;
+        let inserted = RowId(after.0 + 1);
+        self.go_to_line(global_line);
+        self.selection.clear();
+        self.selection.insert(inserted);
+        self.anchor = Some(inserted);
+        Ok(())
+    }
+
     /// delete_selection removes every selected note (the Delete key);
     /// a phrase end whose line loses all its notes goes away too. The
     /// selection empties because its ids no longer name notes.
@@ -727,6 +762,54 @@ fn current_line_last_note(loaded: &LoadedSong, current_line: usize) -> Result<Ro
                 .ok_or(EditError::StalePatch("the current line has no notes"));
         }
         offset += voice.lines.len();
+    }
+    Err(EditError::StalePatch("the current line is out of range"))
+}
+
+/// insertion_point finds where insert_note_at puts a note at `beat` in the
+/// voice of the global line `current_line`: the row it follows and the
+/// global index of the line it joins.
+fn insertion_point(
+    loaded: &LoadedSong,
+    current_line: usize,
+    beat: f64,
+) -> Result<(RowId, usize), EditError> {
+    let mut offset = 0;
+    for voice in &loaded.song.voices {
+        if current_line >= offset + voice.lines.len() {
+            offset += voice.lines.len();
+            continue;
+        }
+        // The first line whose phrase end lies after the beat, else the
+        // last line.
+        let index = voice
+            .lines
+            .iter()
+            .position(|line| {
+                line.end
+                    .and_then(|end| loaded.song.phrase_end_beat(&loaded.document, end))
+                    .is_none_or(|end_beat| beat < end_beat)
+            })
+            .unwrap_or(voice.lines.len().saturating_sub(1));
+        let line = voice
+            .lines
+            .get(index)
+            .ok_or(EditError::StalePatch("the voice has no lines"))?;
+        let before = line.notes.iter().rev().find(|id| {
+            loaded
+                .song
+                .note(&loaded.document, **id)
+                .is_some_and(|note| note.start <= beat)
+        });
+        // Without such a note: right before the line's first row (its
+        // first note, or its phrase end in a line without notes).
+        let first_row = line.notes.first().copied().or(line.end);
+        let after = match (before, first_row) {
+            (Some(id), _) => *id,
+            (None, Some(first)) if first.0 > 0 => RowId(first.0 - 1),
+            _ => return Err(EditError::StalePatch("the line has no place for a note")),
+        };
+        return Ok((after, offset + index));
     }
     Err(EditError::StalePatch("the current line is out of range"))
 }

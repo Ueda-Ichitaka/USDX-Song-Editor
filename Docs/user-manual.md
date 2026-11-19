@@ -92,14 +92,16 @@ Left to right:
 | Play | plays the song from the current position (Space) |
 | Play line | plays the current line with 0.3 s padding before and after (P) |
 | Loop | repeats the current line or selection (L) |
+| Add note | the next click or drag on the note sheet places one new note (Esc cancels) |
 | Track | picks Mix, Vocals or Instrumental; missing tracks are greyed out (V). A newly opened song starts on the track the settings choose (Vocals when the song has a vocals file) |
 | Speed | 0.5x, 0.75x or 1x ([ and ]) |
 | Repair timing | opens the repair mode (Ctrl+R) |
 | Song properties | opens the song properties page |
 
-Without a song the toolbar keeps only Play of the playback controls. In the current build
-Play, Play line, Loop, Track and Speed act; Loop repeats the current line. Repair timing and
-Song properties arrive with the later phases and show a notice until then (see
+Without a song the toolbar keeps only Play of the playback controls. When the window is too
+narrow for every label, Play line, Loop, Add note, Repair timing and Song properties show
+only their icons (hover them for the name); the labels come back on a wider window. Song
+properties arrives with a later phase and shows a notice until then (see
 `Docs/status.md`).
 
 ### 4.2 The lines pane (left)
@@ -121,14 +123,15 @@ highlighted and the list follows it; clicking a row jumps to that line.
 
 Shows for the current line: its position ("Line 5 of 23"), the time span in m:ss.ss, the
 duration, the note count, the syllable rate (syllables per second), the timing health as a
-coloured pill, the line type selector and an **Edit text...** button for the line text
-dialog.
+coloured pill and the line type selector. The line's text is edited in the lyrics lane (see
+"Editing text" below).
 
 ### 4.4 The note sheet (right, centre)
 
 The sheet shows the notes of the song on their pitch rows (the current line opaque, the
-other lines faded), with the ruler, the lyrics lane and the waveform lanes, all drag- and
-keyboard-editable. It opens on the current line with at least 1.5 s around it (half the
+other lines faded), each note with its syllable written inside (shortened on narrow notes,
+hidden on very narrow ones), with the ruler, the lyrics lane and the waveform lanes, all
+drag- and keyboard-editable. It opens on the current line with at least 1.5 s around it (half the
 line's length for long lines) and stays put while you step through lines that are already
 visible.
 
@@ -144,6 +147,15 @@ lines drop from the outline's lower corners down to the waveform, so you can lin
 up with where the singing actually starts and ends (a resize shows only the dragged end).
 The dashed line between two lines is the phrase end: drag it between the last note of one
 line and the first note of the next.
+
+**Adding notes.** Shift+drag on empty space of the sheet draws a new note: it sits on the
+row where you pressed and spans from the beat where you pressed to the beat where you let
+go (whole beats). A Shift+click on empty space makes a 4-beat note. Or click **Add note** in
+the toolbar: the cursor becomes a crosshair, and the next click (a 4-beat note) or drag
+anywhere on the pitch rows places one note, then the mode ends; Esc or a second click on the
+button cancels. A new note carries the text `~`, joins the line whose phrase end comes after
+it (the dashed line), becomes the selection, and is one undo step. The Insert key adds a
+note right after the selected one instead.
 
 **Song start, song end and endcards.** The sheet scrolls from 0:00 to 2 s after the end of
 the audio or the last note, whichever is later. **Go to song start** and **Go to song end**
@@ -167,13 +179,13 @@ and press Enter (one undo step); Esc cancels, Tab and Shift+Tab save and move on
 or previous note of the line, and clicking elsewhere saves. The word space of the note stays
 where it was, so you only type the syllable itself.
 
-To edit a whole line, press Ctrl+E or click **Edit text...** in the line header. The Edit
-line dialog shows the line in one field, written the way syllabified lyrics are written: a
-space separates words, `|` splits a word into syllables, and `~` continues the previous
-syllable on a new note (a held note). For example `the~ au|tho|ri|ties?`. Under the field,
-one chip per note shows its syllable and start beat: blue for a changed syllable, green for
-a new note. Only the notes whose syllables you changed are touched; everything else keeps
-its exact text.
+To edit a whole line, click the pencil at the left end of the lyrics lane or press Ctrl+E.
+The lyrics lane turns into one text field with the line, written the way syllabified lyrics
+are written: a space separates words, `|` splits a word into syllables, and `~` continues
+the previous syllable on a new note (a held note). For example `the~ au|tho|ri|ties?`. Under
+the field, one chip per syllable sits right below the note it lands on: blue for a changed
+syllable, green for a new note. Only the notes whose syllables you changed are touched;
+everything else keeps its exact text.
 
 When a changed word has more syllables than notes, the editor splits its longest note in
 halves (the new notes keep the pitch and type); with fewer syllables it merges the
@@ -183,7 +195,7 @@ its neighbour. A blue message explains each split or merge before you apply it. 
 me per note** to pick the note to split or the notes to merge yourself, one choice per
 change. A note needs at least one beat per syllable; if the notes are too short, the dialog
 says so and Apply stays disabled. Apply (or Enter in the field) changes the line as one undo
-step.
+step; Cancel or Esc closes the field without a change.
 
 **Playhead.** A dotted red line with a small triangle on the ruler marks the playback
 position. It runs from the ruler through the notes and the lyrics down to the waveform, so
@@ -323,7 +335,7 @@ The toolbar's leftmost button opens the menu drawer:
 ## 10. Keyboard shortcuts
 
 The editor's own shortcuts (menu shortcuts in section 9; Esc closes a dialog, leaves a
-pushed page, stops playback, or clears the selection):
+pushed page, ends Add note, stops playback, or clears the selection):
 
 | Key | Action |
 |---|---|
@@ -347,9 +359,8 @@ pushed page, stops playback, or clears the selection):
 | T | tap-along for the selected lines |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 
-In the current build only line navigation (Up/Down and clicking), undo/redo, Save, the
-menu shortcuts and the window actions are active; the rest arrive with the note sheet and
-playback phases.
+With the mouse: Shift+drag on empty sheet space draws a new note, Shift+click there adds a
+4-beat note (section 4.4).
 
 ## 11. Settings
 

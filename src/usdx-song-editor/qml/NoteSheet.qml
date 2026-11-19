@@ -20,7 +20,10 @@
 // song or audio end plus 2 s (user decision 2026-11-15). The area after
 // #END is shaded with a button that removes #END, the playhead carries the
 // "End song here" button in the ruler while paused, and showMs scrolls a
-// time into view for the song start and end jumps. The sheet
+// time into view for the song start and end jumps. Shift+drag on empty
+// space of the pitch rows draws a new note, and while the toolbar's Add note
+// is checked a press anywhere on the pitch rows places one (round R-07);
+// both commit through insertNoteAt. The sheet
 // paints every line of the song (user decision 2026-11-15); the current
 // line's notes draw opaque, all other lines at 35 % opacity. The inline
 // syllable field (task P6-02, user decision 2026-11-15) opens over a note's
@@ -54,6 +57,53 @@ Rectangle {
     property bool moveActive: false
     property real moveDBeat: 0
     property int moveDPitch: 0
+
+    // The toolbar's Add note mode (round R-07, user decision 2026-11-18):
+    // while true, a press anywhere on the pitch rows places one note, then
+    // addNoteFinished asks the page to switch the mode off.
+    property bool addingNote: false
+    signal addNoteFinished()
+
+    // The note being drawn by Shift+drag or the Add note mode: the press and
+    // pointer x and the pressed row's pitch, all in sheet coordinates.
+    property bool drawingNote: false
+    property real newNotePressX: 0
+    property real newNoteX: 0
+    property int newNotePitch: 0
+
+    // The new note's start and length in beats: the press and the pointer
+    // beat rounded to whole beats, the earlier one starts; `clickOnly` (a
+    // release within 3 px) gives a 4-beat note. The parameter stays
+    // unannotated: a typed function without a return type returns void.
+    function newNoteBeats(clickOnly) {
+        const pressBeat = Math.round(sheet.xToBeat(root.newNotePressX));
+        if (clickOnly) {
+            return { start: pressBeat, length: 4 };
+        }
+        const pointerBeat = Math.round(sheet.xToBeat(root.newNoteX));
+        return { start: Math.min(pressBeat, pointerBeat),
+                 length: Math.abs(pointerBeat - pressBeat) };
+    }
+
+    // beginNewNote starts drawing a note at a sheet position.
+    function beginNewNote(x: real, y: real) {
+        root.newNotePressX = x;
+        root.newNoteX = x;
+        root.newNotePitch = sheet.yToPitch(y);
+        root.drawingNote = true;
+    }
+
+    // finishNewNote commits the drawn note as one undo step (a refusal
+    // arrives through editRefused) and ends the drawing.
+    function finishNewNote() {
+        if (!root.drawingNote) {
+            return;
+        }
+        const clickOnly = Math.abs(root.newNoteX - root.newNotePressX) < 3;
+        const beats = root.newNoteBeats(clickOnly);
+        root.drawingNote = false;
+        root.document.insertNoteAt(beats.start, beats.length, root.newNotePitch);
+    }
 
     // True while a press in the ruler or the waveform lanes seeks: the
     // playback follow of the current line pauses meanwhile, so the view
@@ -333,8 +383,18 @@ Rectangle {
                     // DragHandler is a multi-point handler: the event point
                     // is `centroid`; `point` exists only on the single-point
                     // handlers (TapHandler, HoverHandler).
-                    pitchArea.bandValid = centroid.pressPosition.y >= sheet.rulerHeight
-                                          && centroid.pressPosition.y <= root.pitchBottom;
+                    const inRows = centroid.pressPosition.y >= sheet.rulerHeight
+                                   && centroid.pressPosition.y <= root.pitchBottom;
+                    // Shift+drag on empty space draws a new note (round
+                    // R-07) instead of the band.
+                    if (inRows && (centroid.modifiers & Qt.ShiftModifier)
+                            && root.document && !root.document.readOnly) {
+                        pitchArea.bandValid = false;
+                        root.beginNewNote(centroid.pressPosition.x, centroid.pressPosition.y);
+                        root.newNoteX = centroid.position.x;
+                        return;
+                    }
+                    pitchArea.bandValid = inRows;
                     band.visible = pitchArea.bandValid;
                     if (pitchArea.bandValid) {
                         band.x = centroid.pressPosition.x;
@@ -343,6 +403,10 @@ Rectangle {
                         band.height = 0;
                     }
                 } else {
+                    if (root.drawingNote) {
+                        root.finishNewNote();
+                        return;
+                    }
                     if (pitchArea.bandValid && band.width > 2 && band.height > 2) {
                         root.document.selectRange(
                             sheet.xToBeat(band.x),
@@ -356,6 +420,10 @@ Rectangle {
             }
 
             onTranslationChanged: {
+                if (root.drawingNote) {
+                    root.newNoteX = centroid.position.x;
+                    return;
+                }
                 if (!pitchArea.bandValid) {
                     return;
                 }
@@ -396,6 +464,84 @@ Rectangle {
                     bg: sheet
                 }
             }
+        }
+
+        // Shift+click on empty space of the pitch rows (no drag) places a
+        // 4-beat note (round R-07); a Shift+click on a note stays the
+        // note's selection extension.
+        TapHandler {
+            id: shiftTap
+
+            acceptedButtons: Qt.LeftButton
+            acceptedModifiers: Qt.ShiftModifier
+
+            onTapped: {
+                const at = shiftTap.point.position;
+                const inRows = at.y >= sheet.rulerHeight && at.y <= root.pitchBottom
+                               && at.x >= sheet.gutterWidth;
+                if (!inRows || !root.document || root.document.readOnly
+                        || clipArea.childAt(at.x - clipArea.x, at.y - clipArea.y) !== null) {
+                    return;
+                }
+                root.beginNewNote(at.x, at.y);
+                root.finishNewNote();
+            }
+        }
+
+        // The ghost outline of the note being drawn (UI_SPEC 3.5).
+        Rectangle {
+            objectName: "newNoteGhost"
+
+            // The same rule as newNoteBeats, read only while drawing.
+            readonly property bool clickOnly: Math.abs(root.newNoteX - root.newNotePressX) < 3
+            readonly property int pressBeat:
+                root.drawingNote ? Math.round(sheet.xToBeat(root.newNotePressX)) : 0
+            readonly property int pointerBeat:
+                root.drawingNote ? Math.round(sheet.xToBeat(root.newNoteX)) : 0
+            readonly property int firstBeat: clickOnly ? pressBeat : Math.min(pressBeat, pointerBeat)
+            readonly property int lengthBeats: clickOnly ? 4 : Math.abs(pointerBeat - pressBeat)
+
+            visible: root.drawingNote
+            z: 10
+            x: sheet.gutterWidth + (firstBeat - sheet.startBeat) * sheet.pxPerBeat
+            y: sheet.rulerHeight
+               + (Math.round(sheet.pitchTop) - root.newNotePitch) * sheet.pxPerSemitone + 2
+            width: Math.max(2, lengthBeats * sheet.pxPerBeat - 1.5)
+            height: Math.max(2, sheet.pxPerSemitone - 4)
+            radius: 3
+            color: "transparent"
+            border.width: 1
+            border.color: Kirigami.Theme.textColor
+        }
+
+        // The Add note mode (UI_SPEC 4.3): over the pitch rows, above the
+        // notes, a press places one note; the crosshair shows the mode.
+        MouseArea {
+            id: addNoteArea
+
+            objectName: "addNoteArea"
+            x: sheet.gutterWidth
+            y: sheet.rulerHeight
+            width: Math.max(0, root.width - sheet.gutterWidth)
+            height: Math.max(0, root.pitchBottom - sheet.rulerHeight)
+            z: 11
+            visible: root.addingNote
+            enabled: root.addingNote && root.document !== null && !root.document.readOnly
+            hoverEnabled: true
+            cursorShape: Qt.CrossCursor
+            acceptedButtons: Qt.LeftButton
+
+            onPressed: (mouse) => root.beginNewNote(addNoteArea.x + mouse.x, addNoteArea.y + mouse.y)
+            onPositionChanged: (mouse) => {
+                if (root.drawingNote) {
+                    root.newNoteX = addNoteArea.x + mouse.x;
+                }
+            }
+            onReleased: {
+                root.finishNewNote();
+                root.addNoteFinished();
+            }
+            onCanceled: root.drawingNote = false
         }
 
         Rectangle {

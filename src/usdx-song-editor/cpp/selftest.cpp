@@ -582,6 +582,16 @@ void find_current_line_delegates(QQuickWindow *window, QList<QObject *> &out) {
     walk(window->contentItem());
 }
 
+// pitchBottom_scene returns the scene y of the pitch rows' bottom edge (the
+// note sheet's pitchBottom), or a large value without the sheet.
+double pitchBottom_scene(QObject *root) {
+    auto *const area = root->findChild<QQuickItem *>(QStringLiteral("sheetArea"));
+    if (area == nullptr) {
+        return 1.0e9;
+    }
+    return area->mapToScene(QPointF(0, area->property("pitchBottom").toDouble())).y();
+}
+
 // close_passive_notifications hides every passive notification of the
 // window and waits (at most 3 s) until the notification list is empty: a
 // shown notification's list takes the clicks at the bottom of the window,
@@ -1173,6 +1183,191 @@ bool usdx_sheet_interaction_check(const QQmlApplicationEngine &engine) {
             }
         }
         std::cout << "sheet interaction: type button kept" << std::endl;
+    }
+    // Adding a note (round R-07, user decision 2026-11-18): Shift+drag on
+    // empty space of the pitch rows draws a note from the press beat to the
+    // release beat at the pressed row; the Add note button places one
+    // 4-beat note with a click and unchecks itself; Esc cancels the mode.
+    {
+        QObject *const doc = root->property("songDocument").value<QObject *>();
+        auto *const sheetItem = root->findChild<QQuickItem *>(QStringLiteral("sheetBackground"));
+        auto *const addButton = root->findChild<QQuickItem *>(QStringLiteral("addNoteButton"));
+        if (doc == nullptr || sheetItem == nullptr || addButton == nullptr) {
+            std::cerr << "sheet interaction: the add-note objects are missing (songDocument, "
+                         "sheetBackground or addNoteButton)\n";
+            return false;
+        }
+        if (!close_passive_notifications(window, root)) {
+            std::cerr << "sheet interaction: the passive notifications did not close\n";
+            return false;
+        }
+        const double pxPerBeat = sheetItem->property("pxPerBeat").toDouble();
+        const double pxPerSemitone = sheetItem->property("pxPerSemitone").toDouble();
+        const double rulerBottom = sheetItem->mapToScene(
+            QPointF(0, sheetItem->property("rulerHeight").toDouble())).y();
+        // Every visible note delegate, any line, to find empty space.
+        QList<QQuickItem *> notes;
+        {
+            std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+                for (QQuickItem *const child : item->childItems()) {
+                    const QVariant id = child->property("noteId");
+                    if (live_delegate(child) && id.isValid() && id.toLongLong() >= 0
+                        && child->isVisible()) {
+                        notes.append(child);
+                    }
+                    walk(child);
+                }
+            };
+            walk(window->contentItem());
+        }
+        auto empty_at = [&](const QPointF &point) {
+            for (QQuickItem *const note : notes) {
+                const QRectF box(note->mapToScene(QPointF(-4, -4)),
+                                 QSizeF(note->width() + 8, note->height() + 8));
+                if (box.contains(point)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        // The drag spans at least 40 px, beyond the drag threshold on a
+        // zoomed-out sheet.
+        const double dragBeats = std::max(4.0, std::ceil(40.0 / std::max(pxPerBeat, 0.1)));
+        // An empty spot inside the current line: a few rows above or below
+        // an on-screen note of the line, with room for the drag.
+        QPointF spot(-1, -1);
+        {
+            QList<QObject *> current;
+            find_current_line_delegates(window, current);
+            for (QObject *const candidate : current) {
+                if (!on_screen(candidate) || spot.x() >= 0) {
+                    continue;
+                }
+                auto *const item = qobject_cast<QQuickItem *>(candidate);
+                const QPointF left = item->mapToScene(QPointF(2, item->height() / 2.0));
+                for (int rows : {3, -3, 4, -4, 5, -5, 2, -2}) {
+                    const QPointF point(left.x(), left.y() - rows * pxPerSemitone);
+                    const QPointF end(point.x() + dragBeats * pxPerBeat, point.y());
+                    if (point.y() > rulerBottom + pxPerSemitone && point.y() < pitchBottom_scene(root)
+                        && end.x() < window->width() - 10 && empty_at(point) && empty_at(end)) {
+                        spot = point;
+                        break;
+                    }
+                }
+            }
+        }
+        if (spot.x() < 0) {
+            std::cout << "sheet interaction: skipped adding notes (no empty spot)" << std::endl;
+        } else {
+            auto beat_at = [&](const QPointF &scene) {
+                double beat = 0.0;
+                QMetaObject::invokeMethod(sheetItem, "xToBeat", Q_RETURN_ARG(double, beat),
+                                          Q_ARG(double, sheetItem->mapFromScene(scene).x()));
+                return static_cast<qint64>(std::llround(beat));
+            };
+            int pitch = 0;
+            QMetaObject::invokeMethod(sheetItem, "yToPitch", Q_RETURN_ARG(int, pitch),
+                                      Q_ARG(double, sheetItem->mapFromScene(spot).y()));
+            const QPointF dragEnd(spot.x() + dragBeats * pxPerBeat, spot.y());
+            const qint64 wantStart = beat_at(spot);
+            const qint64 wantLength = beat_at(dragEnd) - wantStart;
+            const int notesBefore = doc->property("currentLineNoteCount").toInt();
+            auto check_new = [&](const char *how, qint64 start, qint64 length) -> bool {
+                const QVariantMap info = doc->property("inspector").toMap();
+                QObject *const added = info.value(QStringLiteral("single")).toBool()
+                    ? find_by_id(info.value(QStringLiteral("noteId")).toLongLong())
+                    : nullptr;
+                if (added == nullptr || added->property("start").toDouble() != double(start)
+                    || added->property("length").toLongLong() != length
+                    || added->property("pitch").toInt() != pitch
+                    || doc->property("undoText").toString() != QStringLiteral("Insert note")) {
+                    std::cerr << "sheet interaction: " << how << " did not add the note at beat "
+                              << start << ", " << length << " beats, pitch " << pitch << " (got "
+                              << (added ? added->property("start").toDouble() : -1) << ", "
+                              << (added ? added->property("length").toLongLong() : -1) << ", "
+                              << (added ? added->property("pitch").toInt() : -1) << ", undo \""
+                              << doc->property("undoText").toString().toStdString() << "\")\n";
+                    return false;
+                }
+                send_key(window, Qt::Key_Z, Qt::ControlModifier);
+                pump_events(50);
+                if (doc->property("currentLineNoteCount").toInt() != notesBefore) {
+                    std::cerr << "sheet interaction: Ctrl+Z did not remove the added note\n";
+                    return false;
+                }
+                return true;
+            };
+            window->contentItem()->forceActiveFocus();
+            // Shift+drag.
+            send_mouse(window, spot, QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton,
+                       next_time += 1000, Qt::ShiftModifier);
+            for (int step = 1; step <= 8; ++step) {
+                const QPointF at(spot.x() + (dragEnd.x() - spot.x()) * step / 8.0, spot.y());
+                send_mouse(window, at, QEvent::MouseMove, Qt::LeftButton, Qt::NoButton,
+                           next_time += 20, Qt::ShiftModifier);
+            }
+            send_mouse(window, dragEnd, QEvent::MouseButtonRelease, Qt::NoButton, Qt::LeftButton,
+                       next_time += 20, Qt::ShiftModifier);
+            pump_events(100);
+            if (!check_new("Shift+drag", wantStart, wantLength)) {
+                return false;
+            }
+            auto click_at = [&](const QPointF &point,
+                                Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+                send_mouse(window, point, QEvent::MouseButtonPress, Qt::LeftButton,
+                           Qt::LeftButton, next_time += 1000, modifiers);
+                send_mouse(window, point, QEvent::MouseButtonRelease, Qt::NoButton,
+                           Qt::LeftButton, next_time += 20, modifiers);
+                pump_events(100);
+            };
+            // Shift+click without a drag: a 4-beat note.
+            click_at(spot, Qt::ShiftModifier);
+            if (!check_new("Shift+click", wantStart, 4)) {
+                return false;
+            }
+            // The Add note button and one click: a 4-beat note.
+            const QPointF buttonCentre =
+                addButton->mapToScene(QPointF(addButton->width() / 2.0, addButton->height() / 2.0));
+            click_at(buttonCentre);
+            if (!addButton->property("checked").toBool()) {
+                std::cerr << "sheet interaction: the Add note button did not check\n";
+                return false;
+            }
+            click_at(spot);
+            if (addButton->property("checked").toBool()) {
+                std::cerr << "sheet interaction: the Add note button stayed checked after a note\n";
+                return false;
+            }
+            if (!check_new("the Add note click", wantStart, 4)) {
+                return false;
+            }
+            // Esc cancels the mode without a note.
+            click_at(buttonCentre);
+            send_key(window, Qt::Key_Escape, Qt::NoModifier);
+            pump_events(50);
+            if (addButton->property("checked").toBool()
+                || doc->property("currentLineNoteCount").toInt() != notesBefore) {
+                std::cerr << "sheet interaction: Esc did not cancel Add note\n";
+                return false;
+            }
+            std::cout << "sheet interaction: notes added" << std::endl;
+        }
+    }
+    // The toolbar fits the window (round R-07, user decision 2026-11-18):
+    // when the labels do not fit, the less used buttons show icons only.
+    for (const char *name : {"playLineButton", "loopButton", "addNoteButton",
+                             "repairTimingButton", "songPropertiesButton"}) {
+        auto *const button = root->findChild<QQuickItem *>(QString::fromUtf8(name));
+        if (button == nullptr || !button->isVisible()) {
+            std::cerr << "sheet interaction: the toolbar button " << name << " is missing\n";
+            return false;
+        }
+        const double right = button->mapToScene(QPointF(button->width(), 0)).x();
+        if (right > window->width() + 0.5) {
+            std::cerr << "sheet interaction: the toolbar button " << name << " ends at x " << right
+                      << ", past the " << window->width() << " px window\n";
+            return false;
+        }
     }
     // The line type combo shows the current line's type and sets it for
     // every note of the line (user decision 2026-11-15).

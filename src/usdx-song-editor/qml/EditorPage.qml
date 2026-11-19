@@ -4,7 +4,8 @@
 // note inspector, and the status bar in the page footer. Without a song the
 // page shows the start screen with the recent songs list (UI_SPEC 4.1). The
 // playback controls drive the Player bridge: Play and Play line run the
-// audio, Loop replays the current line, and the shortcuts Space, P, L, V,
+// audio, Loop replays the current line, Add note lets the next press on the
+// sheet place one note (Esc cancels, round R-07), and the shortcuts Space, P, L, V,
 // [ and ] follow the plan's key table (8.6) as Shortcut elements (they move
 // into the Kirigami.Actions of the menus when those arrive). The note
 // editing shortcuts N, G, F, R, Shift+R, S, M, Delete, Insert and B (task
@@ -44,6 +45,15 @@ Kirigami.Page {
     // while it is on (UI_SPEC 4.3).
     property bool loopLine: false
 
+    // The Add note mode of the toolbar (round R-07): the next press on the
+    // note sheet's pitch rows places one note, then the mode ends.
+    property bool addingNote: false
+    onCanEditNotesChanged: {
+        if (!root.canEditNotes) {
+            root.addingNote = false;
+        }
+    }
+
     // The playback speed choices of the toolbar combo.
     readonly property var speedRates: [0.5, 0.75, 1.0]
 
@@ -82,8 +92,33 @@ Kirigami.Page {
 
     header: QQC2.ToolBar {
         RowLayout {
+            id: toolbarRow
+
+            // The toolbar fits the window (round R-07, user decision
+            // 2026-11-18): when the labelled buttons overflow, Play line,
+            // Loop, Add note, Repair timing and Song properties show their
+            // icons only; the overflowing width is remembered, and the
+            // labels return once the toolbar is that wide again. Decided
+            // imperatively, so the switch cannot feed back into a binding.
+            property bool compact: false
+            property real labelledWidth: 0
+
+            function fit() {
+                if (!toolbarRow.compact && toolbarRow.implicitWidth > toolbarRow.width + 0.5) {
+                    toolbarRow.labelledWidth = toolbarRow.implicitWidth;
+                    toolbarRow.compact = true;
+                } else if (toolbarRow.compact && toolbarRow.width >= toolbarRow.labelledWidth) {
+                    toolbarRow.compact = false;
+                }
+            }
+
+            readonly property int secondaryDisplay: compact
+                ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
+
             anchors.fill: parent
             spacing: Kirigami.Units.smallSpacing
+            onWidthChanged: Qt.callLater(toolbarRow.fit)
+            onImplicitWidthChanged: Qt.callLater(toolbarRow.fit)
 
             QQC2.ToolButton {
                 icon.name: "application-menu"
@@ -191,7 +226,7 @@ Kirigami.Page {
                 visible: root.songOpen
                 icon.name: "view-media-lyrics"
                 text: qsTr("Play line")
-                display: QQC2.AbstractButton.TextBesideIcon
+                display: toolbarRow.secondaryDisplay
                 enabled: root.document && root.document.canPlayLine
                 onClicked: root.playCurrentLine()
                 QQC2.ToolTip.text: qsTr("Play the current line (P)")
@@ -205,12 +240,28 @@ Kirigami.Page {
                 visible: root.songOpen
                 icon.name: "media-playlist-repeat"
                 text: qsTr("Loop")
-                display: QQC2.AbstractButton.TextBesideIcon
+                display: toolbarRow.secondaryDisplay
                 enabled: root.document && root.document.canLoop
                 checkable: true
                 checked: root.loopLine
                 onToggled: root.loopLine = checked
                 QQC2.ToolTip.text: qsTr("Loop the current line (L)")
+                QQC2.ToolTip.visible: hovered
+            }
+
+            QQC2.ToolButton {
+                id: addNoteButton
+
+                objectName: "addNoteButton"
+                visible: root.songOpen
+                icon.name: "list-add"
+                text: qsTr("Add note")
+                display: toolbarRow.secondaryDisplay
+                enabled: root.canEditNotes
+                checkable: true
+                checked: root.addingNote
+                onToggled: root.addingNote = checked
+                QQC2.ToolTip.text: qsTr("Add a note: click or drag on the note sheet (Esc cancels)")
                 QQC2.ToolTip.visible: hovered
             }
 
@@ -284,19 +335,25 @@ Kirigami.Page {
             }
 
             QQC2.ToolButton {
+                objectName: "repairTimingButton"
                 icon.name: "tools-wizard"
                 text: qsTr("Repair timing")
-                display: QQC2.AbstractButton.TextBesideIcon
+                display: toolbarRow.secondaryDisplay
                 enabled: root.document && root.document.canRepair
                 onClicked: root.shell && root.shell.showRepairPage()
+                QQC2.ToolTip.text: text
+                QQC2.ToolTip.visible: hovered && toolbarRow.compact
             }
 
             QQC2.ToolButton {
+                objectName: "songPropertiesButton"
                 icon.name: "document-properties"
                 text: qsTr("Song properties")
-                display: QQC2.AbstractButton.TextBesideIcon
+                display: toolbarRow.secondaryDisplay
                 enabled: root.document && root.document.canProperties
                 onClicked: root.shell && root.shell.showNotYetAvailable()
+                QQC2.ToolTip.text: text
+                QQC2.ToolTip.visible: hovered && toolbarRow.compact
             }
         }
     }
@@ -414,16 +471,20 @@ Kirigami.Page {
         onActivated: root.document.redo()
     }
 
-    // Esc stops the playback, or else clears the selection (plan 8.6);
-    // closing dialogs and leaving pages keep their precedence.
+    // Esc ends the Add note mode without a note (round R-07), else stops
+    // the playback, or else clears the selection (plan 8.6); closing
+    // dialogs and leaving pages keep their precedence.
     Shortcut {
         sequence: "Esc"
         enabled: !root.textEditingFocus
-                 && ((root.player && root.player.playing)
+                 && (root.addingNote
+                     || (root.player && root.player.playing)
                      || (root.songOpen && root.document.inspector !== undefined
                          && root.document.inspector.count > 0))
         onActivated: {
-            if (root.player && root.player.playing) {
+            if (root.addingNote) {
+                root.addingNote = false;
+            } else if (root.player && root.player.playing) {
                 root.player.pause();
             } else {
                 root.document.clearSelection();
@@ -912,6 +973,8 @@ Kirigami.Page {
                     document: root.document
                     player: root.player
                     songOpen: root.songOpen
+                    addingNote: root.addingNote
+                    onAddNoteFinished: root.addingNote = false
                 }
 
                 // The note inspector (UI_SPEC 4.3, item 3, task P5-05)

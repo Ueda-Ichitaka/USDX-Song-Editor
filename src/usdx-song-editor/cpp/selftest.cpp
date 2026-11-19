@@ -29,13 +29,16 @@
 #include <QEventLoop>
 #include <QImage>
 #include <QJsonDocument>
+#include <QHash>
 #include <QJsonObject>
+#include <QKeySequence>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QtQml/qqml.h>
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QSet>
@@ -188,6 +191,175 @@ bool trigger_action(QObject *root, const char *objectName) {
         std::cerr << "self-test failed: the action " << objectName << " could not be triggered\n";
         return false;
     }
+    return true;
+}
+
+// portable_sequence writes a key sequence in Qt's portable form, so "Esc"
+// and "Escape" or "Ctrl+Shift+Z" written two ways compare equal.
+QString portable_sequence(const QString &text) {
+    return QKeySequence::fromString(text, QKeySequence::PortableText)
+        .toString(QKeySequence::PortableText);
+}
+
+// app_shortcuts collects the key sequences of every Shortcut and every
+// Action shortcut under the window, in portable form; `enabled_counts`
+// counts per sequence the shortcuts enabled right now, where two make the
+// key ambiguous (Qt then fires neither).
+QSet<QString> app_shortcut_sequences(QObject *root, QHash<QString, int> *enabled_counts = nullptr) {
+    QSet<QString> found;
+    auto add = [&](QObject *object, const QString &sequence) {
+        const QString portable = portable_sequence(sequence);
+        found.insert(portable);
+        if (enabled_counts != nullptr && object->property("enabled").toBool()) {
+            (*enabled_counts)[portable] += 1;
+        }
+    };
+    for (QObject *const object : root->findChildren<QObject *>()) {
+        // Only the app's own QML declares its shortcuts; Kirigami's
+        // controls add internal ones (mnemonics) that are no key bindings.
+        const QQmlContext *const context = qmlContext(object);
+        if (context == nullptr
+            || !context->baseUrl().toString().contains(
+                QStringLiteral("io/github/ueda_ichitaka/UsdxSongEditor/"))) {
+            continue;
+        }
+        const QString className = QString::fromUtf8(object->metaObject()->className());
+        if (className.startsWith(QStringLiteral("QQuickShortcut"))) {
+            const QVariantList sequences = object->property("sequences").toList();
+            if (!sequences.isEmpty()) {
+                for (const QVariant &sequence : sequences) {
+                    add(object, sequence.toString());
+                }
+            } else {
+                add(object, object->property("sequence").toString());
+            }
+        } else if (className.contains(QStringLiteral("Action"))) {
+            const QVariant shortcut = object->property("shortcut");
+            const QString text = shortcut.canConvert<QKeySequence>()
+                ? shortcut.value<QKeySequence>().toString(QKeySequence::PortableText)
+                : shortcut.toString();
+            if (!text.isEmpty()) {
+                add(object, text);
+            }
+        }
+    }
+    found.remove(QString());
+    return found;
+}
+
+// check_shortcuts_page checks the keyboard shortcuts page (UI_SPEC 4.11,
+// round R-08): F1, Ctrl+? and the main menu's entry open it, Esc closes it,
+// and its shortcut entries equal the window's shortcuts in both directions.
+// Prints "shortcuts page: ok".
+bool check_shortcuts_page(QObject *root) {
+    auto *const window = qobject_cast<QQuickWindow *>(root);
+    QObject *const pageStack = root->property("pageStack").value<QObject *>();
+    if (window == nullptr || pageStack == nullptr) {
+        std::cerr << "shortcuts page: the window or its page stack is missing\n";
+        return false;
+    }
+    auto current_name = [&]() {
+        QObject *const page = pageStack->property("currentItem").value<QObject *>();
+        return page != nullptr ? page->objectName() : QString();
+    };
+    auto expect_open = [&](const char *how) {
+        pump_events(200);
+        if (current_name() != QStringLiteral("shortcutsPage")) {
+            std::cerr << "shortcuts page: " << how << " did not open it (current page \""
+                      << current_name().toStdString() << "\")\n";
+            return false;
+        }
+        return true;
+    };
+    auto close_with_esc = [&]() {
+        send_key(window, Qt::Key_Escape, Qt::NoModifier);
+        pump_events(200);
+        if (current_name() == QStringLiteral("shortcutsPage")) {
+            std::cerr << "shortcuts page: Esc did not close it\n";
+            return false;
+        }
+        return true;
+    };
+    window->contentItem()->forceActiveFocus();
+    send_key(window, Qt::Key_F1, Qt::NoModifier);
+    if (!expect_open("F1")) {
+        return false;
+    }
+    // The page's shortcut entries against the window's shortcuts.
+    QObject *const page = pageStack->property("currentItem").value<QObject *>();
+    QSet<QString> listed;
+    for (const QVariant &sequence : page->property("shortcutSequences").toList()) {
+        listed.insert(portable_sequence(sequence.toString()));
+    }
+    QHash<QString, int> enabled;
+    const QSet<QString> found = app_shortcut_sequences(root, &enabled);
+    bool same = !listed.isEmpty();
+    // On this page with a song open, no key may have two enabled shortcuts.
+    for (auto it = enabled.cbegin(); it != enabled.cend(); ++it) {
+        if (it.value() > 1) {
+            std::cerr << "shortcuts page: " << it.value() << " enabled shortcuts share "
+                      << it.key().toStdString() << " (ambiguous)\n";
+            same = false;
+        }
+    }
+    for (const QString &sequence : found) {
+        if (!listed.contains(sequence)) {
+            std::cerr << "shortcuts page: the shortcut " << sequence.toStdString()
+                      << " is not listed\n";
+            same = false;
+        }
+    }
+    for (const QString &sequence : listed) {
+        if (!found.contains(sequence)) {
+            std::cerr << "shortcuts page: the listed " << sequence.toStdString()
+                      << " is no shortcut of the window\n";
+            same = false;
+        }
+    }
+    if (!same || !close_with_esc()) {
+        return false;
+    }
+    window->contentItem()->forceActiveFocus();
+    // The offscreen platform maps no keyboard layout, so the "?" key comes
+    // without the Shift a real layout needs for it; desktop key mappers
+    // offer the shifted symbol without Shift to the shortcut matching.
+    send_key(window, Qt::Key_Question, Qt::ControlModifier);
+    if (!expect_open("Ctrl+?") || !close_with_esc()) {
+        return false;
+    }
+    if (!trigger_action(root, "shortcutsAction") || !expect_open("the main menu entry")
+        || !close_with_esc()) {
+        return false;
+    }
+    // Ctrl+R opens the repair page from the editor (UI_SPEC 4.2, plan 8.6).
+    QObject *const doc = root->property("songDocument").value<QObject *>();
+    if (doc != nullptr && doc->property("canRepair").toBool()) {
+        window->contentItem()->forceActiveFocus();
+        send_key(window, Qt::Key_R, Qt::ControlModifier);
+        pump_events(300);
+        if (current_name() != QStringLiteral("repairPage")) {
+            std::cerr << "shortcuts page: Ctrl+R did not open the repair page (current page \""
+                      << current_name().toStdString() << "\")\n";
+            return false;
+        }
+        QMetaObject::invokeMethod(pageStack, "pop", Q_ARG(QVariant, QVariant()));
+        pump_events(200);
+    }
+    // Back on the editor, the closed pages must leave no shortcut enabled
+    // that clashes with the editor's own.
+    {
+        QHash<QString, int> after;
+        app_shortcut_sequences(root, &after);
+        for (auto it = after.cbegin(); it != after.cend(); ++it) {
+            if (it.value() > 1) {
+                std::cerr << "shortcuts page: after closing the pages " << it.value()
+                          << " enabled shortcuts share " << it.key().toStdString()
+                          << " (ambiguous)\n";
+                return false;
+            }
+        }
+    }
+    std::cout << "shortcuts page: ok (" << listed.size() << " shortcuts)" << std::endl;
     return true;
 }
 
@@ -442,6 +614,9 @@ bool usdx_selftest_ui_paths(const QQmlApplicationEngine &engine) {
         }
     }
     pump_events(100);
+    if (!check_shortcuts_page(root)) {
+        return false;
+    }
     // Quit goes through the same unsaved-changes guard as closing the window.
     bool quitRequested = false;
     QObject::connect(&engine, &QQmlEngine::quit, [&quitRequested] { quitRequested = true; });

@@ -217,8 +217,9 @@ fn copy_song_with_audio(
 
 /// The demo states the harness knows (UI_SPEC 8.1); later tasks add theirs.
 #[cfg(debug_assertions)]
-const DEMO_STATES: [&str; 11] = [
+const DEMO_STATES: [&str; 12] = [
     "start-screen",
+    "shortcuts",
     "editor",
     "line-text",
     "repair-anchor",
@@ -261,8 +262,9 @@ fn check_demo_state(state: &str, has_song: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Applies the named demo state to the loaded window (UI_SPEC 8.1) and
-/// prints what the waveform lane shows when a song is open: the loading
+/// Applies the named demo state to the loaded window (UI_SPEC 8.1); the
+/// shortcuts page needs no song. With a song it prints what the waveform
+/// lane shows: the loading
 /// state pins the lane at 42 % (the reference image), every other state
 /// waits for the analysis so the screenshot shows the finished lane.
 #[cfg(debug_assertions)]
@@ -271,6 +273,15 @@ fn apply_demo_state(
     engine: &QQmlApplicationEngine,
     has_song: bool,
 ) -> Result<(), String> {
+    if state == "shortcuts" {
+        // UI_SPEC 4.11: the Keyboard Shortcuts page; it needs no song.
+        let summary = bridge::screenshot::usdx_open_demo_shortcuts(engine).to_string();
+        if summary.is_empty() {
+            return Err(String::from("the shortcuts page could not be opened"));
+        }
+        println!("{summary}");
+        return Ok(());
+    }
     if !has_song {
         return Ok(());
     }

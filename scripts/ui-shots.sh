@@ -34,7 +34,7 @@ readonly SIZE="1280x800"
 
 # The demo states that exist so far; the task that builds a screen adds its
 # state here (UI_SPEC 8.1).
-readonly STATES=("start-screen" "editor" "line-text" "repair-anchor" "repair-block" "tap-along" "export-anchors" "latency-calibration" "audio-states-missing" "audio-states-loading" "audio-states-no-vocals")
+readonly STATES=("start-screen" "shortcuts" "editor" "line-text" "repair-anchor" "repair-block" "tap-along" "export-anchors" "latency-calibration" "audio-states-missing" "audio-states-loading" "audio-states-no-vocals")
 
 # The reference songs of the audio states (user decisions recorded in
 # Plan/PROGRESS.md, task P4-04).

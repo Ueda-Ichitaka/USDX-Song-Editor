@@ -214,6 +214,7 @@ Kirigami.ApplicationWindow {
     // as a warning, and a popped item page goes back to its parent hidden,
     // ready for the next push.
     property Item aboutPageItem: null
+    property Item shortcutsPageItem: null
     property Item repairPageItem: null
     property Item tapAlongPageItem: null
 
@@ -231,6 +232,23 @@ Kirigami.ApplicationWindow {
             });
         }
         root.pushPageItem(root.aboutPageItem);
+    }
+
+    // showShortcutsPage pushes the Keyboard Shortcuts page (UI_SPEC 4.11).
+    function showShortcutsPage() {
+        if (!root.shortcutsPageItem) {
+            root.shortcutsPageItem = shortcutsPageComponent.createObject(root.contentItem, {
+                visible: false
+            });
+        }
+        root.pushPageItem(root.shortcutsPageItem);
+    }
+
+    // Ctrl+? opens the Keyboard Shortcuts page; F1 is the main menu
+    // action's shortcut (UI_SPEC 4.2, 4.11).
+    Shortcut {
+        sequence: "Ctrl+?"
+        onActivated: root.showShortcutsPage()
     }
 
     function showRepairPage() {
@@ -484,6 +502,12 @@ Kirigami.ApplicationWindow {
         title: qsTr("Cannot open song")
         subtitle: ""
         standardButtons: Kirigami.Dialog.Ok
+    }
+
+    Component {
+        id: shortcutsPageComponent
+
+        Usdx.KeyboardShortcutsPage {}
     }
 
     Component {

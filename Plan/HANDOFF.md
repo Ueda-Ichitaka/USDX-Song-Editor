@@ -27,7 +27,7 @@ songs only as copies; never write to the user's files.
   (factor 2.0, coverage racing off), the past-end check with the audio length probed at
   open (`usdx_audio::duration_ms`, new dependency gstreamer-pbutils), the user's labels in
   `src/usdx-edit/tests/health_labels.tsv` with an opt-in report (PROGRESS P7-10).
-- Last full `scripts/dev.sh check`: green, 802 passed, 0 failed, 10 ignored (2026-11-18).
+- Last full `scripts/dev.sh check`: green, 803 passed, 0 failed, 10 ignored (2026-11-19).
 - Last full corpus sweep: 133 of 136, the 3 failures fixed and re-run with 10 more songs
   (PROGRESS P7-08).
 - `cargo` is not on the shell PATH: use `~/.cargo/bin/cargo fmt --all`; everything else runs
@@ -52,6 +52,10 @@ tests, PROGRESS and this file.
 
 ## 3. Open items, in order
 
+- **R-08** done (2026-11-19): Keyboard Shortcuts page (F1, Ctrl+?, main menu) from
+  `qml/shortcuts.js`; the self-test keeps the list equal to the code and catches ambiguous
+  keys. Open gaps: Shift+P and A of plan 8.6 are not implemented; the menu's Export Anchors
+  shows a notice.
 - **R-07** done (2026-11-18): Shift+drag / Shift+click / the toolbar's Add note place new
   notes (`insert_note_at`); the toolbar turns five buttons icon-only when narrow.
 - **R-06** done (2026-11-18): the inspector's type buttons commit again, notes show their

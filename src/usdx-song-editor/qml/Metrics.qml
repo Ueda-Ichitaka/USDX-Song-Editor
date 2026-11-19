@@ -75,6 +75,16 @@ QtObject {
     property real syllableChipRadius: 4
     property real syllableChipPaddingHorizontal: 6
 
+    // The Keyboard Shortcuts page (UI_SPEC 4.11): the 300 px key column,
+    // the key caps (1 px border, radius 3, 1 / 6 px padding) and the gaps.
+    property real shortcutsKeyColumnWidth: 300
+    property real shortcutsCapPaddingHorizontal: 6
+    property real shortcutsCapPaddingVertical: 1
+    property real shortcutsCapRadius: 3
+    property real shortcutsCapSpacing: 4
+    property real shortcutsRowSpacing: 6
+    property real shortcutsGroupSpacing: 18
+
     // The Measure tap latency dialog (UI_SPEC 5.7): its preferred width and
     // the eight 18 px click circles 10 px apart.
     property real calibrationDialogWidth: 470

@@ -946,6 +946,7 @@ that order of precedence.
 | Ctrl+R | repair timing |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 | Ctrl+S / Ctrl+Shift+S / Ctrl+O | save / save as / open |
+| F1 / Ctrl+? | the keyboard shortcuts page (UI_SPEC 4.11, round R-08) |
 
 ### 8.7 Saving (`save.rs`)
 

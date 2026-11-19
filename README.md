@@ -107,6 +107,13 @@ Factory would bind to another occurrence.
   <img alt="The Measure tap latency dialog with eight click circles" src="Docs/screenshots/latency-calibration-light.png">
 </picture>
 
+**Keyboard shortcuts**: every key binding and mouse gesture, opened with F1 or Ctrl+?.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="Docs/screenshots/shortcuts-dark.png">
+  <img alt="The Keyboard Shortcuts page with the playback, navigation and note keys" src="Docs/screenshots/shortcuts-light.png">
+</picture>
+
 **Start screen**
 
 <picture>
@@ -196,7 +203,7 @@ full manual is `Docs/dev-script.1` (`man Docs/dev-script.1`). `scripts/ui-shots.
    the Space key), and check the timing health marks before you save. The pencil in the
    lyrics lane (or Ctrl+E) edits the whole line's text; a double click on a note edits
    its syllable. Shift+drag on empty sheet space, or **Add note** in the toolbar and a
-   click, adds a note.
+   click, adds a note. F1 lists every key binding.
 5. **Save** writes the song losslessly and keeps a one-time `.bak` backup of the file as
    it was when the session started. Ctrl+S saves, Ctrl+Z undoes.
 

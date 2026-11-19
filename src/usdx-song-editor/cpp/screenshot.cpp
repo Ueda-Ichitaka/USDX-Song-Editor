@@ -452,3 +452,21 @@ QString usdx_open_demo_latency_calibration(const QQmlApplicationEngine &engine) 
         .arg(taps)
         .arg(calibration->property("medianMs").toInt());
 }
+
+QString usdx_open_demo_shortcuts(const QQmlApplicationEngine &engine) {
+    const auto roots = engine.rootObjects();
+    if (roots.isEmpty()) {
+        return {};
+    }
+    QObject *const root = roots.first();
+    if (!QMetaObject::invokeMethod(root, "showShortcutsPage")) {
+        return {};
+    }
+    QObject *const page = root->property("shortcutsPageItem").value<QObject *>();
+    if (page == nullptr) {
+        return {};
+    }
+    return QStringLiteral("shortcuts demo: %1 groups, %2 entries")
+        .arg(page->property("groupCount").toInt())
+        .arg(page->property("entryCount").toInt());
+}

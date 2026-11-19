@@ -361,6 +361,15 @@ fn the_latency_calibration_state_shows_five_measured_taps() {
 }
 
 #[test]
+fn the_shortcuts_state_lists_every_group() {
+    // UI_SPEC 4.11 (round R-08): the keyboard shortcuts page with its seven
+    // groups; it needs no song.
+    let (status, stdout, written) = audio_state_run("shortcuts", None);
+    assert!(status.success() && written, "the run failed:\n{stdout}");
+    assert!(stdout.contains("shortcuts demo: 7 groups"), "got: {stdout}");
+}
+
+#[test]
 fn the_audio_states_need_a_song() {
     for state in [
         "audio-states-missing",

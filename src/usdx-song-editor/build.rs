@@ -28,12 +28,14 @@ fn main() {
         "qml/BlockBar.qml",
         "qml/Inspector.qml",
         "qml/LineTextEditor.qml",
+        "qml/KeyboardShortcutsPage.qml",
         "qml/TapAlongPage.qml",
         "qml/ExportAnchorsDialog.qml",
         "qml/CalibrationDialog.qml",
         "qml/StatusBar.qml",
         "qml/format.js",
         "qml/syllables.js",
+        "qml/shortcuts.js",
     ]);
     unsafe {
         CxxQtBuilder::new_qml_module(qml_module)

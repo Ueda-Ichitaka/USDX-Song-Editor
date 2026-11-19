@@ -329,19 +329,22 @@ The toolbar's leftmost button opens the menu drawer:
 | Repair Timing | Ctrl+R | |
 | Export Anchors for the Factory... | | writes `anchors.txt` in the Factory's format |
 | Settings | Ctrl+, | |
+| Keyboard Shortcuts | F1, Ctrl+? | every key binding and mouse gesture |
 | About USDX Song Editor | | name, version, licence, repository |
 | Quit | Ctrl+Q | |
 
 ## 10. Keyboard shortcuts
 
-The editor's own shortcuts (menu shortcuts in section 9; Esc closes a dialog, leaves a
-pushed page, ends Add note, stops playback, or clears the selection):
+The full, always current list is in the app: press F1 or Ctrl+? (or choose **Keyboard
+Shortcuts** in the main menu) to open the Keyboard Shortcuts page; Esc or its back button
+returns to the editor. The editor's own shortcuts (menu shortcuts in section 9; Esc closes a
+dialog, leaves a pushed page, ends Add note, stops playback, or clears the selection):
 
 | Key | Action |
 |---|---|
 | Space | play / pause |
 | Home / End | go to song start / song end |
-| P / Shift+P | play line / play selection |
+| P | play line |
 | L | loop line on/off |
 | V | next track (skips missing ones) |
 | [ / ] | slower / faster (0.5, 0.75, 1.0) |
@@ -355,8 +358,8 @@ pushed page, ends Add note, stops playback, or clears the selection):
 | B | phrase end before the selected note on/off |
 | Enter / Ctrl+E | edit syllable / edit line text |
 | Shift+A | autoplay each line reached |
-| A (repair mode) | pin the current line's start to the playhead |
-| T | tap-along for the selected lines |
+| T | tap-along for the racing section, else the current line |
+| F1 / Ctrl+? | the Keyboard Shortcuts page |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 
 With the mouse: Shift+drag on empty sheet space draws a new note, Shift+click there adds a

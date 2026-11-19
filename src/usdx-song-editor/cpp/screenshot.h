@@ -96,3 +96,8 @@ QString usdx_open_demo_export_anchors(const QQmlApplicationEngine &engine);
 // Returns the summary line the harness prints ("calibration demo: 5 taps,
 // median 36 ms"), empty when a step failed.
 QString usdx_open_demo_latency_calibration(const QQmlApplicationEngine &engine);
+
+// Opens the Keyboard Shortcuts page (the shortcuts demo state, UI_SPEC 4.11)
+// and returns "shortcuts demo: N groups, M entries", or an empty string
+// when the page could not be opened.
+QString usdx_open_demo_shortcuts(const QQmlApplicationEngine &engine);

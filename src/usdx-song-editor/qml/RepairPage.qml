@@ -28,6 +28,8 @@ import "format.js" as Time
 Kirigami.Page {
     id: root
 
+    objectName: "repairPage"
+
     // The document, the player, the repair bridge and the application
     // window; Main.qml binds them (the shell owns the dialogs).
     property Usdx.SongDocument document
@@ -75,10 +77,11 @@ Kirigami.Page {
         root.shell.showTapAlongPage(first, last);
     }
 
-    // T opens the tap-along page (UI_SPEC 4.8), like the mode button.
+    // T opens the tap-along page (UI_SPEC 4.8), like the mode button; only
+    // while this page is on top, so the editor's T never clashes with it.
     Shortcut {
         sequence: "T"
-        enabled: root.visible && root.songOpen
+        enabled: applicationWindow().pageStack.currentItem === root && root.songOpen
         onActivated: root.openTapAlong()
     }
 

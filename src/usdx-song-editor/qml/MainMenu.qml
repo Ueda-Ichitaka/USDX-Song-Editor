@@ -4,9 +4,11 @@
 // actions with their shortcuts, the song end actions (End Song at Playhead
 // writes #END there and removes the notes after it, Remove Song End drops
 // #END; user decision 2026-11-15) and the Open Recent submenu, which rebuilds
-// itself from the recent songs model whenever the list changes. The
-// not-yet-built pages (Repair timing, Song properties, Settings, Export
-// anchors) show a temporary passive notification until their tasks land.
+// itself from the recent songs model whenever the list changes. Keyboard
+// Shortcuts (F1) opens the shortcuts page (UI_SPEC 4.11). The
+// not-yet-built pages (Song properties, Settings) and Export Anchors show a
+// temporary passive notification until their tasks land; Repair Timing
+// (Ctrl+R, the only binding of that key) opens the repair page.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -159,7 +161,7 @@ Kirigami.GlobalDrawer {
             icon.name: "tools-wizard"
             shortcut: "Ctrl+R"
             enabled: drawer.shell && drawer.shell.songDocument.canRepair
-            onTriggered: drawer.shell.showNotYetAvailable()
+            onTriggered: drawer.shell.showRepairPage()
         },
         Kirigami.Action {
             text: qsTr("Export Anchors for the Factory…")
@@ -175,6 +177,13 @@ Kirigami.GlobalDrawer {
             icon.name: "settings-configure"
             shortcut: "Ctrl+,"
             onTriggered: drawer.shell.showNotYetAvailable()
+        },
+        Kirigami.Action {
+            objectName: "shortcutsAction"
+            text: qsTr("Keyboard Shortcuts")
+            icon.name: "help-keybord-shortcuts"
+            shortcut: "F1"
+            onTriggered: drawer.shell.showShortcutsPage()
         },
         Kirigami.Action {
             text: qsTr("About USDX Song Editor")

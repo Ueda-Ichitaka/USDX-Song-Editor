@@ -45,6 +45,12 @@ Kirigami.Page {
     // while it is on (UI_SPEC 4.3).
     property bool loopLine: false
 
+    // True while this page is the page stack's current page: the keys a
+    // pushed page binds as well (Esc, T) act only on the page on top, so
+    // they never clash (Kirigami's isCurrentPage reads true for a page
+    // outside the stack).
+    readonly property bool onTop: applicationWindow().pageStack.currentItem === root
+
     // The Add note mode of the toolbar (round R-07): the next press on the
     // note sheet's pitch rows places one note, then the mode ends.
     property bool addingNote: false
@@ -445,19 +451,12 @@ Kirigami.Page {
         onActivated: root.document.undo()
     }
 
-    // The repair page (UI_SPEC 4.6, Ctrl+R).
-    Shortcut {
-        sequence: "Ctrl+R"
-        enabled: root.document && root.document.canRepair
-        onActivated: root.shell && root.shell.showRepairPage()
-    }
-
     // Tap-along (plan 8.6, UI_SPEC 4.8): the repair page opens the
     // tap-along page over the racing section around the current line, else
     // over the current line.
     Shortcut {
         sequence: "T"
-        enabled: root.visible && root.document && root.document.canRepair
+        enabled: root.onTop && root.document && root.document.canRepair
                  && !root.textEditingFocus
         onActivated: {
             root.shell.showRepairPage();
@@ -472,11 +471,12 @@ Kirigami.Page {
     }
 
     // Esc ends the Add note mode without a note (round R-07), else stops
-    // the playback, or else clears the selection (plan 8.6); closing
-    // dialogs and leaving pages keep their precedence.
+    // the playback, or else clears the selection (plan 8.6); only while
+    // the editor is the current page, so a pushed page's own Esc (back)
+    // stays unambiguous; closing dialogs keeps its precedence.
     Shortcut {
         sequence: "Esc"
-        enabled: !root.textEditingFocus
+        enabled: root.onTop && !root.textEditingFocus
                  && (root.addingNote
                      || (root.player && root.player.playing)
                      || (root.songOpen && root.document.inspector !== undefined

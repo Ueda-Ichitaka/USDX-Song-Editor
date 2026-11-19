@@ -46,6 +46,7 @@ Version 1, 12 November 2026. Companion to `Plan/IMPLEMENTATION_PLAN.md` (the bui
 | `audio-states` | Missing audio, waveform loading, no vocals track | 4.4 |
 | `read-only` | Read-only song | 4.5 |
 | `line-text` | Line text editor in the lyrics lane | 5.4 |
+| `shortcuts` | Keyboard shortcuts page | 4.11 |
 | `repair-anchor` | Repair: anchor + stretch | 4.6 |
 | `repair-block` | Repair: block move/scale | 4.7 |
 | `tap-along` | Tap-along | 4.8 |
@@ -395,6 +396,7 @@ their checked state natively.
 | Export Anchors for the Factory… | | song open |
 | separator | | |
 | Settings | Ctrl+, | always |
+| Keyboard Shortcuts (`help-keybord-shortcuts`, the Breeze icon name; opens 4.11) | F1, Ctrl+? | always |
 | About USDX Song Editor | | always (opens `Kirigami.AboutPage` with name, version, licence MIT, the repository URL) |
 | Quit | Ctrl+Q | always |
 
@@ -646,6 +648,28 @@ field, spin boxes 90 px wide, combo 230 px):
 Changes apply and are saved at once. Restore defaults asks with a PromptDialog
 "Restore all settings to their defaults?" (buttons "Restore", "Cancel"); recent songs and
 the window size are kept.
+
+### 4.11 Keyboard shortcuts (`shortcuts`)
+
+User decision 2026-11-19 (round R-08): a separate page listing every key binding and mouse
+gesture, opened from the main menu's Keyboard Shortcuts, F1 and Ctrl+?; Esc or the header's
+back button ("Editor", `go-previous`) closes it.
+
+- `Kirigami.ScrollablePage`, title "Keyboard Shortcuts", pushed like the About page (created
+  once, pushed as an item).
+- Under the header, a `smallFont`, `disabledTextColor` line: "The keys work in the editor
+  window. They stand back while a text field has the focus; the text field keys are listed
+  under Text."
+- Groups in this order, each with a section label (the "RECENT SONGS" style of 4.1):
+  Playback, Navigation, Notes, Text, Timing repair and tap-along, Files and window, Mouse.
+- One row per entry: the keys on the left in a 300 px column, the action on the right
+  (`defaultFont`, word-wrapped). A key is a key cap: `smallFont`, 1 px border in text colour
+  at 30 %, radius 3, 1 / 6 px padding, view background; the parts of a combination are
+  separate caps joined by "+" (`disabledTextColor`); alternatives are joined by " / ".
+  Mouse entries show their gesture as plain text instead of caps.
+- One data source (`qml/shortcuts.js`) feeds the page; the self-test compares its shortcut
+  entries with every `Shortcut` and `Kirigami.Action` shortcut of the window in both
+  directions, so the page cannot drift from the code.
 
 ---
 
